@@ -1,0 +1,27 @@
+{
+  "name": "designhub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DesignHub — TFC Engenharia de Software",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n BACKEND,FRONTEND -c auto \"npm run dev --workspace backend\" \"npm run dev --workspace frontend\"",
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "preflight": "node scripts/preflight.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

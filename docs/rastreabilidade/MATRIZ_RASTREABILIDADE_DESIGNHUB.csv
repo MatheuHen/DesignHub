@@ -1,0 +1,17 @@
+ID,Nome,Dependencias,Ator_Principal,Fase,Status_Inicial,Evidencia_Obrigatoria
+RF001,Manter Designer,RF002,Administrador,4,PENDENTE,CRUD + inativacao/exclusao segura
+RF002,Autenticar Usuario,Nenhuma,Administrador/Designer,3,PENDENTE,Login perfis + recuperacao senha
+RF003,Manter Cliente,RF002,Designer,5,PENDENTE,CRUD + busca/filtro + ownership
+RF004,Registrar Respostas do Cliente,RF003,Cliente/Designer/Servico,6,PENDENTE,Webhook + questionario + historico
+RF005,Manter Solicitacao de Arte,RF003+RF004,Designer,7,PENDENTE,Criacao/listagem/detalhes/filtros
+RF006,Bloquear Designer por Atraso,RF005,Servico Automatico,7,PENDENTE,Regra 5 dias + bloqueio/desbloqueio
+RF007,Realizar Upload da Arte,RF005,Designer,8,PENDENTE,PDF/JPG/PNG + Storage + status
+RF008,Controlar Versoes de Arte,RF005+RF007,Designer,8,PENDENTE,V1/V2 sequencial + historico
+RF009,Receber Avaliacao da Arte,RF008,Cliente,9,PENDENTE,Aprovar/Ajustes/Cancelar via link seguro
+RF010,Registrar Ajustes do Cliente,RF009,Cliente,9,PENDENTE,Descricao obrigatoria + ref opcional
+RF011,Atualizar Status Automaticamente,RF004+RF005+RF007+RF009+RF010+RF012+RF014,Servico Automatico,10,PENDENTE,Testes completos da maquina de estados
+RF012,Manter Agendamento de Publicacao,RF009,Designer,11,PENDENTE,Somente aprovado + data/hora/legenda
+RF013,Cancelar Agendamento,RF012,Designer,11,PENDENTE,Permitido >=3h; negado <3h
+RF014,Realizar Publicacao da Arte,RF012,Designer/Servico,12,PENDENTE,Instagram oficial + fallback manual + log
+RF015,Gerenciar Designers,RF002,Administrador,4,PENDENTE,Funcoes administrativas rastreadas separadamente
+RF016,Reatribuir Solicitacoes de Arte,RF015+RF005,Administrador,4,PENDENTE,Preservacao integral de historico
