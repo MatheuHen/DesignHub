@@ -18,6 +18,7 @@ import {
   countRespostas,
   createAtendimento,
   deleteAtendimento,
+  expireStaleAtendimentos,
   findActiveAtendimentoByClienteId,
   findClienteById,
   findSolicitacaoEmAndamentoByClienteId,
@@ -130,11 +131,11 @@ async function extractAnswerText(idAtendimento: number, question: QuestionDefini
   if (question.key === 'referencia' && media) {
     try {
       return await downloadAndStoreReferencia(idAtendimento, media.id);
-    } catch (error) {
-      console.error('[designhub:whatsapp] falha ao processar mídia de referência', {
-        idAtendimento,
-        message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
-      });
+    } catch {
+      // Seção 12.5: string fixa, nunca o erro cru — uma falha de rede de
+      // baixo nível poderia eventualmente ecoar a URL assinada de mídia na
+      // mensagem de erro, dependendo da implementação interna do fetch.
+      console.error('[designhub:whatsapp] falha ao baixar/validar mídia de referência', { idAtendimento });
       return '[referência enviada, mas não foi possível processar o arquivo]';
     }
   }
@@ -158,11 +159,11 @@ async function sendTextMessageBestEffort(
 ): Promise<void> {
   try {
     await sendTextMessage(toPhoneNumber, body);
-  } catch (error) {
-    console.error('[designhub:whatsapp] falha ao enviar mensagem de saída', {
-      idAtendimento,
-      message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
-    });
+  } catch {
+    // Seção 12.5: string fixa — o corpo de erro da Graph API às vezes ecoa
+    // o parâmetro inválido (pode incluir o número de telefone) e não deve
+    // ir para o log.
+    console.error('[designhub:whatsapp] falha ao enviar mensagem de saída', { idAtendimento });
   }
 }
 
@@ -225,4 +226,15 @@ export async function processInboundWebhook(payload: WhatsAppWebhookPayload): Pr
       }
     }
   }
+}
+
+/**
+ * RN05/seção 11: encerra atendimentos abertos há mais de 2 dias sem
+ * resposta completa. Chamada pelo endpoint interno protegido (job/cron),
+ * mesmo padrão do RF014 (`processarAgendamentosVencidos`).
+ */
+export async function processarAtendimentosExpirados(): Promise<{ expirados: number }> {
+  const adminClient = getSupabaseAdminClient();
+  const expirados = await expireStaleAtendimentos(adminClient);
+  return { expirados };
 }

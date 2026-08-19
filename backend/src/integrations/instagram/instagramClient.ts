@@ -4,6 +4,16 @@ import { BlockedExternalCredentialError } from '../../lib/errors.js';
 const GRAPH_API_VERSION = 'v21.0';
 const REQUEST_TIMEOUT_MS = 15_000;
 
+/**
+ * A conta usa o produto "Instagram API with Instagram Login" (login direto
+ * pela conta profissional do Instagram, sem Página do Facebook) — os
+ * tokens desse fluxo só são válidos em graph.instagram.com, não em
+ * graph.facebook.com (fluxo clássico via Facebook Login for Business).
+ * `INSTAGRAM_ACCOUNT_ID` precisa ser o id retornado por
+ * `graph.instagram.com/.../me` para esse mesmo token, não o ID de conta
+ * comercial do Graph API clássico.
+ */
+
 export interface PublishImageResult {
   mediaId: string;
 }
@@ -20,20 +30,20 @@ interface GraphErrorResponse {
   error?: { message?: string };
 }
 
-async function graphPost(path: string, body: Record<string, unknown>): Promise<unknown> {
+async function graphRequest(method: 'GET' | 'POST', path: string, body?: Record<string, unknown>): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${path}`;
+    const url = `https://graph.instagram.com/${GRAPH_API_VERSION}/${path}`;
     const response = await fetch(url, {
-      method: 'POST',
+      method,
       signal: controller.signal,
       headers: {
         Authorization: `Bearer ${env.INSTAGRAM_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
-      body: JSON.stringify(body),
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
 
     if (!response.ok) {
@@ -56,6 +66,40 @@ async function graphPost(path: string, body: Record<string, unknown>): Promise<u
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function graphPost(path: string, body: Record<string, unknown>): Promise<unknown> {
+  return graphRequest('POST', path, body);
+}
+
+interface ContainerStatusResponse {
+  status_code?: 'EXPIRED' | 'ERROR' | 'FINISHED' | 'IN_PROGRESS' | 'PUBLISHED';
+}
+
+const CONTAINER_POLL_ATTEMPTS = 5;
+const CONTAINER_POLL_INTERVAL_MS = 1_500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * A Content Publishing API processa a mídia de forma assíncrona depois de
+ * criar o container — chamar `media_publish` antes de `status_code` virar
+ * `FINISHED` retorna o erro oficial "Media ID is not available"
+ * (documentado pela própria Meta). O intervalo/tentativas aqui são só a
+ * espera exigida pela API oficial, não uma regra de negócio nova.
+ */
+async function waitForContainerReady(creationId: string): Promise<void> {
+  for (let attempt = 0; attempt < CONTAINER_POLL_ATTEMPTS; attempt++) {
+    await sleep(CONTAINER_POLL_INTERVAL_MS);
+    const status = (await graphRequest('GET', `${creationId}?fields=status_code`)) as ContainerStatusResponse;
+    if (status.status_code === 'FINISHED') return;
+    if (status.status_code === 'ERROR' || status.status_code === 'EXPIRED') {
+      throw new Error(`Falha na chamada à Instagram API (container de mídia com status ${status.status_code})`);
+    }
+  }
+  throw new Error('Falha na chamada à Instagram API (container de mídia não ficou pronto a tempo)');
 }
 
 /**
@@ -84,6 +128,8 @@ export async function publishImage(imageUrl: string, caption: string): Promise<P
   if (!creationId) {
     throw new Error('Resposta inesperada da Instagram API: sem id de container de mídia.');
   }
+
+  await waitForContainerReady(creationId);
 
   const publishResult = (await graphPost(`${env.INSTAGRAM_ACCOUNT_ID}/media_publish`, {
     creation_id: creationId,

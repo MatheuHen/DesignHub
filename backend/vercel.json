@@ -4,7 +4,7 @@
   "outputDirectory": "public",
   "buildCommand": "npm run build:vercel-function",
   "functions": {
-    "api/**/*.js": { "maxDuration": 10 }
+    "api/**/*.js": { "maxDuration": 30 }
   },
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }

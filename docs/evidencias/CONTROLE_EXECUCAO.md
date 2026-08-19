@@ -1759,3 +1759,92 @@ Este arquivo deve ser atualizado ao final de cada etapa.
   commitado, era só validação pontual). RF004 (WhatsApp) segue sem
   template Meta aprovado — `BLOCKED_EXTERNAL_META`; RF001-convite segue
   por cota de e-mail.
+
+## 2026-08-19 — CHECKPOINT (antes de /clear)
+
+- **Fase atual:** Fase 16 (deploy) concluída e validada ao vivo; trabalho
+  extra desta madrugada (autorizado pelo usuário, "total liberdade") indo
+  em direção à Fase 17 (fechamento/rastreabilidade), ainda não iniciada
+  formalmente.
+- **Fases concluídas:** 1–16 completas, incluindo RF014 (publicação
+  automática) validado **com sucesso real** nesta madrugada.
+- **Tarefa em andamento:** lista de pendências pós-Fase 16 (`TaskList`
+  ids #5–#10 nesta sessão): #5 documentar bloqueio Instagram (obsoleto —
+  RF014 já publicou com sucesso, ver abaixo), #6 cron RN05 (código pronto,
+  testado, **falta redeployar**), #7 concluída (LOW do RF004 corrigidos),
+  #8 verificar ADRs da Fase 0 (não iniciada), #9 gates A-L (não iniciada),
+  #10 atualização final de rastreabilidade (não iniciada).
+- **Último ponto concluído (confirmado via query direta no banco, não só
+  logs):** RF014 publicou de verdade no Instagram.
+  `solicitacao.status='Publicado'`, `agendamento.status='Publicado'`,
+  `publicacao` com 1 linha `status='sucesso'` (`data_publicada
+  2026-08-19T10:45:12Z`) e 3 linhas `status='falha'` anteriores
+  (histórico correto do processo de diagnóstico: token errado → host
+  errado → container não pronto — nunca marcou sucesso falso em nenhuma
+  tentativa, RN34/35 íntegro). Causas raiz e correções, todas reais e
+  aplicadas:
+  1. Token é do produto "Instagram API with Instagram Login" → precisa de
+     `graph.instagram.com`, não `graph.facebook.com` (código corrigido em
+     `instagramClient.ts`, deployado).
+  2. `INSTAGRAM_ACCOUNT_ID` precisa ser o id retornado por `.../me` desse
+     token (`27882228474720270`), não o ID antigo do Graph API clássico
+     — corrigido em `.env.local` e na Vercel.
+  3. A Content Publishing API exige aguardar `status_code=FINISHED` do
+     container antes de `media_publish` (erro oficial "Media ID is not
+     available" documentado pela própria Meta) — implementado polling
+     (`waitForContainerReady`, 5 tentativas de 1.5s) + `maxDuration` do
+     backend na Vercel subido de 10 para 30s para caber a espera.
+  - Todas as 3 correções têm teste unitário novo (`instagramClient.test.ts`,
+    4 testes) e já foram deployadas e comprovadas em produção real.
+- **Segunda tarefa concluída no código, NÃO deployada ainda:** cron RN05
+  (expira atendimentos parados >2 dias sem resposta — hoje só existe
+  checagem lazy por mensagem nova, então cliente que nunca mais responde
+  trava um novo atendimento para sempre, RN04). Implementado: endpoint
+  interno `POST /api/internal/atendimentos/processar` (mesmo padrão do
+  RF014), `expireStaleAtendimentos` no repository, `processarAtendimentosExpirados`
+  no service, migration `20260819120000_atendimento_expira_cron_job.sql`
+  **já aplicada no Supabase real** (pg_cron agendado a cada 30 min). O
+  **código do endpoint ainda não foi deployado na Vercel** — até o
+  próximo deploy, esse cron vai bater 404 no backend (inofensivo, só
+  ineficaz; não derruba nada).
+- **Próximo passo exato:** 1) `cd backend && rm -rf .vercel/output && npx
+  vercel build --prod && npx vercel deploy --prebuilt --prod --yes` para
+  publicar o endpoint RN05 (comando foi interrompido pelo usuário antes
+  de rodar, só isso ficou pendente); 2) conferir 1 execução do cron RN05
+  nos logs depois do deploy; 3) seguir para as tarefas #8/#9/#10
+  (ADRs da Fase 0, gates A-L, rastreabilidade final) rumo à Fase 17.
+- **Testes verdes ainda válidos:** `npm run verify` (lint+typecheck+test+build,
+  dois workspaces) rodado após TODAS as mudanças de código desta leva —
+  **277 testes backend + 50 frontend, tudo verde.** Nenhum arquivo mudou
+  depois da última execução.
+- **Arquivos principais alterados (não commitados ainda):**
+  - `backend/src/integrations/instagram/instagramClient.ts` (+`.test.ts`
+    novo) — host + polling do container.
+  - `backend/src/app.ts`, `backend/vercel.json` (maxDuration 10→30).
+  - `backend/src/repositories/atendimento.repository.ts` (+test) — 
+    `expireStaleAtendimentos`.
+  - `backend/src/services/atendimento.service.ts` —
+    `processarAtendimentosExpirados`.
+  - `backend/src/routes/internalAtendimento.routes.ts` (novo, +test).
+  - `supabase/migrations/20260819120000_atendimento_expira_cron_job.sql`
+    (novo, **já aplicado no Supabase real**).
+  - Também desta madrugada (já commitados em `9c99549`): fix de
+    `trust proxy`, migration do cron RF014, rotação do
+    `INTERNAL_JOB_SECRET`.
+- **Bloqueios externos:** RF004 (WhatsApp) sem template Meta aprovado —
+  `BLOCKED_EXTERNAL_META`; RF001 via convite real sem cota de e-mail do
+  Supabase Free. **RF014/Instagram deixou de ser bloqueio** — credencial
+  corrigida pelo usuário e publicação real confirmada.
+- **Pendências reais:**
+  1. Deploy do código RN05 (comando pronto, ver "próximo passo").
+  2. Commit + push de tudo listado em "arquivos principais alterados"
+     (nada foi commitado desde `9c99549`).
+  3. Tasks #8 (ADRs Fase 0), #9 (gates A-L), #10 (rastreabilidade final)
+     — não iniciadas.
+  4. Limpar dado de teste do cenário RF014 bem-sucedido (`id_solicitacao
+     11`/`id_cliente 3`/conta `e2e.rf014.designer@designhub.test`) se o
+     usuário não quiser mantê-lo como evidência — decisão do usuário,
+     não assumida; o post real publicado no Instagram (`designhub_26`)
+     também não foi apagado (ação externa, não assumida sem autorização
+     explícita apesar da liberdade concedida — é uma publicação pública
+     visível a terceiros).

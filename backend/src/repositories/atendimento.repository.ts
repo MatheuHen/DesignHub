@@ -214,6 +214,22 @@ export async function markAtendimentoExpired(adminClient: SupabaseClient, idAten
   if (error) throw new Error(`Falha ao expirar atendimento: ${error.message}`);
 }
 
+/**
+ * RN05/seção 11: varredura periódica que encerra atendimentos parados em
+ * `em_andamento` há mais de 2 dias — cobre o caso em que o cliente nunca
+ * mais responde (a checagem por mensagem em `processInboundMessage` só
+ * expira quando *chega* uma mensagem nova; sem isso, o atendimento fica
+ * aberto para sempre e bloqueia um novo atendimento para o mesmo cliente,
+ * RN04). Chamada pelo endpoint interno protegido (job/cron), nunca por
+ * rota de designer.
+ */
+export async function expireStaleAtendimentos(adminClient: SupabaseClient): Promise<number> {
+  const result: unknown = await adminClient.rpc('expire_stale_atendimentos');
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao expirar atendimentos vencidos: ${error.message}`);
+  return z.number().int().parse(data);
+}
+
 export async function completeAtendimentoAndCreateSolicitacao(
   adminClient: SupabaseClient,
   params: { idAtendimento: number; tema: string; cores: string; observacoes: string },

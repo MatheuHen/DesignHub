@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  expireStaleAtendimentos,
   findSolicitacaoEmAndamentoByClienteId,
   insertResposta,
   registerWebhookEventOnce,
@@ -67,5 +68,21 @@ describe('findSolicitacaoEmAndamentoByClienteId (RF004 — verificação de soli
   it('propaga erro de consulta', async () => {
     const client = solicitacaoQueryClient(null, { message: 'connection lost' });
     await expect(findSolicitacaoEmAndamentoByClienteId(client, 1)).rejects.toThrow('connection lost');
+  });
+});
+
+function rpcClient(data: unknown, error: { message: string } | null) {
+  return { rpc: () => Promise.resolve({ data, error }) } as unknown as Parameters<typeof expireStaleAtendimentos>[0];
+}
+
+describe('expireStaleAtendimentos (RN05/seção 11)', () => {
+  it('retorna a contagem de atendimentos expirados', async () => {
+    const client = rpcClient(3, null);
+    await expect(expireStaleAtendimentos(client)).resolves.toBe(3);
+  });
+
+  it('propaga erro da RPC', async () => {
+    const client = rpcClient(null, { message: 'connection lost' });
+    await expect(expireStaleAtendimentos(client)).rejects.toThrow('connection lost');
   });
 });
