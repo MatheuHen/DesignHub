@@ -1848,3 +1848,67 @@ Este arquivo deve ser atualizado ao final de cada etapa.
      também não foi apagado (ação externa, não assumida sem autorização
      explícita apesar da liberdade concedida — é uma publicação pública
      visível a terceiros).
+
+## 2026-08-19 — CHECKPOINT FINAL (modo econômico, retomada pós-/clear)
+
+- Deploy do endpoint RN05 concluído (estava pendente no checkpoint
+  anterior): `vercel build --prod` + `vercel deploy --prebuilt --prod`.
+  Confirmado ao vivo: `GET /api/health` → 200; `POST
+  /api/internal/atendimentos/processar` sem segredo → **401** (não 404 —
+  prova que a rota está deployada e o `internalAuth` fail-closed está
+  ativo). Cron `pg_cron` já aplicado desde a leva anterior, roda a cada
+  30 min com o segredo correto do Vault; próxima execução vai fechar com
+  200.
+- Commit + push feitos (autorização explícita do usuário desta sessão,
+  "total autorização", sem perguntar): `91e5ae3` (RF014 produção real +
+  RN05) e `e8bdff4` (ADRs 0002/0003 + matriz de rastreabilidade). `git
+  status` limpo após os dois commits.
+- Tarefas #8/#9/#10 do checkpoint anterior concluídas:
+  - **ADRs da Fase 0** completas: `0002-whatsapp-cloud-api.md` e
+    `0003-instagram-oficial-fallback-manual.md` (faltavam desde a Fase 0;
+    só documentam decisão já implementada, sem mudança de código).
+  - **Matriz de rastreabilidade** criada em
+    `docs/traceability/matriz-rastreabilidade.md` — RF001-016 → tela/API/
+    tabela/teste, com os 2 bloqueios externos reais listados (RF004 sem
+    template Meta aprovado; RF001-convite sem cota de e-mail).
+  - **Gates A-L**: subagente `designhub-production-gate` rodado (leitura
+    estática de produção real). Resultado: 0 CRITICAL. 1 HIGH reportado
+    — **falso positivo por informação desatualizada**: o agente leu o
+    checkpoint anterior (que dizia "deploy pendente") e não tinha
+    visibilidade de que eu já havia rodado o deploy e o commit ANTES de
+    disparar o próprio gate nesta mesma leva. Refutado com evidência ao
+    vivo (401 acima + `git status` limpo + `git log` mostrando os 2
+    commits). Nenhuma ação de código adicional necessária.
+  - MEDIUM/LOW do gate registrados sem ação obrigatória: (1) dado
+    sintético do teste real do RF014 (`id_solicitacao 11`, conta
+    `e2e.rf014.designer@designhub.test`, post `designhub_26` no
+    Instagram) segue sem limpeza — decisão do usuário, não assumida por
+    ser publicação pública real de terceiro visível; (2) sugestão de
+    commits menores — não vale reescrever histórico já pushado; (3-5)
+    já resolvidos por este checkpoint.
+- **Estado atual do sistema (para demonstração ao professor hoje):**
+  - Backend produção: `https://designhub-backend.vercel.app` — saudável,
+    todas as rotas RF001-RF016 deployadas.
+  - Frontend produção: `https://designhub-frontend-ten.vercel.app` —
+    telas de login, admin (designers), designer (clientes, solicitações,
+    detalhe, agendamentos), avaliação pública (link/token) todas
+    funcionais.
+  - RF014 (publicação Instagram automática): validado com sucesso REAL
+    em produção (post `designhub_26`), não é simulação.
+  - RF004 (WhatsApp): implementado e testado, mas envio real de mensagem
+    inicial bloqueado até a Meta aprovar o template
+    (`BLOCKED_EXTERNAL_META`) — se o professor perguntar, o fluxo pode
+    ser demonstrado ponta a ponta exceto o envio real da 1ª mensagem
+    (o restante — perguntas, respostas, webhook, criação de solicitação —
+    já foi validado via testes de integração com payload real da Meta).
+  - RF001 (convite de designer): cadastro funciona; e-mail de convite
+    real bloqueado por cota do Supabase Free.
+- **Pendências reais remanescentes (nenhuma bloqueia a demo):**
+  1. Decidir com o usuário se limpa o dado sintético do RF014 (item MEDIUM
+     acima) — não fiz essa limpeza sem autorização explícita.
+  2. Fase 17 formal (texto final do TFC II, screenshots, ensaio de
+     apresentação) ainda não iniciada — é trabalho de documentação/
+     apresentação, não de código.
+- Próxima etapa: aguardar o usuário (decisão sobre dado de teste do
+  RF014) ou seguir para Fase 17 (documentação de entrega) se autorizado
+  a continuar sem perguntar.
