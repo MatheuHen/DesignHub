@@ -1912,3 +1912,65 @@ Este arquivo deve ser atualizado ao final de cada etapa.
 - Próxima etapa: aguardar o usuário (decisão sobre dado de teste do
   RF014) ou seguir para Fase 17 (documentação de entrega) se autorizado
   a continuar sem perguntar.
+
+## 2026-08-19 — CHECKPOINT: fidelidade visual do frontend + correções reais de produção
+
+- Usuário reportou (com urgência, demo ao professor no mesmo dia) que o
+  frontend deployado não era fiel aos protótipos oficiais do TFC (tela
+  provisória sem menu lateral/identidade visual), além de 404 real ao
+  atualizar (F5) e login exigindo múltiplos cliques.
+- Auditoria visual: renderizadas via `pymupdf` (poppler não disponível no
+  Windows) as ~20 páginas de protótipo de
+  `docs/tfc-oficial/03_TFC1_CORRECOES_CONSOLIDADAS.pdf` (FIGURA 2-28) e
+  lido o Roteiro de Correções (prioridade #1) — confirmado que ele só
+  trata de texto/documentação, não altera nenhum protótipo.
+- **Causa real do 404 em F5/URL direta**: `frontend/vercel.json` nunca
+  existiu — SPA sem rewrite para `index.html`. Corrigido; validado ao
+  vivo (`GET /designer/clientes` direto → 200, não 404).
+- **Causa mais provável do login "várias vezes"**: o mesmo 404 durante a
+  navegação pós-login (não havia bug de lógica em `AuthContext`/
+  `ProtectedRoute`, revisados e corretos). Sem reprodução automatizada
+  (Playwright não está configurado no repo) para confirmar 100%, mas a
+  causa raiz mais provável foi eliminada.
+- Reconstrução visual: `frontend/src/app/AppShell.tsx` (novo) — sidebar
+  roxa + logo + navegação por perfil + topbar "Olá, {nome}", fiel à
+  FIGURA 7/21/22/27. Aplicado a Dashboard (reescrito com os 7 tiles de
+  status reais + prazos próximos reais, RN11/RN12), Clientes,
+  Solicitações, Detalhe da Solicitação, Agendamentos/Publicações e
+  Designers (admin).
+- **Gap funcional real encontrado e corrigido**: RF016 (reatribuir
+  solicitação) tinha endpoint no backend desde a Fase 4, mas **nenhuma
+  tela jamais existiu** para o admin descobrir quais solicitações
+  reatribuir. Adicionado `GET /api/solicitacoes/admin/todas` (admin-only,
+  reaproveita a RLS `solicitacao_select_owner_or_admin` já auditada — sem
+  query nova) + seção "Solicitações atribuídas" em
+  `DesignersPage.tsx`, igual à FIGURA 2/27.
+- **Divergência documental resolvida sem inventar**: o protótipo mostra o
+  mesmo menu lateral completo (Dashboard/Clientes/Solicitações/
+  Publicações/Designers) tanto para Designer quanto para Administrador —
+  mas o backend só autoriza Clientes/Solicitações/Publicações para
+  Designer (RF003/RF005/RF012) e retorna 403 para Admin. Interpretado
+  como artefato de reuso de template do protótipo, não requisito; o
+  Admin só recebe o item "Designers" no menu (o único que o backend
+  autoriza). Registrado como decisão, não assumido silenciosamente.
+- **"Criar conta" no protótipo de Login**: não implementado — o usuário
+  já havia instruído explicitamente que RF001 (só Admin cadastra
+  Designer) tem precedência sobre o elemento visual do protótipo.
+- Validações: `npm run lint`/`typecheck`/`test`/`build` limpos nos dois
+  workspaces — **52 testes frontend (+7 novos/reescritos) + 279 backend
+  (+2 novos) = 331**, nenhuma regressão. Deploy real: backend
+  (`solicitacao.routes.ts` com a rota nova) e frontend redeployados via
+  `vercel build --prod` + `vercel deploy --prebuilt/--prod`. Validado ao
+  vivo: rota profunda do frontend 200 (não 404); `/api/health` 200;
+  `/api/solicitacoes/admin/todas` sem token → 401 (rota nova protegida).
+- Commit `86c6720`, já pushado (autorização "total, não fique
+  perguntando" desta sessão).
+- **Pendência real**: não foi possível validar o clique de login nem o
+  fluxo visual completo com um browser real automatizado nesta sessão
+  (Playwright não instalado no repo) — a correção do 404 elimina a causa
+  raiz mais provável, mas o teste manual real no navegador (F5, clique
+  único em Entrar, navegação completa por ambos os perfis) fica
+  pendente de confirmação do usuário ao abrir o sistema.
+- Próxima etapa: usuário testar ao vivo
+  (`https://designhub-frontend-ten.vercel.app`) e reportar qualquer
+  divergência restante; depois seguir para Fase 17.
