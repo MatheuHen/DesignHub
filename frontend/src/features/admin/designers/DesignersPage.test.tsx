@@ -4,11 +4,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../../lib/apiClient';
 import type { Designer } from './api';
 
-const { listDesignersMock, createDesignerMock, deleteDesignerMock, setDesignerStatusMock } = vi.hoisted(() => ({
+const {
+  listDesignersMock,
+  createDesignerMock,
+  deleteDesignerMock,
+  setDesignerStatusMock,
+  listSolicitacoesAdminMock,
+  reassignSolicitacaoMock,
+} = vi.hoisted(() => ({
   listDesignersMock: vi.fn(),
   createDesignerMock: vi.fn(),
   deleteDesignerMock: vi.fn(),
   setDesignerStatusMock: vi.fn(),
+  listSolicitacoesAdminMock: vi.fn(),
+  reassignSolicitacaoMock: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
@@ -17,6 +26,26 @@ vi.mock('./api', () => ({
   updateDesigner: vi.fn(),
   setDesignerStatus: setDesignerStatusMock,
   deleteDesigner: deleteDesignerMock,
+  listSolicitacoesAdmin: listSolicitacoesAdminMock,
+  reassignSolicitacao: reassignSolicitacaoMock,
+}));
+
+vi.mock('../../auth/useAuth', () => ({
+  useAuth: () => ({
+    status: 'signed-in',
+    session: null,
+    profile: {
+      id: 'admin-1',
+      email: 'admin@exemplo.adm',
+      nomeCompleto: 'Ana Admin',
+      perfil: 'administrador',
+      status: 'ativo',
+      bloqueado: null,
+    },
+    profileError: null,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+  }),
 }));
 
 const { DesignersPage } = await import('./DesignersPage');
@@ -45,6 +74,8 @@ describe('DesignersPage (RF001/RF015)', () => {
     createDesignerMock.mockReset();
     deleteDesignerMock.mockReset();
     setDesignerStatusMock.mockReset();
+    listSolicitacoesAdminMock.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    reassignSolicitacaoMock.mockReset();
   });
 
   it('lista os designers retornados pela API', async () => {
@@ -110,7 +141,7 @@ describe('DesignersPage (RF001/RF015)', () => {
     renderPage();
     await screen.findByText('Nenhum designer encontrado.');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Novo designer' }));
+    fireEvent.click(screen.getByRole('button', { name: '+ Novo Designer' }));
 
     fireEvent.change(screen.getByLabelText('Nome completo'), { target: { value: 'Dora Designer' } });
     fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'dora@exemplo.com' } });

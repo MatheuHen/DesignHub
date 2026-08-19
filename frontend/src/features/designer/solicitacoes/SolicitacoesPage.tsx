@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
+import { statusSlug } from '../../../lib/statusStyle';
 import { listSolicitacoes, SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from './api';
 
 function formatDate(value: string): string {
@@ -49,13 +51,10 @@ export function SolicitacoesPage() {
   }, [reload]);
 
   return (
-    <main className="admin-shell">
-      <header className="admin-header">
-        <div>
-          <Link to="/designer">← Voltar</Link>
-          <h1>Solicitações</h1>
-        </div>
-      </header>
+    <AppShell>
+      <div className="page-header">
+        <h1>Solicitações</h1>
+      </div>
 
       <div className="designer-filters">
         <label htmlFor="solicitacao-status-filter">Status</label>
@@ -104,7 +103,11 @@ export function SolicitacoesPage() {
               <tr key={solicitacao.id}>
                 <td>{solicitacao.clienteNome}</td>
                 <td>{solicitacao.tema ?? '—'}</td>
-                <td>{solicitacao.status}</td>
+                <td>
+                  <span className={`status-badge status-badge--${statusSlug(solicitacao.status)}`}>
+                    {solicitacao.status}
+                  </span>
+                </td>
                 <td>{formatDate(solicitacao.dataCriacao)}</td>
                 <td>{formatDate(solicitacao.prazoPrimeiraVersao)}</td>
                 <td className="designer-actions">
@@ -115,6 +118,6 @@ export function SolicitacoesPage() {
           </tbody>
         </table>
       )}
-    </main>
+    </AppShell>
   );
 }

@@ -65,6 +65,26 @@ solicitacaoRouter.get('/', requireProfile('designer'), async (request, response,
   }
 });
 
+/**
+ * RF016/RN47/RN49: leitura admin-only para localizar solicitações a
+ * reatribuir. Reaproveita o mesmo service/repository já auditado da
+ * listagem do designer — a RLS `solicitacao_select_owner_or_admin` já
+ * permite `public.is_admin()` ler todas as linhas, então nenhuma query
+ * nova foi criada, só uma rota que expõe esse caminho já seguro ao
+ * administrador. Path de dois segmentos (`/admin/todas`) para não colidir
+ * com `/:id` (rota de um segmento, validada como número por zod).
+ */
+solicitacaoRouter.get('/admin/todas', requireProfile('administrador'), async (request, response, next) => {
+  try {
+    const query = listSolicitacoesQuerySchema.parse(request.query);
+    const client = getSupabaseUserClient(request.auth!.accessToken);
+    const result = await listSolicitacoes(client, query);
+    response.status(200).json(result);
+  } catch (error) {
+    next(toAppError(error));
+  }
+});
+
 /** RF005: detalhes com status, atendimento e histórico de transições. */
 solicitacaoRouter.get('/:id', requireProfile('designer'), async (request, response, next) => {
   try {

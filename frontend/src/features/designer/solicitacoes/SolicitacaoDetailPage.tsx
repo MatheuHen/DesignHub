@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
+import { statusSlug } from '../../../lib/statusStyle';
 import {
   cancelAgendamento,
   createAgendamento,
@@ -234,13 +236,13 @@ export function SolicitacaoDetailPage() {
   }
 
   return (
-    <main className="admin-shell">
-      <header className="admin-header">
-        <div>
-          <Link to="/designer/solicitacoes">← Voltar</Link>
-          <h1>Solicitação #{id}</h1>
-        </div>
-      </header>
+    <AppShell>
+      <Link to="/designer/solicitacoes" className="page-back">
+        ← Voltar
+      </Link>
+      <div className="page-header">
+        <h1>Detalhes da solicitação</h1>
+      </div>
 
       {loading && <p role="status">Carregando…</p>}
       {error && (
@@ -251,13 +253,21 @@ export function SolicitacaoDetailPage() {
 
       {!loading && !error && data && (
         <>
-          <p>
-            <strong>Cliente:</strong> {data.solicitacao.clienteNome} &nbsp;|&nbsp;{' '}
-            <strong>Status:</strong> {data.solicitacao.status}
-          </p>
+          <div className="info-columns">
+            <div className="info-box">
+              <h3>Informações do Cliente</h3>
+              <p>{data.solicitacao.clienteNome}</p>
+            </div>
+            <div className="info-box">
+              <h3>Status da Solicitação</h3>
+              <span className={`status-badge status-badge--${statusSlug(data.solicitacao.status)}`}>
+                {data.solicitacao.status}
+              </span>
+            </div>
+          </div>
 
           <form className="designer-form" onSubmit={handleSubmit} aria-label="Editar solicitação">
-            <h2>Detalhes da solicitação</h2>
+            <h2>Informações do Chatbot</h2>
 
             <label htmlFor="solicitacao-tema">Tema</label>
             <input id="solicitacao-tema" value={tema} onChange={(event) => setTema(event.target.value)} />
@@ -546,6 +556,6 @@ export function SolicitacaoDetailPage() {
           </section>
         </>
       )}
-    </main>
+    </AppShell>
   );
 }

@@ -61,7 +61,7 @@ describe('App routing por perfil (RF002)', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: /Olá, Dora Designer/ })).toBeInTheDocument();
+    expect(await screen.findByText(/Olá, Dora Designer/)).toBeInTheDocument();
   });
 
   it('direciona administrador autenticado para a área administrativa', async () => {
@@ -85,7 +85,7 @@ describe('App routing por perfil (RF002)', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: /Olá, Ana Admin/ })).toBeInTheDocument();
+    expect(await screen.findByText(/Olá, Ana Admin/)).toBeInTheDocument();
   });
 
   it('não deixa um perfil designer acessar a área administrativa (autorização negativa)', async () => {
@@ -110,8 +110,8 @@ describe('App routing por perfil (RF002)', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: /Olá, Dora Designer/ })).toBeInTheDocument();
-    expect(screen.queryByText(/Área do Administrador/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Olá, Dora Designer/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Designers' })).not.toBeInTheDocument();
   });
 
   it('mostra o aviso de bloqueio quando o designer está bloqueado por atraso (RF006)', async () => {

@@ -448,3 +448,334 @@ p {
   font-size: 0.8rem;
   color: #6b6b6b;
 }
+
+/* ===== AppShell — identidade visual DesignHub (protótipo oficial do TFC) ===== */
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  background: #f4f2fa;
+}
+
+.app-sidebar {
+  flex: 0 0 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 24px 14px;
+  background: linear-gradient(180deg, #6947c4 0%, #5c3ab8 100%);
+  color: #fff;
+}
+
+.app-sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 24px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.app-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  color: rgb(255 255 255 / 88%);
+  text-decoration: none;
+  font-size: 0.94rem;
+  font-weight: 500;
+  transition: background-color 0.15s ease;
+}
+
+.app-sidebar-link:hover {
+  background: rgb(255 255 255 / 10%);
+}
+
+.app-sidebar-link--active {
+  background: rgb(255 255 255 / 18%);
+  color: #fff;
+  font-weight: 700;
+}
+
+.app-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 18px clamp(16px, 3vw, 36px);
+  background: #fff;
+  border-bottom: 1px solid #ece8f5;
+}
+
+.app-topbar-greeting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: #423a53;
+}
+
+.app-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #6545a4;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.app-signout {
+  padding: 8px 14px;
+  border: 1px solid #d9d5e3;
+  border-radius: 8px;
+  background: #fff;
+  color: #423a53;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-main {
+  flex: 1 1 auto;
+  padding: clamp(16px, 3vw, 36px);
+  max-width: 1180px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .app-sidebar {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    padding: 12px;
+  }
+
+  .app-sidebar-logo {
+    padding: 6px 10px;
+  }
+
+  .app-sidebar-nav {
+    flex-direction: row;
+  }
+
+  .app-sidebar-link span:last-child {
+    display: none;
+  }
+}
+
+/* ===== Cabeçalho de página dentro do AppShell ===== */
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.page-header h1 {
+  margin: 0;
+  font-size: clamp(1.4rem, 3vw, 1.8rem);
+  color: #2d2440;
+  letter-spacing: -0.02em;
+}
+
+.page-header p {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+}
+
+.page-back {
+  display: inline-block;
+  margin-bottom: 6px;
+  color: #6545a4;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.page-primary-action {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 10px;
+  background: #6545a4;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  height: fit-content;
+}
+
+/* ===== Dashboard — tiles de status (FIGURA 7/15/22) ===== */
+
+.dashboard-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.dashboard-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 8px;
+  border-radius: 12px;
+  color: #fff;
+  text-decoration: none;
+  text-align: center;
+}
+
+.dashboard-tile-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.92;
+}
+
+.dashboard-tile-count {
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+.dashboard-tile--em-producao { background: #4a3f8c; }
+.dashboard-tile--enviado-para-avaliacao { background: #2f6f8f; }
+.dashboard-tile--ajustes { background: #d9822b; }
+.dashboard-tile--aprovado { background: #2f7a8f; }
+.dashboard-tile--cancelado { background: #c0392b; }
+.dashboard-tile--agendado { background: #3d5a99; }
+.dashboard-tile--publicado { background: #6ea832; }
+
+.dashboard-prazos {
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #e7e4ef;
+  margin-bottom: 24px;
+}
+
+.dashboard-prazos-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #6545a4;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.dashboard-prazos-empty {
+  padding: 16px;
+  color: #5f5b69;
+}
+
+.dashboard-prazos table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.dashboard-prazos th {
+  text-align: left;
+  padding: 10px 16px;
+  background: #f8f6fc;
+  font-size: 0.82rem;
+  color: #423a53;
+}
+
+.dashboard-prazos td {
+  padding: 10px 16px;
+  border-top: 1px solid #f0eef5;
+  font-size: 0.9rem;
+}
+
+.prazo-tag {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.prazo-tag--ok { background: #2e9e5b; }
+.prazo-tag--hoje { background: #d9822b; }
+.prazo-tag--atrasado { background: #c0392b; }
+
+.dashboard-cta {
+  padding: 11px 20px;
+  border: none;
+  border-radius: 10px;
+  background: #6545a4;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+/* ===== Badge de status genérico (solicitações/agendamentos) ===== */
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.status-badge--em-producao { background: #4a3f8c; }
+.status-badge--enviado-para-avaliacao { background: #2f6f8f; }
+.status-badge--ajustes { background: #d9822b; }
+.status-badge--aprovado { background: #2f7a8f; }
+.status-badge--cancelado { background: #c0392b; }
+.status-badge--agendado { background: #3d5a99; }
+.status-badge--publicado { background: #6ea832; }
+
+.info-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.info-box {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e7e4ef;
+}
+
+.info-box h3 {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6545a4;
+}

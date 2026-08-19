@@ -10,6 +10,24 @@ vi.mock('./api', async (importOriginal) => {
   return { ...actual, listAgendamentos: listAgendamentosMock };
 });
 
+vi.mock('../../auth/useAuth', () => ({
+  useAuth: () => ({
+    status: 'signed-in',
+    session: null,
+    profile: {
+      id: 'designer-1',
+      email: 'designer@exemplo.com',
+      nomeCompleto: 'Dora Designer',
+      perfil: 'designer',
+      status: 'ativo',
+      bloqueado: false,
+    },
+    profileError: null,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+  }),
+}));
+
 const { AgendamentosPage } = await import('./AgendamentosPage');
 
 const sampleResult: ListAgendamentosResult = {

@@ -19,6 +19,24 @@ vi.mock('./api', () => ({
   iniciarAtendimento: iniciarAtendimentoMock,
 }));
 
+vi.mock('../../auth/useAuth', () => ({
+  useAuth: () => ({
+    status: 'signed-in',
+    session: null,
+    profile: {
+      id: 'designer-1',
+      email: 'designer@exemplo.com',
+      nomeCompleto: 'Dora Designer',
+      perfil: 'designer',
+      status: 'ativo',
+      bloqueado: false,
+    },
+    profileError: null,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+  }),
+}));
+
 const { ClientesPage } = await import('./ClientesPage');
 
 const sampleCliente: Cliente = {
@@ -86,7 +104,7 @@ describe('ClientesPage (RF003)', () => {
     renderPage();
     await screen.findByText('Nenhum cliente encontrado.');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Novo cliente' }));
+    fireEvent.click(screen.getByRole('button', { name: '+ Novo Cliente' }));
 
     fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'Cliente Teste' } });
     fireEvent.change(screen.getByLabelText('WhatsApp'), { target: { value: '5511988887777' } });

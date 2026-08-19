@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import {
   createCliente,
@@ -109,16 +109,13 @@ export function ClientesPage() {
   }
 
   return (
-    <main className="admin-shell">
-      <header className="admin-header">
-        <div>
-          <Link to="/designer">← Voltar</Link>
-          <h1>Clientes</h1>
-        </div>
-        <button type="button" onClick={() => setPanel({ mode: 'create' })}>
-          Novo cliente
+    <AppShell>
+      <div className="page-header">
+        <h1>Clientes</h1>
+        <button type="button" className="page-primary-action" onClick={() => setPanel({ mode: 'create' })}>
+          + Novo Cliente
         </button>
-      </header>
+      </div>
 
       <div className="designer-filters">
         <label htmlFor="cliente-search">Buscar</label>
@@ -213,6 +210,6 @@ export function ClientesPage() {
           onCancel={() => setPanel({ mode: 'closed' })}
         />
       )}
-    </main>
+    </AppShell>
   );
 }

@@ -1,63 +1,78 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { AppShell } from '../../app/AppShell';
 import { ApiError } from '../../lib/apiClient';
+import { statusSlug } from '../../lib/statusStyle';
 import { useAuth } from '../auth/useAuth';
-import { listSolicitacoes, type SolicitacaoStatus } from './solicitacoes/api';
+import { listSolicitacoes, SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from './solicitacoes/api';
 
-/**
- * RF005/RF011 ("toda transição deve atualizar dashboard/listagens")/
- * RN13-RN14 (acompanhamento dos estados): contagens reais por status,
- * cada uma linkando para a listagem já filtrada (`/designer/solicitacoes
- * ?status=...`). Sem indicador inventado — apenas os totais que a própria
- * API de listagem já calcula.
- */
-const PENDENCIA_STATUSES: { status: SolicitacaoStatus; label: string }[] = [
-  { status: 'Ajustes', label: 'Aguardando nova versão (ajustes solicitados)' },
-  { status: 'Enviado para avaliação', label: 'Aguardando avaliação do cliente' },
-  { status: 'Aprovado', label: 'Aprovadas aguardando agendamento' },
-  { status: 'Agendado', label: 'Agendadas aguardando publicação' },
-];
-
-interface PendenciaCount {
+interface TileCount {
   status: SolicitacaoStatus;
-  label: string;
   total: number;
 }
 
+/** Dias de antecedência para considerar um prazo "próximo" no Dashboard (RN11/RN12). */
+const PRAZO_PROXIMO_DIAS = 5;
+
+function prazoTag(prazoIso: string): { label: string; className: string } {
+  const prazo = new Date(prazoIso);
+  const hoje = new Date();
+  const prazoDia = new Date(prazo.getFullYear(), prazo.getMonth(), prazo.getDate());
+  const hojeDia = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  const diffDias = Math.round((prazoDia.getTime() - hojeDia.getTime()) / 86_400_000);
+
+  if (diffDias < 0) {
+    return { label: `${Math.abs(diffDias)} dia${Math.abs(diffDias) === 1 ? '' : 's'} de atraso`, className: 'prazo-tag--atrasado' };
+  }
+  if (diffDias === 0) {
+    return { label: 'Hoje', className: 'prazo-tag--hoje' };
+  }
+  return { label: `Em ${diffDias} dia${diffDias === 1 ? '' : 's'}`, className: 'prazo-tag--ok' };
+}
+
 /**
- * Área do Designer. RF003 (clientes) em `/designer/clientes`, RF005
- * (solicitações) em `/designer/solicitacoes`. RF004 (atendimento
- * WhatsApp) é acionado a partir da lista de clientes.
+ * Dashboard do Designer (RF005/RF011/RN13-RN14, FIGURA 7/15/22 do TFC):
+ * 7 indicadores por status (dados reais da API de listagem, sem números
+ * fixos) + tabela de prazos próximos derivada de `prazoPrimeiraVersao`
+ * (RN11) das solicitações "Em produção".
  */
 export function DesignerHome() {
-  const { profile, signOut } = useAuth();
+  const { profile } = useAuth();
 
-  const [pendencias, setPendencias] = useState<PendenciaCount[] | null>(null);
-  const [pendenciasLoading, setPendenciasLoading] = useState(true);
-  const [pendenciasError, setPendenciasError] = useState<string | null>(null);
+  const [tiles, setTiles] = useState<TileCount[] | null>(null);
+  const [emProducao, setEmProducao] = useState<Solicitacao[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setPendenciasLoading(true);
-    setPendenciasError(null);
+    setLoading(true);
+    setError(null);
 
-    Promise.all(
-      PENDENCIA_STATUSES.map(({ status, label }) =>
-        listSolicitacoes({ status }).then((result) => ({ status, label, total: result.total })),
+    Promise.all([
+      Promise.all(
+        SOLICITACAO_STATUSES.map((status) =>
+          listSolicitacoes({ status }).then((result) => ({ status, total: result.total })),
+        ),
       ),
-    )
-      .then((results) => {
-        if (!cancelled) setPendencias(results);
+      listSolicitacoes({ status: 'Em produção' }),
+    ])
+      .then(([tileResults, emProducaoResult]) => {
+        if (cancelled) return;
+        setTiles(tileResults);
+        setEmProducao(
+          [...emProducaoResult.items].sort(
+            (a, b) => new Date(a.prazoPrimeiraVersao).getTime() - new Date(b.prazoPrimeiraVersao).getTime(),
+          ),
+        );
       })
       .catch((loadError: unknown) => {
         if (!cancelled) {
-          setPendenciasError(
-            loadError instanceof ApiError ? loadError.message : 'Não foi possível carregar as pendências.',
-          );
+          setError(loadError instanceof ApiError ? loadError.message : 'Não foi possível carregar o dashboard.');
         }
       })
       .finally(() => {
-        if (!cancelled) setPendenciasLoading(false);
+        if (!cancelled) setLoading(false);
       });
 
     return () => {
@@ -65,61 +80,96 @@ export function DesignerHome() {
     };
   }, []);
 
+  const prazosProximos = useMemo(() => {
+    if (!emProducao) return [];
+    const hoje = new Date();
+    return emProducao.filter((solicitacao) => {
+      const prazo = new Date(solicitacao.prazoPrimeiraVersao);
+      const diffDias = (prazo.getTime() - hoje.getTime()) / 86_400_000;
+      return diffDias <= PRAZO_PROXIMO_DIAS;
+    });
+  }, [emProducao]);
+
   return (
-    <main className="dev-shell">
-      <section className="dev-card">
-        <span className="eyebrow">Área do Designer</span>
-        <h1>Olá, {profile?.nomeCompleto}</h1>
+    <AppShell>
+      <div className="page-header">
+        <h1>Dashboard</h1>
+      </div>
 
-        {profile?.bloqueado && (
-          <p role="alert" className="auth-error">
-            Você está bloqueado para iniciar novos atendimentos: há uma solicitação vencida sem a
-            primeira versão enviada (RF006). Envie a versão pendente ou aguarde o cancelamento
-            para ser desbloqueado.
-          </p>
-        )}
+      {profile?.bloqueado && (
+        <p role="alert" className="auth-error" style={{ marginBottom: 20 }}>
+          Você está bloqueado para iniciar novos atendimentos: há uma solicitação vencida sem a
+          primeira versão enviada (RF006). Envie a versão pendente ou aguarde o cancelamento para
+          ser desbloqueado.
+        </p>
+      )}
 
-        <h2>Pendências</h2>
-        {pendenciasLoading && <p role="status">Carregando pendências…</p>}
-        {pendenciasError && (
-          <p role="alert" className="auth-error">
-            {pendenciasError}
-          </p>
-        )}
-        {!pendenciasLoading && !pendenciasError && pendencias && (
-          <>
-            {pendencias.every((item) => item.total === 0) ? (
-              <p>Nenhuma pendência no momento.</p>
-            ) : (
-              <ul>
-                {pendencias
-                  .filter((item) => item.total > 0)
-                  .map((item) => (
-                    <li key={item.status}>
-                      <Link to={`/designer/solicitacoes?status=${encodeURIComponent(item.status)}`}>
-                        {item.label}: {item.total}
-                      </Link>
-                    </li>
-                  ))}
-              </ul>
-            )}
-          </>
-        )}
+      {loading && <p role="status">Carregando dashboard…</p>}
+      {error && (
+        <p role="alert" className="auth-error">
+          {error}
+        </p>
+      )}
 
-        <p>Gerencie seus clientes e solicitações de arte.</p>
-        <p>
-          <Link to="/designer/clientes">Meus clientes</Link>
-        </p>
-        <p>
-          <Link to="/designer/solicitacoes">Minhas solicitações</Link>
-        </p>
-        <p>
-          <Link to="/designer/agendamentos">Agendamentos de publicação</Link>
-        </p>
-        <button type="button" onClick={() => void signOut()}>
-          Sair
-        </button>
-      </section>
-    </main>
+      {!loading && !error && tiles && (
+        <div className="dashboard-tiles">
+          {tiles.map((tile) => (
+            <Link
+              key={tile.status}
+              to={`/designer/solicitacoes?status=${encodeURIComponent(tile.status)}`}
+              className={`dashboard-tile dashboard-tile--${statusSlug(tile.status)}`}
+            >
+              <span className="dashboard-tile-label">{tile.status}</span>
+              <span className="dashboard-tile-count">{tile.total}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {!loading && !error && (
+        <section className="dashboard-prazos" aria-labelledby="prazos-title">
+          <h2 id="prazos-title" className="sr-only">
+            Prazos próximos
+          </h2>
+          {prazosProximos.length > 0 && (
+            <div className="dashboard-prazos-alert">
+              ⚠ Você possui {prazosProximos.length} solicitaç{prazosProximos.length === 1 ? 'ão' : 'ões'}{' '}
+              próxima{prazosProximos.length === 1 ? '' : 's'} do prazo
+            </div>
+          )}
+          {prazosProximos.length === 0 ? (
+            <p className="dashboard-prazos-empty">Nenhum prazo próximo no momento.</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Prazo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {prazosProximos.map((solicitacao) => {
+                  const tag = prazoTag(solicitacao.prazoPrimeiraVersao);
+                  return (
+                    <tr key={solicitacao.id}>
+                      <td>
+                        <Link to={`/designer/solicitacoes/${solicitacao.id}`}>{solicitacao.clienteNome}</Link>
+                      </td>
+                      <td>
+                        <span className={`prazo-tag ${tag.className}`}>{tag.label}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
+
+      <Link to="/designer/clientes" className="dashboard-cta">
+        Iniciar Atendimento
+      </Link>
+    </AppShell>
   );
 }

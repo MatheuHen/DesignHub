@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
+import { statusSlug } from '../../../lib/statusStyle';
 import { AGENDAMENTO_STATUSES, listAgendamentos, type Agendamento, type AgendamentoStatus } from './api';
 
 function formatDate(value: string): string {
@@ -40,13 +42,10 @@ export function AgendamentosPage() {
   }, [reload]);
 
   return (
-    <main className="admin-shell">
-      <header className="admin-header">
-        <div>
-          <Link to="/designer">← Voltar</Link>
-          <h1>Agendamentos de publicação</h1>
-        </div>
-      </header>
+    <AppShell>
+      <div className="page-header">
+        <h1>Publicações e agendamentos</h1>
+      </div>
 
       <div className="designer-filters">
         <label htmlFor="agendamento-status-filter">Status</label>
@@ -95,7 +94,11 @@ export function AgendamentosPage() {
                 <td>{formatDate(agendamento.dataPublicacao)}</td>
                 <td>{formatHorario(agendamento.horario)}</td>
                 <td>{agendamento.legenda ?? '—'}</td>
-                <td>{agendamento.status}</td>
+                <td>
+                  <span className={`status-badge status-badge--${statusSlug(agendamento.status)}`}>
+                    {agendamento.status}
+                  </span>
+                </td>
                 <td className="designer-actions">
                   <Link to={`/designer/solicitacoes/${agendamento.idSolicitacao}`}>Ver solicitação</Link>
                 </td>
@@ -104,6 +107,6 @@ export function AgendamentosPage() {
           </tbody>
         </table>
       )}
-    </main>
+    </AppShell>
   );
 }

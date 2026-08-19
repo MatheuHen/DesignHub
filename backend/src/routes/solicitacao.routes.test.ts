@@ -115,6 +115,29 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
     expect(listSolicitacoesMock).toHaveBeenCalledOnce();
   });
 
+  it('GET /admin/todas é exclusivo do administrador — designer recebe 403', async () => {
+    mockAuthenticatedUser('designer');
+
+    const response = await request(createApp())
+      .get('/api/solicitacoes/admin/todas')
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(403);
+    expect(listSolicitacoesMock).not.toHaveBeenCalled();
+  });
+
+  it('GET /admin/todas permite administrador e delega ao service (RF016)', async () => {
+    mockAuthenticatedUser('administrador');
+    listSolicitacoesMock.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+
+    const response = await request(createApp())
+      .get('/api/solicitacoes/admin/todas')
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(200);
+    expect(listSolicitacoesMock).toHaveBeenCalledOnce();
+  });
+
   it('PATCH /:id rejeita campos desconhecidos (mass assignment, ex.: status/id_designer)', async () => {
     mockAuthenticatedUser('designer');
 

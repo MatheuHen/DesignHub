@@ -1,28 +1,12 @@
-import { Link } from 'react-router-dom';
-import { useAuth } from '../auth/useAuth';
+import { Navigate } from 'react-router-dom';
 
 /**
- * Área do Administrador. RF001/RF015 (gerenciar designers) já estão
- * implementados em `/admin/designers`. RF016 (reatribuir solicitações)
- * chega junto da tela de solicitações na Fase 7, quando existir uma lista
- * de solicitações para selecionar o alvo da reatribuição.
+ * RF001/RF015/RF016: a única área administrativa autorizada pelo backend
+ * é o gerenciamento de designers (RF001/RF015) e a reatribuição de
+ * solicitações (RF016), ambas em `/admin/designers`. Não há um "Dashboard"
+ * documentado para o Administrador nos protótipos oficiais do TFC — as
+ * FIGURA 2/27 (Gerenciamento de Designers) são a própria tela inicial.
  */
 export function AdminHome() {
-  const { profile, signOut } = useAuth();
-
-  return (
-    <main className="dev-shell">
-      <section className="dev-card">
-        <span className="eyebrow">Área do Administrador</span>
-        <h1>Olá, {profile?.nomeCompleto}</h1>
-        <p>Gerencie os designers responsáveis pelo atendimento dos clientes do DesignHub.</p>
-        <p>
-          <Link to="/admin/designers">Gerenciar designers</Link>
-        </p>
-        <button type="button" onClick={() => void signOut()}>
-          Sair
-        </button>
-      </section>
-    </main>
-  );
+  return <Navigate to="/admin/designers" replace />;
 }

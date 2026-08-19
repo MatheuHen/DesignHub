@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
+import { statusSlug } from '../../../lib/statusStyle';
+import type { Solicitacao } from '../../designer/solicitacoes/api';
 import {
   createDesigner,
   deleteDesigner,
   listDesigners,
+  listSolicitacoesAdmin,
+  reassignSolicitacao,
   setDesignerStatus,
   updateDesigner,
   type Designer,
@@ -13,7 +17,10 @@ import { DesignerFormPanel, type CreateFormValues, type EditFormValues } from '.
 
 type PanelState = { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; designer: Designer };
 
-/** RF001/RF015: gerenciamento de designers pelo Administrador. */
+/** Solicitações ainda em andamento fazem sentido para reatribuir (RF016/RN47). */
+const REATRIBUIVEIS = new Set(['Em produção', 'Enviado para avaliação', 'Ajustes', 'Aprovado', 'Agendado']);
+
+/** RF001/RF015/RF016: gerenciamento de designers e reatribuição de solicitações pelo Administrador. */
 export function DesignersPage() {
   const [items, setItems] = useState<Designer[]>([]);
   const [total, setTotal] = useState(0);
@@ -24,6 +31,13 @@ export function DesignersPage() {
   const [panel, setPanel] = useState<PanelState>({ mode: 'closed' });
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
+
+  const [solicitacoes, setSolicitacoes] = useState<Solicitacao[]>([]);
+  const [solicitacoesLoading, setSolicitacoesLoading] = useState(true);
+  const [reatribuindoId, setReatribuindoId] = useState<number | null>(null);
+  const [novoDesignerId, setNovoDesignerId] = useState('');
+  const [reatribuirSaving, setReatribuirSaving] = useState(false);
+  const [reatribuirError, setReatribuirError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -43,9 +57,27 @@ export function DesignersPage() {
       .finally(() => setLoading(false));
   }, [search, statusFilter]);
 
+  const reloadSolicitacoes = useCallback(() => {
+    setSolicitacoesLoading(true);
+    listSolicitacoesAdmin({})
+      .then((result) => setSolicitacoes(result.items.filter((item) => REATRIBUIVEIS.has(item.status))))
+      .catch(() => setSolicitacoes([]))
+      .finally(() => setSolicitacoesLoading(false));
+  }, []);
+
   useEffect(() => {
     reload();
   }, [reload]);
+
+  useEffect(() => {
+    reloadSolicitacoes();
+  }, [reloadSolicitacoes]);
+
+  const designerNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const designer of items) map.set(designer.id, designer.nomeCompleto);
+    return map;
+  }, [items]);
 
   async function handleCreate(values: CreateFormValues) {
     await createDesigner(values);
@@ -95,17 +127,35 @@ export function DesignersPage() {
       });
   }
 
+  function handleConfirmarReatribuicao(solicitacao: Solicitacao) {
+    if (!novoDesignerId) return;
+    setReatribuirSaving(true);
+    setReatribuirError(null);
+    reassignSolicitacao(solicitacao.id, novoDesignerId)
+      .then(() => {
+        setReatribuindoId(null);
+        setNovoDesignerId('');
+        reloadSolicitacoes();
+      })
+      .catch((reassignError: unknown) => {
+        setReatribuirError(
+          reassignError instanceof ApiError ? reassignError.message : 'Não foi possível reatribuir a solicitação.',
+        );
+      })
+      .finally(() => setReatribuirSaving(false));
+  }
+
   return (
-    <main className="admin-shell">
-      <header className="admin-header">
+    <AppShell>
+      <div className="page-header">
         <div>
-          <Link to="/admin">← Voltar</Link>
-          <h1>Designers</h1>
+          <h1>Listagem e Manutenção de Designers</h1>
+          <p>Administrar, acompanhar designers e reatribuir solicitações mantendo histórico.</p>
         </div>
-        <button type="button" onClick={() => setPanel({ mode: 'create' })}>
-          Novo designer
+        <button type="button" className="page-primary-action" onClick={() => setPanel({ mode: 'create' })}>
+          + Novo Designer
         </button>
-      </header>
+      </div>
 
       <div className="designer-filters">
         <label htmlFor="designer-search">Buscar</label>
@@ -210,6 +260,87 @@ export function DesignersPage() {
           onCancel={() => setPanel({ mode: 'closed' })}
         />
       )}
-    </main>
+
+      <section aria-labelledby="reatribuicao-title" style={{ marginTop: 32 }}>
+        <h2 id="reatribuicao-title">Solicitações atribuídas</h2>
+        <p>Selecione uma solicitação e escolha outro designer responsável (RF016).</p>
+
+        {solicitacoesLoading && <p role="status">Carregando solicitações…</p>}
+        {!solicitacoesLoading && solicitacoes.length === 0 && <p>Nenhuma solicitação em andamento no momento.</p>}
+
+        {!solicitacoesLoading && solicitacoes.length > 0 && (
+          <table className="designer-table">
+            <caption className="sr-only">Solicitações que podem ser reatribuídas</caption>
+            <thead>
+              <tr>
+                <th scope="col">Cliente</th>
+                <th scope="col">Status</th>
+                <th scope="col">Designer atual</th>
+                <th scope="col">Ação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {solicitacoes.map((solicitacao) => (
+                <tr key={solicitacao.id}>
+                  <td>{solicitacao.clienteNome}</td>
+                  <td>
+                    <span className={`status-badge status-badge--${statusSlug(solicitacao.status)}`}>
+                      {solicitacao.status}
+                    </span>
+                  </td>
+                  <td>{designerNameById.get(solicitacao.idDesigner) ?? solicitacao.idDesigner}</td>
+                  <td className="designer-actions">
+                    {reatribuindoId === solicitacao.id ? (
+                      <>
+                        <select
+                          aria-label={`Novo designer para a solicitação de ${solicitacao.clienteNome}`}
+                          value={novoDesignerId}
+                          onChange={(event) => setNovoDesignerId(event.target.value)}
+                        >
+                          <option value="">Selecione…</option>
+                          {items
+                            .filter((designer) => designer.status === 'ativo' && designer.id !== solicitacao.idDesigner)
+                            .map((designer) => (
+                              <option key={designer.id} value={designer.id}>
+                                {designer.nomeCompleto}
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          type="button"
+                          disabled={!novoDesignerId || reatribuirSaving}
+                          onClick={() => handleConfirmarReatribuicao(solicitacao)}
+                        >
+                          {reatribuirSaving ? 'Confirmando…' : 'Confirmar'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReatribuindoId(null);
+                            setNovoDesignerId('');
+                            setReatribuirError(null);
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" onClick={() => setReatribuindoId(solicitacao.id)}>
+                        Reatribuir
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {reatribuirError && (
+          <p role="alert" className="auth-error">
+            {reatribuirError}
+          </p>
+        )}
+      </section>
+    </AppShell>
   );
 }

@@ -42,6 +42,24 @@ vi.mock('./api', async (importOriginal) => {
   };
 });
 
+vi.mock('../../auth/useAuth', () => ({
+  useAuth: () => ({
+    status: 'signed-in',
+    session: null,
+    profile: {
+      id: 'designer-1',
+      email: 'designer@exemplo.com',
+      nomeCompleto: 'Dora Designer',
+      perfil: 'designer',
+      status: 'ativo',
+      bloqueado: false,
+    },
+    profileError: null,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+  }),
+}));
+
 const { SolicitacaoDetailPage } = await import('./SolicitacaoDetailPage');
 
 const sampleDetail: SolicitacaoDetailResult = {

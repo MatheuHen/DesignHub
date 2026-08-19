@@ -1,4 +1,5 @@
 import { apiRequest } from '../../../lib/apiClient';
+import type { ListSolicitacoesResult, SolicitacaoStatus } from '../../designer/solicitacoes/api';
 
 export interface Designer {
   id: string;
@@ -71,4 +72,27 @@ export function setDesignerStatus(id: string, status: 'ativo' | 'inativo'): Prom
 /** RF001: exclusão — pode ser recusada pelo backend por impedimento histórico. */
 export function deleteDesigner(id: string): Promise<void> {
   return apiRequest<void>(`/api/designers/${id}`, { method: 'DELETE' });
+}
+
+/**
+ * RF016/RN47/RN49: leitura admin-only de todas as solicitações (qualquer
+ * designer) para localizar o que reatribuir — FIGURA 2/27 "Solicitações
+ * atribuídas" do protótipo oficial.
+ */
+export function listSolicitacoesAdmin(params: {
+  status?: SolicitacaoStatus | undefined;
+  page?: number;
+}): Promise<ListSolicitacoesResult> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  query.set('page', String(params.page ?? 1));
+  return apiRequest<ListSolicitacoesResult>(`/api/solicitacoes/admin/todas?${query.toString()}`);
+}
+
+/** RF016/RN47: reatribui a solicitação a outro designer ativo, preservando todo o histórico. */
+export function reassignSolicitacao(idSolicitacao: number, novoDesignerId: string): Promise<void> {
+  return apiRequest<void>(`/api/solicitacoes/${idSolicitacao}/reatribuir`, {
+    method: 'PATCH',
+    body: JSON.stringify({ novoDesignerId }),
+  });
 }
