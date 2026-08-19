@@ -38,24 +38,35 @@ export async function getDesigner(userClient: SupabaseClient, id: string): Promi
 }
 
 /**
- * RF001/RNF009: cria a identidade no Supabase Auth por convite (o admin
- * nunca define/conhece a senha do designer — RNF007) e o perfil vinculado
- * (public.usuario + public.designer, atomicamente via RPC). Se o perfil
- * falhar depois do convite já ter sido criado, compensa excluindo o
- * usuário Auth recém-convidado — evita deixar uma identidade órfã sem
- * perfil, que bloquearia uma nova tentativa com o mesmo e-mail.
+ * RF001/RNF009/FIGURA 28: cria a identidade no Supabase Auth com a senha
+ * inicial definida pelo Administrador (protótipo oficial do TFC mostra os
+ * campos "Nova Senha"/"Confirma Senha" na própria tela de cadastro — não
+ * um convite por e-mail) e o perfil vinculado (public.usuario +
+ * public.designer, atomicamente via RPC). `email_confirm: true` porque o
+ * Admin já validou o e-mail ao digitá-lo; o designer consegue logar
+ * imediatamente com a senha recebida, sem depender do serviço de e-mail
+ * do Supabase (que tem cota baixa no plano gratuito, seção 2.1). A senha
+ * só trafega deste ponto até a API do Supabase Auth — nunca é logada,
+ * persistida em texto puro ou devolvida na resposta (RNF007).
+ * Se o perfil falhar depois do usuário Auth já ter sido criado, compensa
+ * excluindo-o — evita deixar uma identidade órfã sem perfil, que
+ * bloquearia uma nova tentativa com o mesmo e-mail.
  */
 export async function createDesigner(input: CreateDesignerInput): Promise<DesignerSummary> {
   const adminClient = getSupabaseAdminClient();
 
-  const inviteResult: unknown = await adminClient.auth.admin.inviteUserByEmail(input.email);
-  const { data, error } = inviteResult as {
+  const createResult: unknown = await adminClient.auth.admin.createUser({
+    email: input.email,
+    password: input.senha,
+    email_confirm: true,
+  });
+  const { data, error } = createResult as {
     data: { user: { id: string } | null } | null;
     error: { message: string } | null;
   };
 
   if (error || !data?.user) {
-    throw new ConflictError(error?.message ?? 'Não foi possível convidar o designer.');
+    throw new ConflictError(error?.message ?? 'Não foi possível criar o designer.');
   }
 
   try {
@@ -69,7 +80,7 @@ export async function createDesigner(input: CreateDesignerInput): Promise<Design
     const compensationResult: unknown = await adminClient.auth.admin.deleteUser(data.user.id);
     const { error: compensationError } = compensationResult as { error: { message: string } | null };
     if (compensationError) {
-      console.error('[designhub:designer] falha ao compensar convite após erro de perfil', {
+      console.error('[designhub:designer] falha ao compensar usuário Auth após erro de perfil', {
         userId: data.user.id,
         compensationError: compensationError.message,
       });

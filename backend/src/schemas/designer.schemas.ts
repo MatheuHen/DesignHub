@@ -4,6 +4,8 @@ export const createDesignerSchema = z.object({
   nomeCompleto: z.string().trim().min(3).max(150),
   email: z.string().trim().toLowerCase().email().max(180),
   whatsapp: z.string().trim().min(8).max(20),
+  /** RF001/FIGURA 28 do protótipo: o Administrador define a senha inicial do designer. */
+  senha: z.string().min(8).max(72),
 });
 export type CreateDesignerInput = z.infer<typeof createDesignerSchema>;
 

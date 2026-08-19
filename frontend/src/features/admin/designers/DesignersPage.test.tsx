@@ -146,6 +146,8 @@ describe('DesignersPage (RF001/RF015)', () => {
     fireEvent.change(screen.getByLabelText('Nome completo'), { target: { value: 'Dora Designer' } });
     fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'dora@exemplo.com' } });
     fireEvent.change(screen.getByLabelText('WhatsApp'), { target: { value: '5511999999999' } });
+    fireEvent.change(screen.getByLabelText('Nova Senha'), { target: { value: 'senha-forte-123' } });
+    fireEvent.change(screen.getByLabelText('Confirma Senha'), { target: { value: 'senha-forte-123' } });
 
     listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
@@ -155,7 +157,28 @@ describe('DesignersPage (RF001/RF015)', () => {
         nomeCompleto: 'Dora Designer',
         email: 'dora@exemplo.com',
         whatsapp: '5511999999999',
+        senha: 'senha-forte-123',
       });
     });
+  });
+
+  it('rejeita a criação quando a confirmação de senha não coincide (FIGURA 28)', async () => {
+    listDesignersMock.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+
+    renderPage();
+    await screen.findByText('Nenhum designer encontrado.');
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Novo Designer' }));
+
+    fireEvent.change(screen.getByLabelText('Nome completo'), { target: { value: 'Dora Designer' } });
+    fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'dora@exemplo.com' } });
+    fireEvent.change(screen.getByLabelText('WhatsApp'), { target: { value: '5511999999999' } });
+    fireEvent.change(screen.getByLabelText('Nova Senha'), { target: { value: 'senha-forte-123' } });
+    fireEvent.change(screen.getByLabelText('Confirma Senha'), { target: { value: 'outra-senha' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    expect(await screen.findByText('As senhas não coincidem.')).toBeInTheDocument();
+    expect(createDesignerMock).not.toHaveBeenCalled();
   });
 });

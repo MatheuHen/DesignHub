@@ -28,6 +28,8 @@ export interface CreateDesignerInput {
   nomeCompleto: string;
   email: string;
   whatsapp: string;
+  /** RF001/FIGURA 28: o Administrador define a senha inicial do designer. */
+  senha: string;
 }
 
 export interface UpdateDesignerInput {

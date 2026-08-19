@@ -5,6 +5,7 @@ export interface CreateFormValues {
   nomeCompleto: string;
   email: string;
   whatsapp: string;
+  senha: string;
 }
 
 export interface EditFormValues {
@@ -33,6 +34,8 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
   const isCreate = props.mode === 'create';
   const [nomeCompleto, setNomeCompleto] = useState(isCreate ? '' : props.designer.nomeCompleto);
   const [email, setEmail] = useState('');
+  const [senha, setSenha] = useState('');
+  const [confirmaSenha, setConfirmaSenha] = useState('');
   const [whatsapp, setWhatsapp] = useState(isCreate ? '' : (props.designer.whatsapp ?? ''));
   const [statusOperacional, setStatusOperacional] = useState(
     isCreate ? '' : (props.designer.statusOperacional ?? ''),
@@ -42,11 +45,17 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (props.mode === 'create' && senha !== confirmaSenha) {
+      setError('As senhas não coincidem.');
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
     const submission = props.mode === 'create'
-      ? props.onSubmit({ nomeCompleto, email, whatsapp })
+      ? props.onSubmit({ nomeCompleto, email, whatsapp, senha })
       : props.onSubmit({ nomeCompleto, whatsapp, statusOperacional });
 
     void submission
@@ -78,6 +87,28 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+          />
+
+          <label htmlFor="designer-senha">Nova Senha</label>
+          <input
+            id="designer-senha"
+            type="password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            value={senha}
+            onChange={(event) => setSenha(event.target.value)}
+          />
+
+          <label htmlFor="designer-confirma-senha">Confirma Senha</label>
+          <input
+            id="designer-confirma-senha"
+            type="password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            value={confirmaSenha}
+            onChange={(event) => setConfirmaSenha(event.target.value)}
           />
         </>
       )}

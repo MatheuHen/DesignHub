@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 
 const {
-  inviteUserByEmailMock,
+  createUserMock,
   deleteUserMock,
   getSupabaseAdminClientMock,
   insertDesignerProfileMock,
@@ -11,7 +11,7 @@ const {
   getSolicitacaoCoreMock,
   reassignSolicitacaoRpcMock,
 } = vi.hoisted(() => ({
-  inviteUserByEmailMock: vi.fn(),
+  createUserMock: vi.fn(),
   deleteUserMock: vi.fn(),
   getSupabaseAdminClientMock: vi.fn(),
   insertDesignerProfileMock: vi.fn(),
@@ -22,7 +22,7 @@ const {
 }));
 
 getSupabaseAdminClientMock.mockImplementation(() => ({
-  auth: { admin: { inviteUserByEmail: inviteUserByEmailMock, deleteUser: deleteUserMock } },
+  auth: { admin: { createUser: createUserMock, deleteUser: deleteUserMock } },
 }));
 
 vi.mock('../config/supabase.js', () => ({
@@ -46,32 +46,43 @@ vi.mock('../repositories/solicitacao.repository.js', () => ({
 
 const { createDesigner, reassignSolicitacao } = await import('./designer.service.js');
 
-describe('createDesigner (RF001)', () => {
+describe('createDesigner (RF001/FIGURA 28)', () => {
   beforeEach(() => {
-    inviteUserByEmailMock.mockReset();
+    createUserMock.mockReset();
     deleteUserMock.mockReset().mockResolvedValue({ error: null });
     insertDesignerProfileMock.mockReset();
   });
 
-  it('lança ConflictError quando o convite Supabase Auth falha', async () => {
-    inviteUserByEmailMock.mockResolvedValue({ data: null, error: { message: 'e-mail já existe' } });
+  it('lança ConflictError quando a criação no Supabase Auth falha', async () => {
+    createUserMock.mockResolvedValue({ data: null, error: { message: 'e-mail já existe' } });
 
     await expect(
-      createDesigner({ nomeCompleto: 'Dora Designer', email: 'dora@exemplo.com', whatsapp: '5511999999999' }),
+      createDesigner({
+        nomeCompleto: 'Dora Designer',
+        email: 'dora@exemplo.com',
+        whatsapp: '5511999999999',
+        senha: 'senha-forte-123',
+      }),
     ).rejects.toBeInstanceOf(ConflictError);
     expect(insertDesignerProfileMock).not.toHaveBeenCalled();
   });
 
-  it('cria o perfil vinculado após convite bem-sucedido', async () => {
-    inviteUserByEmailMock.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null });
+  it('cria a identidade Auth com a senha definida pelo admin e o perfil vinculado', async () => {
+    createUserMock.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null });
     insertDesignerProfileMock.mockResolvedValue(undefined);
 
     const result = await createDesigner({
       nomeCompleto: 'Dora Designer',
       email: 'dora@exemplo.com',
       whatsapp: '5511999999999',
+      senha: 'senha-forte-123',
     });
 
+    expect(createUserMock).toHaveBeenCalledWith({
+      email: 'dora@exemplo.com',
+      password: 'senha-forte-123',
+      email_confirm: true,
+    });
     expect(insertDesignerProfileMock).toHaveBeenCalledWith(expect.anything(), {
       id: 'auth-user-1',
       nomeCompleto: 'Dora Designer',
@@ -82,12 +93,17 @@ describe('createDesigner (RF001)', () => {
     expect(deleteUserMock).not.toHaveBeenCalled();
   });
 
-  it('compensa (exclui o usuário Auth convidado) quando a criação do perfil falha (RNF009)', async () => {
-    inviteUserByEmailMock.mockResolvedValue({ data: { user: { id: 'auth-user-2' } }, error: null });
+  it('compensa (exclui o usuário Auth recém-criado) quando a criação do perfil falha (RNF009)', async () => {
+    createUserMock.mockResolvedValue({ data: { user: { id: 'auth-user-2' } }, error: null });
     insertDesignerProfileMock.mockRejectedValue(new Error('Falha ao criar perfil de designer: boom'));
 
     await expect(
-      createDesigner({ nomeCompleto: 'Dora Designer', email: 'dora@exemplo.com', whatsapp: '5511999999999' }),
+      createDesigner({
+        nomeCompleto: 'Dora Designer',
+        email: 'dora@exemplo.com',
+        whatsapp: '5511999999999',
+        senha: 'senha-forte-123',
+      }),
     ).rejects.toThrow('boom');
 
     expect(deleteUserMock).toHaveBeenCalledWith('auth-user-2');
