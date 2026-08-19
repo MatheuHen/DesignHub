@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { insertResposta, registerWebhookEventOnce } from './atendimento.repository.js';
+import {
+  findSolicitacaoEmAndamentoByClienteId,
+  insertResposta,
+  registerWebhookEventOnce,
+} from './atendimento.repository.js';
 
 function insertClient(error: { code?: string; message: string } | null) {
   return {
@@ -33,5 +37,35 @@ describe('registerWebhookEventOnce (idempotência de reentrega)', () => {
   it('retorna false quando o evento já foi processado antes', async () => {
     const client = insertClient({ code: '23505', message: 'duplicate key value violates unique constraint' });
     await expect(registerWebhookEventOnce(client, 'wamid.1')).resolves.toBe(false);
+  });
+});
+
+function solicitacaoQueryClient(data: unknown[] | null, error: { message: string } | null) {
+  const builder = {
+    select: () => builder,
+    eq: () => builder,
+    not: () => builder,
+    limit: () => Promise.resolve({ data, error }),
+  };
+  return { from: () => builder } as unknown as Parameters<typeof findSolicitacaoEmAndamentoByClienteId>[0];
+}
+
+describe('findSolicitacaoEmAndamentoByClienteId (RF004 — verificação de solicitação existente)', () => {
+  it('retorna null quando o cliente não tem solicitação em andamento', async () => {
+    const client = solicitacaoQueryClient([], null);
+    await expect(findSolicitacaoEmAndamentoByClienteId(client, 1)).resolves.toBeNull();
+  });
+
+  it('retorna a solicitação encontrada quando o cliente já tem uma em andamento', async () => {
+    const client = solicitacaoQueryClient([{ id_solicitacao: 42, status: 'Ajustes' }], null);
+    await expect(findSolicitacaoEmAndamentoByClienteId(client, 1)).resolves.toEqual({
+      id: 42,
+      status: 'Ajustes',
+    });
+  });
+
+  it('propaga erro de consulta', async () => {
+    const client = solicitacaoQueryClient(null, { message: 'connection lost' });
+    await expect(findSolicitacaoEmAndamentoByClienteId(client, 1)).rejects.toThrow('connection lost');
   });
 });

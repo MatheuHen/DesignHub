@@ -1,41 +1,11 @@
--- DesignHub — RF009: link de avaliação seguro (token opaco, escopado à
--- versão em avaliação, expirável e revogável — seção 12.1 do CLAUDE.md).
---
--- Esta tabela é infraestrutura de segurança para o mecanismo de link
--- público, não uma nova entidade de negócio do DER (seção 9): ela não
--- representa dado de domínio (tema, cores, decisão, ajuste...), apenas o
--- estado técnico de um token de acesso — mesmo raciocínio já aplicado a
--- `whatsapp_webhook_evento` (Fase 6, idempotência) e a `designer.bloqueado`
--- (Fase 2, cache derivado).
---
--- Só o hash SHA-256 do token é armazenado (nunca o valor bruto), mesmo
--- princípio de nunca persistir credencial em texto claro — se o banco
--- vazar, os hashes sozinhos não permitem reconstruir links utilizáveis.
-create table public.avaliacao_link_token (
-  id_token bigint generated always as identity primary key,
-  id_versao bigint not null references public.versao_arte (id_versao) on delete restrict,
-  token_hash text not null unique,
-  expires_at timestamptz not null,
-  revoked_at timestamptz,
-  used_at timestamptz,
-  created_at timestamptz not null default now()
-);
+-- DesignHub — hotfix: generate_avaliacao_link_token e submit_avaliacao
+-- falhavam em runtime com "column reference ... is ambiguous" (SQLSTATE
+-- 42702), mesma classe de bug de register_versao_arte (ver
+-- 20260817200100). Descoberto ao validar RF009 pela primeira vez contra
+-- Postgres real (Fase 15). Redefine as duas funções com o mesmo corpo,
+-- apenas qualificando as colunas que colidiam com OUT parameters de
+-- `returns table`.
 
-comment on table public.avaliacao_link_token is
-  'RF009/seção 12.1: token opaco (hash) do link público de avaliação. Escopado a uma versão específica, expirável e revogável.';
-
-create index avaliacao_link_token_id_versao_idx on public.avaliacao_link_token (id_versao);
-
-alter table public.avaliacao_link_token enable row level security;
--- Sem policies para authenticated/anon (mesmo padrão de `whatsapp_webhook_evento`):
--- toda leitura/escrita passa pelo backend via service_role. O link público
--- nunca consulta o Supabase diretamente — sempre pela API REST do backend.
-
--- RF009: gera (e revoga tokens anteriores não usados da mesma versão) um
--- novo token de avaliação para a versão atualmente aguardando avaliação.
--- Chamada pelo backend, autenticado como designer dono da solicitação
--- (ownership já checado na camada de aplicação antes desta chamada — esta
--- é a segunda camada, mesmo padrão já usado nas funções das Fases 4/6/7/8).
 create or replace function public.generate_avaliacao_link_token(
   p_id_solicitacao bigint,
   p_id_designer uuid,
@@ -80,10 +50,6 @@ begin
     raise exception 'solicitação % não possui versão enviada', p_id_solicitacao using errcode = 'P0002';
   end if;
 
-  -- `id_versao` sem qualificador é ambíguo: colide com o OUT parameter
-  -- homônimo de `returns table (id_versao bigint, ...)` acima (SQLSTATE
-  -- 42702, mesma classe de bug de register_versao_arte/Fase 8 — só
-  -- aparece em runtime contra Postgres real).
   update public.avaliacao_link_token
   set revoked_at = now()
   where avaliacao_link_token.id_versao = v_id_versao
@@ -101,10 +67,6 @@ revoke all on function public.generate_avaliacao_link_token(bigint, uuid, text, 
 revoke all on function public.generate_avaliacao_link_token(bigint, uuid, text, timestamptz) from anon, authenticated;
 grant execute on function public.generate_avaliacao_link_token(bigint, uuid, text, timestamptz) to service_role;
 
--- RF009/RF010/RN20/RN21/RN24: registra a decisão do cliente (Aprovar/
--- Ajustes/Cancelar) de forma atômica. Chamada pelo backend a partir da
--- rota pública (sem autenticação de usuário — a única prova de autorização
--- é o próprio token), nunca diretamente pelo cliente do navegador.
 create or replace function public.submit_avaliacao(
   p_token_hash text,
   p_decisao text,
@@ -129,15 +91,6 @@ declare
   v_id_avaliacao bigint;
   v_acao text;
 begin
-  -- Leitura sem lock só para descobrir a qual solicitação este token
-  -- pertence — necessário para travar `solicitacao` ANTES do token
-  -- (mesma ordem de `generate_avaliacao_link_token`, que trava
-  -- `solicitacao` primeiro e só depois toca `avaliacao_link_token` ao
-  -- revogar tokens antigos). Travar sempre nessa ordem evita deadlock
-  -- entre um `generate_avaliacao_link_token` e um `submit_avaliacao`
-  -- concorrentes para a mesma versão (Gate G). A validade do token em si
-  -- só é decidida abaixo, sob lock — esta leitura inicial não é a fonte de
-  -- verdade.
   select t.id_token, t.id_versao
   into v_id_token, v_id_versao
   from public.avaliacao_link_token t
@@ -158,19 +111,12 @@ begin
   where s.id_solicitacao = v_id_solicitacao
   for update;
 
-  -- Só agora trava a linha do token (por PK, já sabido) e relê seu estado
-  -- sob lock — os valores de `revoked_at`/`used_at`/`expires_at` lidos
-  -- acima seriam stale; a decisão real usa sempre a releitura abaixo.
   select t.expires_at, t.revoked_at, t.used_at
   into v_expires_at, v_revoked_at, v_used_at
   from public.avaliacao_link_token t
   where t.id_token = v_id_token
   for update;
 
-  -- Códigos distintos só para permitir uma mensagem amigável mais precisa
-  -- no frontend (RF009 "tratado de modo seguro e amigável") — nenhum deles
-  -- vaza informação sobre a solicitação/cliente para quem não possui o
-  -- token (um token de 256 bits não é adivinhável por força bruta).
   if v_revoked_at is not null then
     raise exception 'link de avaliação inválido' using errcode = 'P0002';
   end if;
@@ -189,18 +135,10 @@ begin
       using errcode = 'P0001';
   end if;
 
-  -- Validado explicitamente antes do insert para nunca deixar a CHECK
-  -- constraint de `avaliacao`/`ajuste` ser a única barreira: um valor
-  -- inválido cairia direto num erro Postgres cru (23514), vazando nome de
-  -- tabela/constraint ao invés de um erro amigável (seção 12.6). Na
-  -- prática `p_decisao` já chega validado pelo enum do Zod no backend —
-  -- este é o backstop, não o caminho esperado.
   if p_decisao not in ('Aprovado', 'Ajustes', 'Cancelado') then
     raise exception 'decisão % inválida', p_decisao using errcode = 'P0001';
   end if;
 
-  -- unique(id_versao) em avaliacao é o backstop final contra double-submit
-  -- concorrente (além do lock em avaliacao_link_token acima).
   insert into public.avaliacao (id_versao, decisao)
   values (v_id_versao, p_decisao)
   returning id_avaliacao into v_id_avaliacao;
@@ -219,16 +157,10 @@ begin
       v_acao := 'Cliente cancelou a solicitação via link de avaliação (RF009)';
   end case;
 
-  -- Mesma classe de bug: `id_solicitacao` colide com o OUT parameter de
-  -- `returns table (id_solicitacao bigint, ...)` acima.
   update public.solicitacao
   set status = p_decisao
   where solicitacao.id_solicitacao = v_id_solicitacao;
 
-  -- RF009 é decidido pelo cliente, que não é um `usuario` autenticado no
-  -- sistema (só Designer/Administrador têm conta) — mesma convenção de
-  -- id_usuario nulo já usada para transições sem usuário autenticado
-  -- correspondente (Serviço Automático, Fase 6).
   insert into public.historico_solicitacao (id_solicitacao, id_usuario, acao, status_anterior, status_novo)
   values (v_id_solicitacao, null, v_acao, 'Enviado para avaliação', p_decisao);
 

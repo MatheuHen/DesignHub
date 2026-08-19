@@ -56,5 +56,9 @@ blob-report/
 *.p12
 *.pfx
 
+# Credenciais sinteticas de teste E2E (Fase 15) - nunca versionar
+*.local.json
+**/.e2e-credentials*
+
 # Nested repositories
 **/.git/

@@ -1,6 +1,6 @@
 -- DesignHub — RF006: bloqueio de designer por solicitação vencida
 -- RN11/RN12: prazo da 1ª versão é data_criacao + 5 dias
--- (solicitacao.prazo_primeira_versao, coluna gerada — Fase 2). "Vencida e
+-- (solicitacao.prazo_primeira_versao, calculada por trigger — Fase 2). "Vencida e
 -- não resolvida" é exatamente `status = 'Em produção' and prazo vencido`:
 -- upload da 1ª versão move o status para 'Enviado para avaliação' (RF007)
 -- e cancelamento move para 'Cancelado' (RF009) — em ambos os casos deixa

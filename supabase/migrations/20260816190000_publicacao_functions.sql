@@ -1,15 +1,37 @@
 -- DesignHub — RF014: publicação da arte (automática via Instagram API
 -- oficial ou manual). RN29/RN32-RN35/RN41.
 
--- Coluna gerada com o instante (UTC) do agendamento, interpretando
--- `data_publicacao`/`horario` como hora de parede em America/Sao_Paulo —
--- mesmo padrão já usado em `solicitacao.prazo_primeira_versao` (Fase 2).
+-- Coluna com o instante (UTC) do agendamento, interpretando
+-- `data_publicacao`/`horario` como hora de parede em America/Sao_Paulo.
 -- Usada pelo job de publicação (Fase 12) para encontrar agendamentos
--- vencidos sem repetir a conversão de timezone em cada query.
+-- vencidos sem repetir a conversão de timezone em cada query. Não pode ser
+-- `generated always as` porque `AT TIME ZONE` com nome de zona é STABLE
+-- (depende do banco de fusos horários), não IMMUTABLE, e PostgreSQL rejeita
+-- expressões não-imutáveis em colunas geradas (SQLSTATE 42P17, mesmo
+-- problema de `solicitacao.prazo_primeira_versao`, Fase 2) — mantida via
+-- trigger BEFORE INSERT/UPDATE dos campos de origem (mesmo valor, mesma
+-- regra de negócio).
 alter table public.agendamento_publicacao
-  add column data_hora_publicacao timestamptz generated always as (
-    (data_publicacao + horario) at time zone 'America/Sao_Paulo'
-  ) stored;
+  add column data_hora_publicacao timestamptz;
+
+create or replace function public.set_data_hora_publicacao()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+  new.data_hora_publicacao := (new.data_publicacao + new.horario) at time zone 'America/Sao_Paulo';
+  return new;
+end;
+$$;
+
+alter table public.agendamento_publicacao
+  alter column data_hora_publicacao set not null;
+
+create trigger agendamento_publicacao_set_data_hora_publicacao
+  before insert or update of data_publicacao, horario on public.agendamento_publicacao
+  for each row
+  execute function public.set_data_hora_publicacao();
 
 create index agendamento_publicacao_vencidos_idx
   on public.agendamento_publicacao (data_hora_publicacao)

@@ -21,12 +21,33 @@ create table public.solicitacao (
     )
   ),
   data_criacao timestamptz not null default now(),
-  prazo_primeira_versao timestamptz generated always as (data_criacao + interval '5 days') stored,
+  -- RN11: sempre data_criacao + 5 dias. Não pode ser `generated always as`
+  -- porque o operador `timestamptz + interval` é STABLE (depende do
+  -- TimeZone da sessão), não IMMUTABLE, e PostgreSQL rejeita expressões
+  -- não-imutáveis em colunas geradas (SQLSTATE 42P17) — mantido calculado
+  -- via trigger BEFORE INSERT (mesmo valor, mesma regra de negócio).
+  prazo_primeira_versao timestamptz not null,
   updated_at timestamptz not null default now()
 );
 
 comment on table public.solicitacao is
-  'RN39: os 7 status listados são os únicos válidos. RN11: prazo_primeira_versao é sempre data_criacao + 5 dias.';
+  'RN39: os 7 status listados são os únicos válidos. RN11: prazo_primeira_versao é sempre data_criacao + 5 dias (calculado por trigger, ver set_prazo_primeira_versao).';
+
+create or replace function public.set_prazo_primeira_versao()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+  new.prazo_primeira_versao := new.data_criacao + interval '5 days';
+  return new;
+end;
+$$;
+
+create trigger solicitacao_set_prazo_primeira_versao
+  before insert on public.solicitacao
+  for each row
+  execute function public.set_prazo_primeira_versao();
 
 create trigger solicitacao_set_updated_at
   before update on public.solicitacao

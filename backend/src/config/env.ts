@@ -22,12 +22,29 @@ const schema = z.object({
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_PUBLISHABLE_KEY: z.string().min(1).optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  /**
+   * Chave administrativa no novo formato de API keys do Supabase
+   * (`sb_secret_...`), preferida sobre a legada `SUPABASE_SERVICE_ROLE_KEY`
+   * quando ambas estiverem presentes (seção 10 do CLAUDE.md — mesma
+   * função: cliente server-only que ignora RLS).
+   */
+  SUPABASE_SECRET_KEY: z.string().min(1).optional(),
   META_APP_ID: z.string().min(1).optional(),
   META_APP_SECRET: z.string().min(1).optional(),
   WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().min(1).optional(),
   WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().min(1).optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().min(1).optional(),
+  /**
+   * RF004/item 20: nome e idioma do template pré-aprovado no Business
+   * Manager, exigido pela Cloud API para a mensagem que abre a conversa
+   * (business-initiated, fora da janela de 24h). Sem `WHATSAPP_TEMPLATE_NAME`
+   * configurado, o envio da 1ª pergunta falha explicitamente
+   * (`BLOCKED_EXTERNAL_CREDENTIAL`) em vez de tentar texto livre, que a Meta
+   * rejeitaria fora da janela.
+   */
+  WHATSAPP_TEMPLATE_NAME: z.string().min(1).optional(),
+  WHATSAPP_TEMPLATE_LANGUAGE: z.string().min(1).default('pt_BR'),
   INSTAGRAM_ACCESS_TOKEN: z.string().min(1).optional(),
   INSTAGRAM_ACCOUNT_ID: z.string().min(1).optional(),
   /**
@@ -60,7 +77,9 @@ export const env = parsed.data;
 
 export const supabaseConfigStatus = {
   hasPublicClient: Boolean(env.SUPABASE_URL && env.SUPABASE_PUBLISHABLE_KEY),
-  hasAdminClient: Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY),
+  hasAdminClient: Boolean(
+    env.SUPABASE_URL && (env.SUPABASE_SECRET_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY),
+  ),
 } as const;
 
 export const whatsappConfigStatus = {
@@ -68,6 +87,8 @@ export const whatsappConfigStatus = {
   hasSendingClient: Boolean(env.WHATSAPP_ACCESS_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID),
   /** Necessário para verificar assinatura/handshake do webhook (seção 12.3). */
   hasWebhookSecurity: Boolean(env.META_APP_SECRET && env.WHATSAPP_VERIFY_TOKEN),
+  /** RF004/item 20: template aprovado necessário para abrir conversa (business-initiated). */
+  hasTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME),
 } as const;
 
 export const instagramConfigStatus = {

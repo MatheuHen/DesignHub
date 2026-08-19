@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConflictError, NotFoundError } from '../lib/errors.js';
+import { BlockedExternalCredentialError, ConflictError, NotFoundError } from '../lib/errors.js';
 
 const {
   sendTextMessageMock,
+  sendTemplateMessageMock,
+  downloadMediaFromWhatsAppMock,
+  uploadArquivoToStorageMock,
   getSupabaseAdminClientMock,
   findClienteByIdMock,
   findActiveAtendimentoByClienteIdMock,
+  findSolicitacaoEmAndamentoByClienteIdMock,
   createAtendimentoMock,
   deleteAtendimentoMock,
   registerWebhookEventOnceMock,
@@ -18,9 +22,13 @@ const {
   syncDesignerBloqueioMock,
 } = vi.hoisted(() => ({
   sendTextMessageMock: vi.fn(),
+  sendTemplateMessageMock: vi.fn(),
+  downloadMediaFromWhatsAppMock: vi.fn(),
+  uploadArquivoToStorageMock: vi.fn(),
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   findClienteByIdMock: vi.fn(),
   findActiveAtendimentoByClienteIdMock: vi.fn(),
+  findSolicitacaoEmAndamentoByClienteIdMock: vi.fn(),
   createAtendimentoMock: vi.fn(),
   deleteAtendimentoMock: vi.fn(),
   registerWebhookEventOnceMock: vi.fn(),
@@ -39,11 +47,18 @@ vi.mock('../config/supabase.js', () => ({
 
 vi.mock('../integrations/whatsapp/whatsappClient.js', () => ({
   sendTextMessage: sendTextMessageMock,
+  sendTemplateMessage: sendTemplateMessageMock,
+  downloadMediaFromWhatsApp: downloadMediaFromWhatsAppMock,
+}));
+
+vi.mock('../repositories/versaoArte.repository.js', () => ({
+  uploadArquivoToStorage: uploadArquivoToStorageMock,
 }));
 
 vi.mock('../repositories/atendimento.repository.js', () => ({
   findClienteById: findClienteByIdMock,
   findActiveAtendimentoByClienteId: findActiveAtendimentoByClienteIdMock,
+  findSolicitacaoEmAndamentoByClienteId: findSolicitacaoEmAndamentoByClienteIdMock,
   createAtendimento: createAtendimentoMock,
   deleteAtendimento: deleteAtendimentoMock,
   registerWebhookEventOnce: registerWebhookEventOnceMock,
@@ -62,7 +77,16 @@ vi.mock('../repositories/solicitacao.repository.js', () => ({
 
 const { iniciarAtendimento, processInboundWebhook } = await import('./atendimento.service.js');
 
-function inboundMessage(overrides: Partial<{ from: string; id: string; type: string; text: { body: string } }> = {}) {
+function inboundMessage(
+  overrides: Partial<{
+    from: string;
+    id: string;
+    type: string;
+    text: { body: string } | undefined;
+    image: { id: string; mime_type?: string };
+    document: { id: string; mime_type?: string };
+  }> = {},
+) {
   return {
     from: '5511999999999',
     id: 'wamid.1',
@@ -83,9 +107,11 @@ describe('iniciarAtendimento (RF004/RN02/RN03, RF006)', () => {
   beforeEach(() => {
     findClienteByIdMock.mockReset();
     findActiveAtendimentoByClienteIdMock.mockReset();
+    findSolicitacaoEmAndamentoByClienteIdMock.mockReset().mockResolvedValue(null);
     createAtendimentoMock.mockReset();
     deleteAtendimentoMock.mockReset();
     sendTextMessageMock.mockReset();
+    sendTemplateMessageMock.mockReset();
     syncDesignerBloqueioMock.mockReset().mockResolvedValue(false);
   });
 
@@ -113,16 +139,28 @@ describe('iniciarAtendimento (RF004/RN02/RN03, RF006)', () => {
     expect(createAtendimentoMock).not.toHaveBeenCalled();
   });
 
+  it('lança ConflictError quando o cliente já tem solicitação em andamento (RF004)', async () => {
+    findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    findActiveAtendimentoByClienteIdMock.mockResolvedValue(null);
+    findSolicitacaoEmAndamentoByClienteIdMock.mockResolvedValue({ id: 99, status: 'Ajustes' });
+
+    await expect(iniciarAtendimento({} as never, 'designer-1', 1)).rejects.toBeInstanceOf(ConflictError);
+    expect(createAtendimentoMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+  });
+
   it('cria o atendimento e envia a primeira pergunta', async () => {
     findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
     findActiveAtendimentoByClienteIdMock.mockResolvedValue(null);
     createAtendimentoMock.mockResolvedValue({ id: 42 });
-    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid.out.1' });
+    sendTemplateMessageMock.mockResolvedValue({ wamid: 'wamid.out.1' });
 
     const result = await iniciarAtendimento({} as never, 'designer-1', 1);
 
     expect(result).toEqual({ idAtendimento: 42 });
-    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.any(String));
+    // item 20: mensagem que abre a conversa (business-initiated) usa template, não texto livre.
+    expect(sendTemplateMessageMock).toHaveBeenCalledWith('5511999999999', [expect.any(String)]);
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
     expect(deleteAtendimentoMock).not.toHaveBeenCalled();
   });
 
@@ -130,9 +168,21 @@ describe('iniciarAtendimento (RF004/RN02/RN03, RF006)', () => {
     findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
     findActiveAtendimentoByClienteIdMock.mockResolvedValue(null);
     createAtendimentoMock.mockResolvedValue({ id: 42 });
-    sendTextMessageMock.mockRejectedValue(new Error('WhatsApp indisponível'));
+    sendTemplateMessageMock.mockRejectedValue(new Error('WhatsApp indisponível'));
 
     await expect(iniciarAtendimento({} as never, 'designer-1', 1)).rejects.toThrow('WhatsApp indisponível');
+    expect(deleteAtendimentoMock).toHaveBeenCalledWith(expect.anything(), 42);
+  });
+
+  it('propaga BlockedExternalCredentialError quando nenhum template Meta está configurado (item 20)', async () => {
+    findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    findActiveAtendimentoByClienteIdMock.mockResolvedValue(null);
+    createAtendimentoMock.mockResolvedValue({ id: 42 });
+    sendTemplateMessageMock.mockRejectedValue(new BlockedExternalCredentialError('WHATSAPP_TEMPLATE_NAME ausente'));
+
+    await expect(iniciarAtendimento({} as never, 'designer-1', 1)).rejects.toBeInstanceOf(
+      BlockedExternalCredentialError,
+    );
     expect(deleteAtendimentoMock).toHaveBeenCalledWith(expect.anything(), 42);
   });
 });
@@ -147,6 +197,8 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     listRespostasOrdenadasMock.mockReset();
     completeAtendimentoAndCreateSolicitacaoMock.mockReset();
     sendTextMessageMock.mockReset().mockResolvedValue({ wamid: 'wamid.out' });
+    downloadMediaFromWhatsAppMock.mockReset();
+    uploadArquivoToStorageMock.mockReset().mockResolvedValue(undefined);
   });
 
   it('ignora reentrega do mesmo evento (idempotência)', async () => {
@@ -245,5 +297,54 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       processInboundWebhook(webhookPayload(inboundMessage({ from: '5511999999999' }))),
     ).resolves.toBeUndefined();
     expect(insertRespostaMock).toHaveBeenCalledOnce();
+  });
+
+  it('baixa e armazena a imagem de referência via Media API quando a pergunta atual é a última (item 14)', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(4); // última pergunta (referência)
+    const pngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff]);
+    downloadMediaFromWhatsAppMock.mockResolvedValue(pngBuffer);
+    listRespostasOrdenadasMock.mockResolvedValue(['sim', 'Tema X', 'Azul', 'Sem observações', 'atendimentos/1/referencias/x.png']);
+    completeAtendimentoAndCreateSolicitacaoMock.mockResolvedValue(999);
+
+    await processInboundWebhook(
+      webhookPayload(inboundMessage({ type: 'image', image: { id: 'media-1' }, text: undefined })),
+    );
+
+    expect(downloadMediaFromWhatsAppMock).toHaveBeenCalledWith('media-1');
+    expect(uploadArquivoToStorageMock).toHaveBeenCalledOnce();
+    expect(insertRespostaMock).toHaveBeenCalledWith(
+      expect.anything(),
+      1,
+      expect.any(String),
+      expect.stringMatching(/^atendimentos\/1\/referencias\/.+\.png$/),
+    );
+  });
+
+  it('registra texto de falha sem travar o atendimento quando o download da mídia falha (Gate G)', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(4);
+    downloadMediaFromWhatsAppMock.mockRejectedValue(new Error('timeout'));
+    listRespostasOrdenadasMock.mockResolvedValue(['sim', 'Tema X', 'Azul', 'Sem observações', 'falhou']);
+    completeAtendimentoAndCreateSolicitacaoMock.mockResolvedValue(999);
+
+    await expect(
+      processInboundWebhook(
+        webhookPayload(inboundMessage({ type: 'image', image: { id: 'media-1' }, text: undefined })),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(uploadArquivoToStorageMock).not.toHaveBeenCalled();
+    expect(insertRespostaMock).toHaveBeenCalledWith(
+      expect.anything(),
+      1,
+      expect.any(String),
+      '[referência enviada, mas não foi possível processar o arquivo]',
+    );
+    expect(completeAtendimentoAndCreateSolicitacaoMock).toHaveBeenCalledOnce();
   });
 });

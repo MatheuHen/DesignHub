@@ -51,11 +51,12 @@ export function getSupabaseUserClient(accessToken: string): SupabaseClient {
 export function getSupabaseAdminClient(): SupabaseClient {
   if (!supabaseConfigStatus.hasAdminClient) {
     throw new BlockedExternalCredentialError(
-      'SUPABASE_SERVICE_ROLE_KEY ausente. Operações administrativas indisponíveis até a credencial ser configurada.',
+      'SUPABASE_SECRET_KEY/SUPABASE_SERVICE_ROLE_KEY ausente. Operações administrativas indisponíveis até a credencial ser configurada.',
     );
   }
   if (!cachedAdminClient) {
-    cachedAdminClient = createClient(env.SUPABASE_URL!, env.SUPABASE_SERVICE_ROLE_KEY!, {
+    const adminKey = env.SUPABASE_SECRET_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY!;
+    cachedAdminClient = createClient(env.SUPABASE_URL!, adminKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
   }

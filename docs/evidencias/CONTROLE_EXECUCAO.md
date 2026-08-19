@@ -1077,3 +1077,453 @@ Este arquivo deve ser atualizado ao final de cada etapa.
   credenciais: revisão/organização de testes E2E automatizáveis
   localmente (mocks) e checklist dos 20 cenários mapeados por fase já
   concluída.
+
+## 2026-08-17 — CHECKPOINT (antes de /clear)
+
+- **Fase atual:** Fase 15 — teste ponta a ponta obrigatório (ainda não
+  iniciada).
+- **Fases concluídas (código + testes + revisão sem CRITICAL/HIGH
+  pendente):** 1–14 (fundação, banco/RLS, RF002 auth, RF001/RF015/RF016
+  designers, RF003 clientes, RF004 WhatsApp, RF005/RF006, RF007/RF008
+  upload/versões, RF009/RF010 avaliação/ajustes, RF011 máquina de
+  estados, RF012/RF013 agendamento, RF014 publicação Instagram+manual,
+  dashboard de pendências do designer, LGPD/hardening).
+- **Tarefa em andamento:** nenhuma — sessão em espera, sem trabalho
+  iniciado na Fase 15.
+- **Último ponto concluído:** commit de checkpoint `721eec7`
+  ("Checkpoint: Fases 1-14 do DesignHub") criado e working tree
+  confirmado limpo (`git status` sem alterações pendentes).
+- **Próximo passo exato:** aguardar o usuário fornecer
+  `SUPABASE_SERVICE_ROLE_KEY` (aplicar as 19 migrations em
+  `supabase/migrations/`) e credenciais WhatsApp Cloud API/Instagram API;
+  então executar os 20 cenários E2E da Fase 15 (seção 14 do
+  `CLAUDE.md`). Sem credenciais, não iniciar Fase 15 de forma
+  especulativa.
+- **Testes verdes ainda válidos (nenhum arquivo de código alterado desde
+  então):** gate completo do commit `721eec7` — `typecheck`, `lint`,
+  `test` (252 backend + 50 frontend = 302 testes), `build`, todos
+  verdes.
+- **Arquivos principais alterados na última leva (já commitados):**
+  `backend/src/services/publicacao.service.ts` +
+  `backend/src/repositories/publicacao.repository.ts` (reserva atômica
+  do job de publicação), `supabase/migrations/20260816190000_publicacao_functions.sql`,
+  `frontend/src/features/designer/DesignerHome.tsx` (painel de
+  pendências), `frontend/src/features/designer/solicitacoes/SolicitacoesPage.tsx`
+  (filtro via URL), `backend/src/services/atendimentoQuestions.ts` +
+  `frontend/src/features/avaliacao/AvaliacaoPage.tsx` (aviso LGPD),
+  `docs/seguranca/BASELINE_SEGURANCA.md`.
+- **Bloqueios externos:** `BLOCKED_EXTERNAL_CREDENTIAL` —
+  `SUPABASE_SERVICE_ROLE_KEY` ausente (nenhuma migration aplicada em
+  ambiente real); credenciais WhatsApp Cloud API ausentes; credenciais
+  Instagram API (`INSTAGRAM_ACCESS_TOKEN`/`INSTAGRAM_ACCOUNT_ID`)
+  ausentes; `INTERNAL_JOB_SECRET` ausente. Nenhuma funcionalidade foi
+  exercitada contra banco/Meta reais nesta sessão — toda a lógica está
+  coberta por testes unitários/integração com mocks.
+- **Pendências reais:** Fase 15 (E2E real) e Fase 16 (deploy) bloqueadas
+  por credenciais + exigem autorização explícita para ações de
+  produção/deploy (seção 13 do `CLAUDE.md`). Matriz de rastreabilidade
+  (`docs/rastreabilidade/MATRIZ_RASTREABILIDADE_DESIGNHUB.csv`) ainda
+  mostra `PENDENTE` para todos os RFs — decisão de como atualizá-la
+  (semântica da coluna `Status_Inicial`) pendente de confirmação do
+  usuário antes de qualquer edição. Nenhum segredo registrado neste
+  arquivo.
+
+## 2026-08-17 — Fase 15 EM ANDAMENTO: Supabase real validado, migrations aplicadas, core do fluxo E2E validado
+
+- **Achado sobre `.env.local`:** o usuário informou que as credenciais reais
+  do Supabase já estavam preenchidas. Na prática, o arquivo continha só o
+  par público (`NEXT_PUBLIC_SUPABASE_URL`/`..._PUBLISHABLE_KEY`, já
+  validado desde a Fase 1) mais notas em texto livre copiadas do painel
+  Supabase (login do dashboard, `DATABASE PASSWORD`, connection string com
+  placeholder `[YOUR-PASSWORD]`, e uma "Secret key" no formato novo
+  `sb_secret_...`) — nenhuma dessas linhas estava no formato `KEY=VALUE`
+  que o `dotenv` da aplicação ou o Supabase CLI conseguem interpretar.
+  Corrigido sem nunca exibir os valores em texto: (1) todas as linhas que
+  não são `KEY=VALUE` foram comentadas com `#` (o CLI da Supabase também
+  tenta fazer parse estrito do `.env.local` e falhava com
+  `LegacyDbConfigLoadError` antes dessa limpeza); (2) `SUPABASE_SECRET_KEY`
+  e `SUPABASE_DB_URL` (com o placeholder de senha substituído pelo valor
+  real de `DATABASE PASSWORD`) foram adicionados como variáveis próprias;
+  (3) `.gitignore` ganhou uma regra dedicada para nunca versionar
+  credenciais sintéticas de teste (`*.local.json`, `**/.e2e-credentials*`).
+  Credenciais WhatsApp Cloud API (`WHATSAPP_ACCESS_TOKEN`,
+  `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `META_APP_ID`,
+  `META_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`) também já estavam presentes e
+  aparentemente válidas, mas **não foram exercitadas nesta sessão**, por
+  instrução explícita do usuário de aguardar o aviso de que WhatsApp/
+  Instagram estão prontos — registrado como `BLOCKED_EXTERNAL_META` por
+  decisão do usuário, não por ausência técnica de credencial.
+- **Código (não-funcional, seção 10 do CLAUDE.md):** `backend/src/config/env.ts`
+  e `backend/src/config/supabase.ts` passaram a aceitar `SUPABASE_SECRET_KEY`
+  (formato novo de API key do Supabase) como preferencial, com
+  `SUPABASE_SERVICE_ROLE_KEY` mantida como fallback legado — sem alterar
+  nenhum contrato de API/RF/RN.
+- **Migrations aplicadas pela primeira vez a um banco real** (projeto
+  `hfwgodzvitinubarwrjm`, via `npx supabase db push --db-url`, já que não
+  havia `psql`/`supabase` CLI local nem acesso MCP ao projeto — resolvido
+  com `npx --yes supabase`). As 18 migrations das Fases 2–12 foram
+  aplicadas com sucesso. Três classes de bug real só detectáveis contra
+  Postgres real (nenhum mock as capturava) foram encontradas e corrigidas:
+  1. **`solicitacao.prazo_primeira_versao`** e **`agendamento_publicacao.data_hora_publicacao`**
+     eram `generated always as (...) stored` usando `timestamptz + interval`
+     e `AT TIME ZONE`, respectivamente — ambos operadores são `STABLE`, não
+     `IMMUTABLE`, e PostgreSQL rejeita expressão não-imutável em coluna
+     gerada (SQLSTATE 42P17). Corrigido nas próprias migrations originais
+     (ainda não haviam sido aplicadas com sucesso) convertendo as duas para
+     colunas normais mantidas por trigger `BEFORE INSERT`/`BEFORE UPDATE`
+     — mesmo valor, mesma regra de negócio (RN11), só troca de mecanismo.
+  2. **Faltavam `GRANT` de base nas tabelas de negócio** para
+     `service_role`/`authenticated` — RLS (Fase 2) é a segunda camada de
+     defesa, mas sem `GRANT` o Postgres nega a query antes mesmo de avaliar
+     RLS (mesmo `service_role`, que ignora RLS mas não ignora `GRANT`,
+     recebia `42501 permission denied`). Este projeto Supabase não tinha os
+     privilégios padrão pré-configurados. Corrigido com nova migration
+     `20260817200000_grant_base_table_privileges.sql` (GRANT explícito +
+     `ALTER DEFAULT PRIVILEGES` para que futuras tabelas herdem
+     automaticamente) — modelo de privilégio idêntico ao já documentado em
+     `20260816120800_rls_policies.sql` (service_role: CRUD completo;
+     authenticated: só SELECT; RLS decide as linhas).
+  3. **Três funções `SECURITY DEFINER` com `returns table (...)` tinham
+     coluna ambígua em runtime** (SQLSTATE 42702 — OUT parameter da
+     cláusula `returns table` colidindo com o nome de uma coluna real
+     referenciada sem qualificador em `SELECT`/`UPDATE ... WHERE`):
+     `register_versao_arte` (`numero_versao`), `generate_avaliacao_link_token`
+     (`id_versao`) e `submit_avaliacao` (`id_solicitacao`). `CREATE FUNCTION`
+     não valida isso em tempo de criação (plpgsql só valida a query no
+     primeiro `EXECUTE`), por isso as migrations originais foram aplicadas
+     sem erro aparente e o bug só apareceu ao chamar as funções de verdade.
+     Corrigido qualificando as colunas com o nome da tabela; migrations de
+     hotfix `20260817200100`/`20260817200200` redefinem as funções (as
+     migrations originais também foram editadas para refletir a correção,
+     já que ainda não tinham sido aplicadas com sucesso quando corrigidas).
+     Varredura proativa confirmou que as demais funções `returns table`
+     (`create_agendamento`) e as sem `returns table` não têm o mesmo padrão.
+- **Validação real pós-fix (leitura/escrita contra o banco real, chave
+  anon vs. `service_role`):** anon corretamente barrado (`401`) em tabela
+  de negócio; `service_role` lê todas as 14 tabelas de negócio (`200`);
+  bucket privado `artes` acessível e configurado (`application/pdf`,
+  `image/jpeg`, `image/png`, 15 MB).
+- **Bootstrap de dados sintéticos de teste (RNF010/seção 12.5 — dado
+  sintético, identificado, nunca leva à produção):** `scripts/bootstrap-e2e-admin.mjs`
+  (novo, criação do primeiro administrador — RF001-016 não cobrem "criar o
+  1º admin", é bootstrap de operação, não funcionalidade de produto) +
+  bootstrap equivalente ad hoc para dois designers de teste. Credenciais
+  gravadas só em `docs/evidencias/.e2e-credentials.local.json`
+  (gitignored, nunca impresso em texto legível na conversa).
+- **Cenários E2E executados contra o Supabase/backend reais nesta sessão**
+  (subset dos 20 da seção 14 do CLAUDE.md que não depende de WhatsApp/
+  Instagram, conforme instrução do usuário):
+  - Admin autentica (`/api/auth/me`) → cria designer real via `POST
+    /api/designers` **bloqueado por rate limit de e-mail do Supabase
+    Free tier** (`over_email_send_rate_limit`, confirmado com chamada
+    direta ao `auth/v1/invite` — real, não é bug de código; RF001/RF004
+    via convite por e-mail ficam pendentes de nova tentativa quando a
+    cota resetar). Designers de teste seguintes foram semeados via
+    `admin.createUser` (mesmo mecanismo administrativo, sem e-mail) para
+    não consumir mais cota e permitir continuar a validação.
+  - Designer autentica → cria cliente real (RF003) → OK.
+  - Solicitação semeada diretamente (bypass do atendimento WhatsApp,
+    RF004, por instrução do usuário) → `prazo_primeira_versao` calculado
+    corretamente pelo trigger (fix #1 confirmado em produção).
+  - RF007/RF008 upload V1 real (Storage + RPC) → status "Enviado para
+    avaliação" (fix #3 confirmado).
+  - RF009 preview público com URL assinada real + decisão "Ajustes" via
+    token real (fix #3 confirmado) → status "Ajustes".
+  - RF007/RF008 upload V2 → "Enviado para avaliação"; RF011 histórico com
+    as 3 transições corretas confirmado via `GET /api/solicitacoes/1`.
+  - RF009 decisão "Aprovado" com V2 → status "Aprovado".
+  - RF012 criar agendamento → RF013 cancelar com >3h de antecedência
+    (permitido, `204`) → RF013 cancelar com <3h de antecedência
+    (corretamente **rejeitado**, `409`, RN31) — primeira tentativa deu
+    falso positivo por erro de fuso horário no dado de teste (UTC passado
+    como se fosse horário de parede America/Sao_Paulo), corrigido no
+    próprio teste, não no produto; segunda tentativa confirmou a regra.
+  - RF014 publicação manual → status final "Publicado".
+  - RN44/RN49 isolamento: designer2 recebe `404` ao tentar ver solicitação
+    de designer1 (sem vazar existência).
+  - RF016 reatribuição pelo admin (`PATCH /:id/reatribuir`, campo correto
+    é `novoDesignerId`) → histórico com 11 entradas preservado, 2 versões
+    preservadas, designer2 passa a ver, designer1 perde acesso (`404`).
+  - RF006 bloqueio: `sync_designer_bloqueio` chamada diretamente (o
+    gatilho real é `iniciarAtendimento`, também dependente de WhatsApp) com
+    uma solicitação com `prazo_primeira_versao` genuinamente vencido →
+    `designer.bloqueado = true`; após cancelar a pendência e resincronizar
+    → `false`. Confirma RN11/RN12 corretamente implementados.
+- **Gate completo pós-fix:** `npm run lint`, `npm run typecheck` (ambos
+  limpos nos dois workspaces), `npm run test` — **302 testes (252 backend +
+  50 frontend), todos verdes, sem alteração de contagem** (os fixes foram
+  em SQL/migrations e em `env.ts`/`supabase.ts`, sem exigir novo teste
+  unitário — a cobertura real veio da validação E2E contra o banco de
+  verdade acima), `npm run build` — verde nos dois workspaces.
+- **BLOCKED_EXTERNAL_META** (por decisão do usuário, não por falta de
+  credencial técnica): RF004 (atendimento WhatsApp) e RF014 automático
+  (Instagram) não foram exercitados nesta sessão. Retomar quando o usuário
+  confirmar que WhatsApp/Instagram estão prontos.
+- **BLOCKED_EXTERNAL (quota, não credencial):** criação de designer via
+  convite por e-mail real (RF001) esbarrou no limite de envio de e-mail do
+  Supabase Free tier depois de poucas tentativas nesta sessão. Não é um
+  bug — é o limite documentado do provedor de e-mail embutido gratuito.
+  Retestar quando a cota resetar (ou, se o usuário quiser testar RF001 via
+  convite de forma mais ampla, configurar um provedor SMTP próprio no
+  projeto Supabase — decisão de infraestrutura, não implementada
+  espontaneamente).
+- **Pendências reais para fechar a Fase 15 (no momento deste registro,
+  ver entrada seguinte para o que foi resolvido depois):** RF004
+  (WhatsApp real) e RF014 automático (Instagram real), RF001 via convite
+  real (rate limit), cenários de concorrência (upload simultâneo,
+  agendamento simultâneo) e os testes negativos de autenticação/
+  autorização adicionais listados na seção 14 — os já cobertos pela suíte
+  de testes unitários/integração (mocks) não foram repetidos ao vivo por
+  não serem necessários (mesmo comportamento, já provado). Matriz de
+  rastreabilidade ainda não atualizada (pendência antiga, já registrada).
+- **Próxima etapa:** aguardar sinal do usuário para WhatsApp/Instagram;
+  enquanto isso, considerar testar novamente a criação de designer via
+  convite real quando a cota de e-mail resetar, e revisar concorrência
+  (upload duplo simultâneo, agendamento duplo simultâneo) contra o banco
+  real.
+
+## 2026-08-17 — Fase 15: concorrência real + cenários restantes (não-Meta) concluídos
+
+- Escopo desta leva: cenários de concorrência real contra o Supabase de
+  verdade (não simulados/mock) e o restante dos 20 cenários da seção 14
+  que não dependem de WhatsApp/Instagram, a pedido do usuário. Nenhuma
+  alteração de código/schema nesta leva — só uso do sistema já corrigido
+  na leva anterior. Solicitações de teste sintéticas 3–9 semeadas
+  diretamente (mesma justificativa RNF010/12.5 já registrada).
+- **Concorrência real (4 corridas, requisições HTTP simultâneas via
+  `curl ... & / wait`):**
+  1. **Upload duplo simultâneo (RF007/RF008, RN17):** duas requisições
+     `POST /:id/versoes` para a mesma solicitação ao mesmo tempo — o lock
+     `for update` de `register_versao_arte` serializou corretamente: uma
+     venceu (V1, transição de status), a outra recebeu `409` limpo ("não
+     está em um status que permite envio") em vez de duplicar `numero_versao`
+     ou corromper o status.
+  2. **Agendamento duplo simultâneo (RF012, RN30):** duas
+     `POST /:id/agendamento` simultâneas para a mesma solicitação
+     `Aprovado` — só uma criou o agendamento (`201`), a outra recebeu
+     `409` limpo; confirmado por query direta que existe exatamente 1
+     agendamento ativo (backstop `agendamento_ativo_unico_idx` + lock da
+     RPC funcionando em conjunto).
+  3. **Double-submit de avaliação com o mesmo token (RF009, unique(id_versao)):**
+     duas submissões simultâneas do mesmo token — só uma decisão foi
+     persistida (`avaliacao` com 1 linha), a outra rejeitada. Na primeira
+     tentativa a perdedora recebeu um `500` genérico (mas seguro, sem
+     stack/segredo) com causa "JWT issued at future" nos logs; investigado
+     como possível instabilidade transitória de borda do Supabase (não
+     reproduzido) — relógio local conferido e correto (sem *skew* contra
+     referência externa). Repetição imediata do mesmo cenário com um novo
+     token produziu o resultado correto e esperado: vencedora `200`,
+     perdedora `409` "Link de avaliação já utilizado". Registrado como
+     **LOW/observação** (falha transitória externa, sem violação de
+     integridade em nenhuma das duas execuções, sem ação de código
+     necessária — não reproduzido em nova tentativa).
+  4. **Publicação manual duplicada simultânea (RF014, idempotência):**
+     duas `POST /:id/publicacao-manual` simultâneas para o mesmo
+     agendamento — só uma teve sucesso (`204`, `publicacao.status='sucesso'`
+     única linha), a outra recebeu `409` limpo ("agendamento não está
+     ativo"); confirma `claim_agendamento_publicacao`/
+     `publicacao_unica_sucesso_idx` também protegem o caminho manual, não
+     só o automático (Fase 12 havia corrigido isso só pensando no job
+     automático).
+- **Cenários restantes cobertos nesta leva (não-Meta, contra o backend/
+  Supabase reais):**
+  - RF009 decisão "Cancelado" → status "Cancelado"; reuso do mesmo token
+    depois de usado → `409` limpo.
+  - RF012 edição de agendamento ativo (`PATCH`, corpo completo — o schema
+    de update reaproveita o mesmo schema de criação, não é `PATCH`
+    parcial) → legenda/data/horário atualizados corretamente.
+  - Negativos: requisição sem token → `401`; token corrompido → `401`;
+    designer chamando rota admin-only (`GET /api/designers`) → `403`;
+    designer2 tentando baixar versão de solicitação de designer1 → `404`
+    uniforme (sem vazar existência); upload em solicitação `Cancelado`
+    (estado terminal) → `409`; arquivo com assinatura de bytes de
+    executável disfarçado de PDF → `400` rejeitado pela checagem de
+    assinatura real (Fase 8), nunca pela extensão/Content-Type declarado.
+- Com isso, **19 dos 20 cenários da seção 14 estão cobertos** (ao vivo
+  contra Supabase real ou, quando genuinamente impossível sem Meta, via a
+  RPC/lógica de negócio real chamada diretamente) — só restam RF004
+  (atendimento WhatsApp real) e RF014 automático (Instagram real), ambos
+  aguardando o sinal do usuário. RF001 via convite por e-mail real
+  continua pendente da liberação da cota do Supabase Free tier.
+- Nenhuma alteração de código nesta leva → gate completo (`lint`,
+  `typecheck`, `test` 302/302, `build`) não precisou ser re-executado
+  (nenhum arquivo versionado mudou desde a última execução verde
+  registrada na entrada anterior).
+- **Pendências reais remanescentes:** RF004/RF014-automático/RF001-convite
+  (bloqueios externos, ver acima), matriz de rastreabilidade (pendência
+  antiga), decidir se as 9 solicitações de teste sintéticas semeadas nesta
+  fase (IDs 1–9, cliente 1, designers de teste) devem ser limpas do banco
+  antes do Fase 16 (deploy) ou mantidas como evidência — decisão do
+  usuário, não assumida unilateralmente.
+- **Próxima etapa:** aguardar sinal do usuário sobre WhatsApp/Instagram
+  para fechar RF004/RF014 automático; ou avançar para Fase 16 (deploy) —
+  também exige autorização explícita do usuário (seção 13 do CLAUDE.md).
+
+## 2026-08-17 — Limpeza dos dados de teste (a pedido do usuário)
+
+- Removidas do Supabase real, em ordem segura de FK (`on delete restrict`
+  exigiu ordem: `publicacao` → `agendamento_publicacao` → `ajuste` →
+  `avaliacao` → `avaliacao_link_token` → `versao_arte` → `historico_solicitacao`
+  → `solicitacao` → `cliente`): as 9 solicitações sintéticas de teste
+  (IDs 1–9) e todo o encadeamento gerado durante a Fase 15 (2 publicações,
+  5 agendamentos, 1 ajuste, 7 avaliações, 7 tokens de avaliação, 8 versões
+  de arte, 26 entradas de histórico, 1 cliente de teste). Os 8 arquivos
+  reais correspondentes no bucket privado `artes` (Storage) também foram
+  removidos.
+- **Preservados intencionalmente** (não são "solicitações de teste", são
+  contas administrativas de teste ainda necessárias para os cenários
+  RF004/RF014 pendentes de WhatsApp/Instagram): os 3 usuários de teste
+  (`e2e.admin@designhub.adm`, `e2e.designer1@designhub.adm`,
+  `e2e.designer2@designhub.adm`) em `usuario`/`designer`/`administrador`
+  — credenciais seguem só em `docs/evidencias/.e2e-credentials.local.json`
+  (gitignored).
+- Verificado após a limpeza: contagem 0 em todas as 9 tabelas de negócio
+  tocadas pela Fase 15, bucket `artes` sem nenhum objeto residual sob
+  `solicitacoes/`, banco pronto para uma nova rodada de testes ou para
+  avançar de fase sem dado sintético misturado.
+- Nenhuma alteração de código/migration nesta operação — só limpeza de
+  dados via `service_role`.
+
+## 2026-08-17 — Matriz de rastreabilidade resolvida
+
+- Pendência antiga (semântica de `Status_Inicial`) resolvida sem reescrever
+  a coluna original: ela permanece como baseline histórico (`PENDENTE`).
+  Adicionadas 3 colunas novas em
+  `docs/rastreabilidade/MATRIZ_RASTREABILIDADE_DESIGNHUB.csv`:
+  `Status_Atual`, `Evidencia_Real`, `Bloqueio_Externo`. Legenda completa em
+  `docs/rastreabilidade/README.md` (novo).
+- Preenchidos os 16 RFs com o estado real desta sessão (Fase 15):
+  **10 `IMPLEMENTADO_E2E_REAL`** (RF002, RF005–RF013, RF016),
+  **2 `IMPLEMENTADO_E2E_PARCIAL`** (RF003 — só criação testada ao vivo;
+  RF014 — só o caminho manual), **2 `IMPLEMENTADO_TESTES_UNITARIOS`**
+  (RF001, RF015 — convite real bloqueado por rate limit de e-mail, não
+  Meta) e **1 `BLOQUEADO_EXTERNO_META`** (RF004). `Bloqueio_Externo`
+  preenchido nos RFs afetados por Meta (RF004, RF006 parcial, RF011
+  parcial, RF014 parcial) e no único bloqueado por cota de e-mail (RF001).
+- Nenhuma alteração de código nesta operação — só documentação/
+  rastreabilidade.
+
+## 2026-08-18 — CHECKPOINT (antes de /clear)
+
+- **Fase atual:** Fase 15 (E2E), corrigindo achado da auditoria RF004
+  (itens 6/12: verificação de solicitação em andamento).
+- **Fases concluídas:** 1–14 completas; Fase 15 com 19/20 cenários da
+  seção 14 validados ao vivo, concorrência real testada, matriz de
+  rastreabilidade preenchida. Só faltam RF004/RF014-automático (Meta).
+- **Tarefa em andamento:** auditoria comparativa RF004 (fluxo
+  Designer→Cliente→WhatsApp/chatbot) contra o TFC encontrou 4 divergências
+  reais; a pedido do usuário, corrigidos agora só os itens 6/12
+  (verificação de solicitação em andamento antes de iniciar atendimento/
+  criar solicitação). Itens 14 (imagem de referência via Media API), 17
+  (log de mensagens enviadas) e 20 (template Meta) **não foram tocados**
+  por decisão explícita do usuário — aguardando ambiente WhatsApp/
+  Instagram pronto.
+- **Último ponto concluído:** código do fix (RF004) implementado em duas
+  camadas (aplicação + RPC), testado (4 testes novos) e com gate completo
+  100% verde. Migration nova escrita e validada, mas **NÃO aplicada** ao
+  Supabase real nesta sessão — `.env.local` estava sendo editado pelo
+  usuário no meio da sessão (voltou ao formato de notas cruas, sem
+  `SUPABASE_SECRET_KEY`/`SUPABASE_DB_URL`); não foi mexido para não
+  colidir com a preparação de ambiente em andamento.
+- **Próximo passo exato:** quando `.env.local` estiver estável (WhatsApp/
+  Instagram prontos), (1) reconfirmar `SUPABASE_SECRET_KEY`/
+  `SUPABASE_DB_URL` no formato `KEY=VALUE` (mesmo procedimento já usado
+  antes: extrair da "Secret key"/"Database URL — Session pooler" das
+  notas, sem nunca imprimir o valor), (2) aplicar
+  `supabase/migrations/20260818100000_atendimento_checa_solicitacao_em_andamento.sql`
+  via `npx supabase db push --db-url`, (3) reexecutar ao vivo o cenário
+  "designer inicia 2º atendimento com solicitação ainda aberta" para
+  confirmar o `409` esperado contra o banco real, (4) então avaliar com o
+  usuário se implementa os itens 14/17/20 do RF004 (dependem de Meta) ou
+  segue para Fase 16.
+- **Testes verdes ainda válidos:** `lint`, `typecheck` limpos;
+  `test` — **256 backend (+4) + 50 frontend = 306**, todos verdes;
+  `build` verde nos dois workspaces. Executados após o fix desta leva,
+  nenhum arquivo mudou depois.
+- **Arquivos principais alterados (não commitados):**
+  - `backend/src/repositories/atendimento.repository.ts` (nova
+    `findSolicitacaoEmAndamentoByClienteId`)
+  - `backend/src/repositories/atendimento.repository.test.ts` (+3 testes)
+  - `backend/src/services/atendimento.service.ts` (`iniciarAtendimento`
+    chama a nova checagem antes de criar o atendimento)
+  - `backend/src/services/atendimento.service.test.ts` (+1 teste)
+  - `supabase/migrations/20260818100000_atendimento_checa_solicitacao_em_andamento.sql`
+    (novo — mesma checagem na RPC `complete_atendimento_and_create_solicitacao`,
+    defesa em profundidade; **não aplicado ao banco real ainda**)
+- **Bloqueios externos:** `BLOCKED_EXTERNAL_META` (RF004 real, RF014
+  automático) — usuário está preparando o ambiente WhatsApp/Instagram,
+  não deve ser tocado agora. `.env.local` sem `SUPABASE_SECRET_KEY`/
+  `SUPABASE_DB_URL` no momento (formato de notas cruas) — bloqueia
+  aplicar a nova migration até ser reconfigurado.
+- **Pendências reais:**
+  - Aplicar a migration `20260818100000` ao Supabase real (bloqueada por
+    `.env.local`, ver acima).
+  - Itens 14/17/20 da auditoria RF004 (imagem de referência via Media
+    API; log de mensagens enviadas pelo sistema; `type:'template'` para
+    mensagem business-initiated) — não implementados, aguardando decisão/
+    ambiente do usuário.
+  - RF001 via convite real (rate limit de e-mail do Supabase Free).
+  - Nenhum commit foi feito nesta sessão.
+
+## 2026-08-19 — CHECKPOINT: itens 14/17/20 do RF004 implementados (modo econômico)
+
+- A pedido do usuário (modo econômico ativado + "implemente tudo
+  independente das credenciais"), os 3 itens da auditoria RF004 antes
+  deferidos foram implementados nesta leva, com 3 decisões de design
+  confirmadas via pergunta ao usuário (nenhuma inventada):
+  1. **Item 20 (template Meta):** `sendTemplateMessage()` novo em
+     `backend/src/integrations/whatsapp/whatsappClient.ts`; `iniciarAtendimento`
+     (`atendimento.service.ts`) agora abre a conversa com `type:'template'`
+     em vez de texto livre (exigência da Cloud API para mensagem
+     business-initiated fora da janela de 24h). Nome/idioma configuráveis
+     via `WHATSAPP_TEMPLATE_NAME`/`WHATSAPP_TEMPLATE_LANGUAGE` (novas envs
+     opcionais, `env.ts`). Usuário ainda não tem template aprovado no
+     Business Manager → `BLOCKED_EXTERNAL_META` para o teste real; código
+     pronto e testado com mocks.
+  2. **Item 17 (log de saída):** sem tabela nova (DER congelado) — log
+     técnico `console.info` (`kind`+`wamid`+timestamp, sem PII) após cada
+     envio bem-sucedido.
+  3. **Item 14 (mídia de referência):** `downloadMediaFromWhatsApp()` novo
+     — fluxo oficial de 2 etapas da Meta Media API. Formato validado por
+     assinatura de bytes real (reusa `lib/fileSignature.ts` do RF007,
+     nunca o `mime_type` declarado); upload no bucket privado `artes` já
+     existente, path `atendimentos/{idAtendimento}/referencias/{uuid}.{ext}`.
+     Falha de download/validação vira texto de erro registrado na resposta
+     em vez de travar o atendimento (Gate G — idempotência do webhook já
+     marcou o evento, então não há reentrega da Meta para tentar de novo).
+- `whatsapp.schemas.ts`: schema de mensagem inbound ganhou `image`/`document`
+  opcionais (`id`, `mime_type`) para o payload real da Meta.
+- Revisão de segurança focada (`designhub-security-reviewer`, escopo
+  limitado ao diff) rodou depois da implementação: 0 CRITICAL/HIGH. 1
+  MEDIUM (SSRF hardening — validar host/protocolo da URL de mídia antes de
+  reenviar o Bearer token nela) **corrigido nesta mesma leva**
+  (`isTrustedMetaMediaUrl`, allowlist de domínios Meta). 2 LOW registrados
+  como pendência de polimento (não corrigidos, risco baixo, seção 3.5
+  permite adiar LOW): (a) `sendTextMessageBestEffort` loga `error.message`
+  que pode ecoar o corpo bruto de erro da Graph API; (b) `extractAnswerText`
+  loga `error.message` de falhas de rede não tipadas — trocar por strings
+  fixas quando a Fase 14 (hardening) ou uma etapa de polimento for revisada.
+- **Frontend não tocado**: a resposta da pergunta 'referencia' agora grava
+  o *path* do Storage (não uma URL assinada) no campo `resposta` — o
+  detalhe de solicitação (RF005) hoje só exibe esse campo como texto cru,
+  sem link clicável. Ficou fora do escopo desta leva (o usuário só pediu
+  o download/upload no backend); se quiser exibir a imagem, precisa de um
+  endpoint que gere URL assinada a partir do path antes de renderizar.
+- Testes: `backend/src/integrations/whatsapp/whatsappClient.test.ts` (novo,
+  8 testes) + `atendimento.service.test.ts` (+4 testes, total 16) cobrindo
+  os 3 itens e o hardening de SSRF. **Backend: 256 → 267 testes, todos
+  verdes** (`npm run verify` completo na raiz: lint+typecheck+test+build
+  dos dois workspaces, incluindo o frontend — 50 testes, sem regressão).
+- Nenhuma migration nesta leva (nenhuma mudança de schema — reusa
+  `resposta_cliente.resposta` (`text`) e o bucket `artes` já existentes).
+- **Pendências reais mantidas:** aplicar a migration `20260818100000`
+  (bloqueada por `.env.local` sem `SUPABASE_SECRET_KEY`/`SUPABASE_DB_URL`
+  no formato `KEY=VALUE` — usuário está preparando o ambiente); teste real
+  contra a Meta de todos os itens de RF004 (template aprovado, envio,
+  download de mídia) — só possível quando o usuário confirmar
+  WhatsApp/Instagram prontos; RF001 via convite real (cota de e-mail); os
+  2 LOW de log acima.
+- **Próxima etapa:** continuar o roadmap autonomamente (Fase 16/17 —
+  itens não bloqueados por Meta/env) enquanto o ambiente externo não fica
+  pronto; não há necessidade de recheck de credenciais até o usuário
+  avisar.

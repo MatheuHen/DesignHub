@@ -1,7 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
-import { sendTextMessage } from '../integrations/whatsapp/whatsappClient.js';
+import {
+  downloadMediaFromWhatsApp,
+  sendTemplateMessage,
+  sendTextMessage,
+} from '../integrations/whatsapp/whatsappClient.js';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
+import {
+  CONTENT_TYPE_BY_FORMATO,
+  EXTENSION_BY_FORMATO,
+  detectVersaoArteFormato,
+} from '../lib/fileSignature.js';
+import { uploadArquivoToStorage } from '../repositories/versaoArte.repository.js';
 import {
   completeAtendimentoAndCreateSolicitacao,
   countRespostas,
@@ -9,6 +20,7 @@ import {
   deleteAtendimento,
   findActiveAtendimentoByClienteId,
   findClienteById,
+  findSolicitacaoEmAndamentoByClienteId,
   insertResposta,
   listActiveAtendimentos,
   listRespostasOrdenadas,
@@ -18,7 +30,7 @@ import {
 } from '../repositories/atendimento.repository.js';
 import { syncDesignerBloqueio } from '../repositories/solicitacao.repository.js';
 import type { WhatsAppInboundMessage, WhatsAppWebhookPayload } from '../schemas/whatsapp.schemas.js';
-import { ATENDIMENTO_QUESTIONS, CLOSING_MESSAGE } from './atendimentoQuestions.js';
+import { ATENDIMENTO_QUESTIONS, CLOSING_MESSAGE, type QuestionDefinition } from './atendimentoQuestions.js';
 
 /** RN05: cliente tem até 2 dias para responder. */
 const ATENDIMENTO_TIMEOUT_MS = 2 * 24 * 60 * 60 * 1000;
@@ -57,6 +69,13 @@ export async function iniciarAtendimento(
     throw new ConflictError('Já existe um atendimento em andamento para este cliente.');
   }
 
+  const solicitacaoEmAndamento = await findSolicitacaoEmAndamentoByClienteId(adminClient, idCliente);
+  if (solicitacaoEmAndamento) {
+    throw new ConflictError(
+      `Já existe uma solicitação de arte em andamento para este cliente (status: ${solicitacaoEmAndamento.status}). Conclua ou cancele antes de iniciar um novo atendimento.`,
+    );
+  }
+
   const atendimento = await createAtendimento(adminClient, idCliente);
 
   const primeiraPergunta = ATENDIMENTO_QUESTIONS[0];
@@ -65,7 +84,10 @@ export async function iniciarAtendimento(
   }
 
   try {
-    await sendTextMessage(cliente.whatsapp, primeiraPergunta.prompt);
+    // RF004/item 20: mensagem que abre a conversa é business-initiated (fora
+    // da janela de 24h) — a Cloud API exige `type: 'template'`, não texto
+    // livre. O texto de RN08 vira parâmetro {{1}} do template aprovado.
+    await sendTemplateMessage(cliente.whatsapp, [primeiraPergunta.prompt]);
   } catch (sendError) {
     await deleteAtendimento(adminClient, atendimento.id);
     throw sendError;
@@ -74,10 +96,49 @@ export async function iniciarAtendimento(
   return { idAtendimento: atendimento.id };
 }
 
-function extractAnswerText(message: WhatsAppInboundMessage): string {
+/**
+ * RF004/RN08/item 14: baixa e valida a imagem/documento de referência que o
+ * cliente enviou e sobe para o mesmo bucket privado usado por RF007/RF010
+ * (`artes`). Retorna o path (mesma convenção de `versao_arte.arquivo_url` —
+ * não é URL pública; exige URL assinada para visualização, seção 12.5).
+ */
+async function downloadAndStoreReferencia(idAtendimento: number, mediaId: string): Promise<string> {
+  const buffer = await downloadMediaFromWhatsApp(mediaId);
+  const formato = detectVersaoArteFormato(buffer);
+  if (!formato) {
+    throw new Error('Formato de referência não suportado (PDF, JPG ou PNG esperado).');
+  }
+
+  const adminClient = getSupabaseAdminClient();
+  const path = `atendimentos/${idAtendimento}/referencias/${randomUUID()}.${EXTENSION_BY_FORMATO[formato]}`;
+  await uploadArquivoToStorage(adminClient, path, buffer, CONTENT_TYPE_BY_FORMATO[formato]);
+  return path;
+}
+
+/**
+ * Gate G: falha ao baixar/validar a mídia (rede, formato não suportado,
+ * tamanho excedido) não pode travar o questionário nem ser reprocessada — o
+ * evento do webhook já foi marcado como processado (idempotência). Registra
+ * um texto explícito de falha em vez de simular sucesso (seção 3.6.1).
+ */
+async function extractAnswerText(idAtendimento: number, question: QuestionDefinition, message: WhatsAppInboundMessage): Promise<string> {
   if (message.type === 'text' && message.text) {
     return message.text.body;
   }
+
+  const media = message.type === 'image' ? message.image : message.type === 'document' ? message.document : undefined;
+  if (question.key === 'referencia' && media) {
+    try {
+      return await downloadAndStoreReferencia(idAtendimento, media.id);
+    } catch (error) {
+      console.error('[designhub:whatsapp] falha ao processar mídia de referência', {
+        idAtendimento,
+        message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
+      });
+      return '[referência enviada, mas não foi possível processar o arquivo]';
+    }
+  }
+
   return `[mensagem tipo ${message.type} recebida]`;
 }
 
@@ -131,7 +192,8 @@ async function processInboundMessage(
   const question = ATENDIMENTO_QUESTIONS[answeredCount];
   if (!question) return;
 
-  const inserted = await insertResposta(adminClient, match.id, question.prompt, extractAnswerText(message));
+  const answerText = await extractAnswerText(match.id, question, message);
+  const inserted = await insertResposta(adminClient, match.id, question.prompt, answerText);
   if (!inserted) return; // seção 12.4: outra requisição concorrente já respondeu esta pergunta
 
   const nextIndex = answeredCount + 1;

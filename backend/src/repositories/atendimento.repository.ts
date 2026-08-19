@@ -44,6 +44,30 @@ export async function findActiveAtendimentoByClienteId(
   return { id: (data as { id_atendimento: number }).id_atendimento };
 }
 
+/**
+ * RF004: "verifica WhatsApp e solicitação existente" — os únicos status
+ * terminais de `solicitacao` são `Cancelado`/`Publicado` (RF011, sem
+ * arestas de saída em `statusTransitions.ts`); qualquer outro status
+ * significa que já existe uma solicitação de arte em andamento para o
+ * cliente, e um novo atendimento estruturado não deve nascer uma segunda.
+ */
+export async function findSolicitacaoEmAndamentoByClienteId(
+  adminClient: SupabaseClient,
+  idCliente: number,
+): Promise<{ id: number; status: string } | null> {
+  const result: unknown = await adminClient
+    .from('solicitacao')
+    .select('id_solicitacao, status')
+    .eq('id_cliente', idCliente)
+    .not('status', 'in', '("Cancelado","Publicado")')
+    .limit(1);
+  const { data, error } = result as { data: unknown[] | null; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao verificar solicitação em andamento: ${error.message}`);
+  const row = data?.[0] as { id_solicitacao: number; status: string } | undefined;
+  if (!row) return null;
+  return { id: row.id_solicitacao, status: row.status };
+}
+
 const activeAtendimentoRowSchema = z.object({
   id_atendimento: z.number(),
   id_cliente: z.number(),

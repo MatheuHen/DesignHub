@@ -1,17 +1,11 @@
--- DesignHub — RF007/RF008: registro atômico de nova versão de arte
--- RN17/RN23/RN25/RN26: V1, V2... sequenciais; upload move a solicitação
--- para "Enviado para avaliação" (1º envio a partir de "Em produção" ou
--- reenvio a partir de "Ajustes"); toda transição gera histórico (RN48).
---
--- O arquivo já foi enviado ao Storage (bucket privado "artes") pelo backend
--- antes desta chamada — esta função só persiste os metadados/estado de
--- forma atômica. Se a função falhar, o backend remove o objeto órfão do
--- Storage (compensação, mesmo padrão já usado em createDesigner/Fase 4).
---
--- Mesma política de acesso das demais funções SECURITY DEFINER desta base:
--- revogar de anon/authenticated explicitamente (o Supabase concede EXECUTE
--- a esses roles por padrão via ALTER DEFAULT PRIVILEGES), conceder só a
--- service_role.
+-- DesignHub — hotfix: register_versao_arte falhava em runtime com
+-- "column reference numero_versao is ambiguous" (SQLSTATE 42702).
+-- Descoberto ao validar o upload de versão pela primeira vez contra
+-- Postgres real (Fase 15). CREATE FUNCTION não detecta isso em tempo de
+-- criação (plpgsql só valida a query no primeiro EXECUTE), por isso a
+-- migration original (20260816160000) foi aplicada sem erro aparente.
+-- Redefine a função com o mesmo corpo, apenas qualificando a coluna.
+
 create or replace function public.register_versao_arte(
   p_id_solicitacao bigint,
   p_id_designer uuid,
@@ -36,19 +30,10 @@ begin
   where s.id_solicitacao = p_id_solicitacao
   for update;
 
-  -- Solicitação inexistente ou pertencente a outro designer: mesmo código
-  -- de erro para os dois casos, para não vazar a existência de uma
-  -- solicitação de outro designer (seção 12.1, defesa em profundidade —
-  -- o backend já faz essa checagem antes de chamar a função, esta é a
-  -- segunda camada, mesmo padrão do MEDIUM-1 corrigido na Fase 7).
   if v_id_designer is null or v_id_designer <> p_id_designer then
     raise exception 'solicitação % não encontrada', p_id_solicitacao using errcode = 'P0002';
   end if;
 
-  -- RF007/RN26: só é possível enviar versão quando a solicitação está
-  -- aguardando a 1ª versão ("Em produção") ou retornou de ajustes
-  -- ("Ajustes"). Qualquer outro status (já em avaliação, aprovada,
-  -- cancelada, agendada, publicada) rejeita o envio.
   if v_status not in ('Em produção', 'Ajustes') then
     raise exception
       'solicitação % não está em um status que permite envio de nova versão (status atual: %)',
@@ -56,10 +41,6 @@ begin
       using errcode = 'P0001';
   end if;
 
-  -- `numero_versao` sem qualificador é ambíguo aqui: colide com o OUT
-  -- parameter homônimo declarado implicitamente por `returns table (...
-  -- numero_versao ...)` acima (SQLSTATE 42702, só aparece ao rodar contra
-  -- Postgres real — nenhum teste com mock captura esse tipo de erro).
   select coalesce(max(versao_arte.numero_versao), 0) + 1
   into v_next_numero
   from public.versao_arte
