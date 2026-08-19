@@ -3,7 +3,10 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist'] },
+  // api/: bundle gerado por scripts/build-vercel-function.mjs (esbuild),
+  // fora do tsconfig.json do workspace (rootDir "src"). .vercel/: saída
+  // local de `vercel build` (Fase 16). Nenhum dos dois é fonte.
+  { ignores: ['dist', 'api', '.vercel'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],
     files: ['**/*.ts'],

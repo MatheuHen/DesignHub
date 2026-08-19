@@ -1516,14 +1516,170 @@ Este arquivo deve ser atualizado ao final de cada etapa.
   dos dois workspaces, incluindo o frontend — 50 testes, sem regressão).
 - Nenhuma migration nesta leva (nenhuma mudança de schema — reusa
   `resposta_cliente.resposta` (`text`) e o bucket `artes` já existentes).
-- **Pendências reais mantidas:** aplicar a migration `20260818100000`
-  (bloqueada por `.env.local` sem `SUPABASE_SECRET_KEY`/`SUPABASE_DB_URL`
-  no formato `KEY=VALUE` — usuário está preparando o ambiente); teste real
-  contra a Meta de todos os itens de RF004 (template aprovado, envio,
-  download de mídia) — só possível quando o usuário confirmar
-  WhatsApp/Instagram prontos; RF001 via convite real (cota de e-mail); os
-  2 LOW de log acima.
-- **Próxima etapa:** continuar o roadmap autonomamente (Fase 16/17 —
-  itens não bloqueados por Meta/env) enquanto o ambiente externo não fica
-  pronto; não há necessidade de recheck de credenciais até o usuário
+## 2026-08-19 — CHECKPOINT: SUPABASE_SECRET_KEY/DB_URL configuradas + migration aplicada; iniciando Fase 16 (deploy)
+
+- Usuário liberou `.env.local` completo (formato de notas — chaves com
+  rótulos diferentes dos nomes canônicos). Extração feita por script
+  local (lido o arquivo, `SUPABASE_SECRET_KEY` e `SUPABASE_DB_URL`
+  derivados e gravados de volta em `.env.local` em formato `KEY=VALUE`)
+  — nenhum valor apareceu na conversa/resposta em nenhum momento.
+- Migration `20260818100000_atendimento_checa_solicitacao_em_andamento.sql`
+  aplicada com sucesso ao Supabase remoto real via `supabase db push
+  --db-url` (saída: `"upToDate":false,...,"message":"Finished supabase db
+  push."`). Pendência antiga fechada.
+- Nota operacional: a CLI da Supabase tenta auto-carregar `.env.local` do
+  cwd (feature própria dela) e falha ao parsear porque o arquivo tem
+  notas em texto livre — contornado renomeando o arquivo só durante o
+  comando e restaurando logo depois (confirmado presente após).
+- Descoberta importante: o Supabase MCP conectado a este Claude Code
+  aponta para outra conta/projetos (`appcontroledevidaxen`, `Divertex`,
+  `DocesMeM`) — **não** o projeto real do TFC (`hfwgodzvitinubarwrjm`,
+  conta `tfc01e02@gmail.com`). Por isso a migration foi aplicada via CLI
+  (`--db-url`), não via MCP. Mesma divergência de conta observada no
+  Git: as notas do usuário citam `github.com/tfc01e02/DesignHub.git`,
+  mas o remote `origin` configurado localmente é
+  `github.com/MatheuHen/DesignHub.git` (para onde o push de Fase 15/RF004
+  já foi feito, autorizado). Não alterado — só registrado para o usuário
+  confirmar se é intencional.
+- Usuário autorizou Fase 16 (deploy acadêmico R$0) usando a integração
+  Vercel já conectada a este Claude Code (conta "Matheus Henrique's
+  projects" — confirmada com o usuário antes de criar qualquer recurso;
+  a outra conta vista, "VaidaCerto", não será usada). Nada criado no
+  Vercel ainda nesta entrada — próximo passo.
+- **Pendências reais mantidas:** teste real contra a Meta de todos os
+  itens de RF004 (template aprovado, envio, download de mídia) — só
+  possível quando o usuário confirmar WhatsApp/Instagram prontos; RF001
+  via convite real (cota de e-mail); os 2 LOW de log registrados
+  anteriormente; confirmar com o usuário a divergência de conta
+  GitHub/Supabase notada acima.
+- **Próxima etapa:** continuar o roadmap autonomamente (Fase 16 — deploy
+  Vercel) enquanto o ambiente Meta não fica pronto; não há necessidade de
+  recheck de credenciais Meta até o usuário
   avisar.
+
+## 2026-08-19 — CHECKPOINT: Fase 16 (deploy acadêmico Vercel) — frontend e backend em produção
+
+- Usuário autorizou a Fase 16 e confirmou a conta Vercel a usar
+  ("Matheus Henrique's projects", `team_BvT4K3D5b4ia7nJTdf7kuGNk` — a
+  outra conta vista, "VaidaCerto", não foi tocada).
+- **Backend em produção:** `https://designhub-backend.vercel.app`.
+  Projeto `designhub-backend` criado via `vercel link` (não git-linked —
+  ver bloqueio abaixo) e deployado via `vercel build` + `vercel deploy
+  --prebuilt`.
+  - **Problema real encontrado e corrigido:** `backend/tsconfig.json` e
+    o `tsconfig.app.json`/`tsconfig.node.json` do frontend usavam
+    `extends: "../tsconfig.base.json"` — path fora do `rootDirectory`
+    de cada projeto Vercel, inacessível no sandbox de build isolado por
+    projeto. As 5 opções do base foram inlined em cada tsconfig
+    (comportamento idêntico, sem `extends`); `tsconfig.base.json`
+    removido do repo (sem mais nenhuma referência).
+  - **Segundo problema:** com `moduleResolution: "NodeNext"`, o
+    type-checker interno da função Node da Vercel (independente do
+    nosso `npm run build`) falhava em `helmet`/`express-rate-limit`
+    ("This expression is not callable") — não reproduzível localmente
+    com `tsc` puro, só dentro do pipeline da própria Vercel
+    (`vercel build` local reproduziu o mesmo erro, permitindo iteração
+    rápida sem gastar deploys reais). Resolvido trocando
+    `module`/`moduleResolution` de `NodeNext`/`NodeNext` para
+    `ESNext`/`Bundler` em `backend/tsconfig.json` — mesmo comportamento
+    de emissão/runtime (confirmado: `node dist/server.js` local
+    continua funcionando), só mudou como o compilador resolve tipos.
+  - **Terceiro problema:** mesmo corrigido o type-check, o runtime
+    falhava com `Cannot find package 'cors'` — a função Node da Vercel
+    não estava empacotando `node_modules` (nem via detecção
+    zero-config nem via `builds` legado no `vercel.json`; ambos
+    testados e comprovadamente sem dependências no bundle final,
+    `du -sh` ~700KB). Resolvido gerando o **próprio bundle** com
+    esbuild (`backend/scripts/build-vercel-function.mjs`, novo
+    devDependency `esbuild`), empacotando `src/vercelHandler.ts` →
+    `backend/api/index.js` num único arquivo autocontido (~3.1MB, zero
+    imports externos além de builtins do Node). `api/index.js`/`.map`
+    são gerados (gitignorados); o `.ts` fonte fica em `src/` (parte do
+    tsconfig/lint/typecheck normal do workspace).
+  - **Quarto problema:** bundle ESM quebrava em runtime
+    (`Dynamic require of "tty" is not supported`, dependência
+    transitiva `debug` fazendo `require()` condicional de módulo nativo
+    do Node) — trocado para bundle **CJS**. Como `backend/package.json`
+    tem `"type":"module"` (copiado para dentro da função pela Vercel),
+    um `.js` CJS ali seria interpretado como ESM; resolvido com
+    `backend/api/package.json` (committed, só `{"type":"commonjs"}`),
+    que tem precedência de resolução do Node para qualquer arquivo
+    dentro de `api/`.
+  - **Quinto problema:** a Vercel também detecta `src/app.ts` como uma
+    "Express framework" zero-config e cria uma função fantasma paralela
+    (`functions/index.func`, sem bundling, mesma falha de
+    `node_modules`) que competia pelo roteamento com a nossa função
+    real. Suprimido com `"framework": null` + `"outputDirectory":
+    "public"` (novo `backend/public/index.html`, placeholder estático
+    mínimo, committed — exigido pela Vercel quando `framework` é nulo)
+    + `"functions": {"api/**/*.js": {...}}` explícito no
+    `backend/vercel.json`.
+  - Variáveis de ambiente de produção configuradas via `vercel env add`
+    (CLI, valor sempre por stdin — nunca na linha de comando nem na
+    resposta): `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
+    `SUPABASE_SECRET_KEY`, `WHATSAPP_ACCESS_TOKEN`,
+    `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`,
+    `WHATSAPP_VERIFY_TOKEN`, `META_APP_ID`, `META_APP_SECRET`,
+    `INTERNAL_JOB_SECRET` (gerado nesta sessão — 32 bytes aleatórios,
+    não existia antes), `FRONTEND_URL`.
+  - Smoke test real contra produção: `GET /api/health` → 200 com
+    `supabasePublicClient`/`supabaseAdminClient`/`whatsappSendingClient`/
+    `whatsappWebhookSecurity` todos `"configured"`; `GET /api/designers`
+    sem token → 401; `GET /api/webhooks/whatsapp` com verify_token
+    errado → 403; rota inexistente → 404; headers do `helmet` presentes;
+    `Access-Control-Allow-Origin` respondendo corretamente à origin real
+    do frontend deployado.
+- **Frontend em produção:** `https://designhub-frontend-ten.vercel.app`
+  (o subdomínio `designhub-frontend.vercel.app` sem sufixo já estava em
+  uso por outra conta Vercel — namespace `.vercel.app` é global, não
+  por conta; a Vercel escolheu automaticamente o sufixo `-ten`).
+  Deploy via `vercel deploy --prod` padrão (Vite zero-config, sem
+  necessidade de bundling manual). `VITE_API_URL`/`VITE_SUPABASE_URL`/
+  `VITE_SUPABASE_PUBLISHABLE_KEY` confirmados embutidos no bundle
+  final via grep no JS servido. Após descobrir a URL real do frontend,
+  `FRONTEND_URL` do backend foi corrigida e o backend redeployado (CORS
+  confirmado ao vivo contra a origin real).
+- **Credenciais Supabase resolvidas nesta leva:** usuário liberou o
+  `.env.local` completo (notas cruas, rótulos diferentes dos nomes
+  canônicos) e pediu para eu mesmo extrair. `SUPABASE_SECRET_KEY` e
+  `SUPABASE_DB_URL` derivados por script local e gravados de volta em
+  `.env.local` em formato `KEY=VALUE` — nenhum valor apareceu na
+  conversa em nenhum momento. Migration pendente
+  `20260818100000_atendimento_checa_solicitacao_em_andamento.sql`
+  aplicada ao Supabase remoto real via `supabase db push --db-url`
+  (CLI da Supabase tenta auto-carregar `.env.local` do cwd e falha por
+  causa das notas em texto livre — contornado renomeando o arquivo só
+  durante o comando, restaurado logo depois).
+- **BLOQUEIO/observação não resolvida — divergência de conta:** as
+  notas do usuário citam GitHub `github.com/tfc01e02/DesignHub.git` e
+  Supabase na conta `tfc01e02@gmail.com`, mas o `origin` git local
+  aponta para `github.com/MatheuHen/DesignHub.git` (onde o push desta
+  sessão já foi feito, autorizado) e o Supabase MCP conectado a este
+  Claude Code enxerga outra conta ainda diferente (projetos
+  `appcontroledevidaxen`/`Divertex`/`DocesMeM`, não o projeto real do
+  TFC). A migration foi aplicada via CLI direta ao projeto correto
+  (`hfwgodzvitinubarwrjm`), então não há impacto funcional — só uma
+  inconsistência de qual conta é "a oficial do TFC" que vale confirmar
+  com o usuário antes da entrega final (Fase 17), para não commitar
+  screenshots/URLs da conta errada na documentação do TFC II.
+- Nenhum commit feito ainda nesta leva (Fase 16) — aguardando
+  autorização explícita de push, mesmo padrão da leva anterior.
+- Testes: `npm run verify` completo (lint+typecheck+test+build, dois
+  workspaces) verde após todas as mudanças de tsconfig/build; nenhuma
+  regressão de teste (contagens inalteradas: 267 backend + 50
+  frontend).
+- **Pendências reais:** confirmar com o usuário a divergência de conta
+  GitHub/Supabase acima; RF004/RF014 automático e RF001-convite
+  continuam bloqueados externamente (Meta/cota, sem mudança nesta
+  leva); domínio custom do frontend não configurado (usando o
+  `*.vercel.app` padrão, dentro do escopo "domínio padrão gratuito do
+  provedor" da Fase 16); cron do Supabase (pg_cron → endpoint interno
+  de publicação) ainda não configurado — depende de decidir se isso
+  acontece antes ou depois do teste real do Instagram (RF014
+  automático), já que sem Instagram configurado o job não teria o que
+  publicar de qualquer forma.
+- **Próxima etapa:** aguardar autorização de commit/push desta leva;
+  depois, com o usuário, decidir se avança para configurar o cron do
+  Supabase (RF014, mesmo sem Instagram pronto — só a infraestrutura) ou
+  se passa para a Fase 17 (documentação/rastreabilidade) enquanto Meta
+  não fica pronto.

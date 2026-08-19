@@ -1,0 +1,7 @@
+.vercel
+
+# Gerado por scripts/build-vercel-function.mjs (esbuild) — não é fonte.
+api/index.js
+api/index.js.map
+# Gerado por `vercel build` ao instalar api/package.json isoladamente.
+api/package-lock.json

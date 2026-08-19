@@ -1,6 +1,14 @@
 {
-  "extends": "../tsconfig.base.json",
   "compilerOptions": {
+    // Fase 16: opções antes herdadas de ../tsconfig.base.json, inlined
+    // aqui para o workspace compilar sozinho (a Vercel builda cada
+    // projeto do monorepo isolado no seu rootDirectory, sem acesso a
+    // arquivos do repositório pai).
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
     "composite": true,
     "target": "ES2022",
     "useDefineForClassFields": true,

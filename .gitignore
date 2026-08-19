@@ -33,6 +33,7 @@ temp/
 .cache/
 *.tmp
 *.temp
+.repro-tmp/
 
 # Supabase local state
 .supabase/
