@@ -17,6 +17,13 @@ import { whatsappRouter } from './routes/whatsapp.routes.js';
 export function createApp() {
   const app = express();
 
+  // Seção 12.3: em produção (Vercel), a requisição chega atrás de um único
+  // proxy de borda que define X-Forwarded-For — sem isso, o
+  // express-rate-limit não consegue identificar o IP real do cliente de
+  // forma confiável (ERR_ERL_UNEXPECTED_X_FORWARDED_FOR). `1` confia
+  // apenas nesse primeiro hop, não em qualquer proxy encadeado.
+  app.set('trust proxy', 1);
+
   app.disable('x-powered-by');
   app.use(helmet());
   app.use(

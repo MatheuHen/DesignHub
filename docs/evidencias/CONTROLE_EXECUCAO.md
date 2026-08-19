@@ -1683,3 +1683,49 @@ Este arquivo deve ser atualizado ao final de cada etapa.
   Supabase (RF014, mesmo sem Instagram pronto — só a infraestrutura) ou
   se passa para a Fase 17 (documentação/rastreabilidade) enquanto Meta
   não fica pronto.
+
+## 2026-08-19 — CHECKPOINT: RF014 completo (cron pg_cron ligado, Instagram configurado)
+
+- Verificação focada do RF014 contra os documentos oficiais (CLAUDE.md
+  seção 5 RF014, RN27-RN35/RN41, seção 11): toda a regra de negócio já
+  estava implementada e testada (Fase 12/15) — `processarAgendamentosVencidos`,
+  publicação manual, não marcar como publicado em falha, log/RN34-35,
+  status `Publicado`. **Único item realmente faltando**: o gatilho de
+  horário em si ("No horário programado, validar...") — a seção 11 já
+  documenta a solução técnica congelada (pg_cron chamando o endpoint
+  interno), então implementado exatamente isso, nada além.
+- Usuário atualizou `.env.local` com credenciais reais do Instagram
+  (`INSTAGRAM_ACCESS_TOKEN`/`INSTAGRAM_USER_ID`→`INSTAGRAM_ACCOUNT_ID`)
+  durante esta leva — configuradas no backend (Vercel) e no `.env.local`.
+  Descoberto que `INTERNAL_JOB_SECRET` setado antes na Vercel é
+  "sensitive" por padrão (`vercel env add`) e não pode ser lido de volta
+  via `vercel env pull` — rotacionado (novo valor gerado, setado na
+  Vercel e no Supabase Vault, backend redeployado).
+- Migration `20260819110000_publicacao_cron_job.sql` aplicada ao
+  Supabase real: `pg_cron`/`pg_net` habilitados, job
+  `rf014-processar-publicacoes-vencidas` a cada 5 min chamando
+  `POST /api/internal/publicacoes/processar` via `net.http_post`, com o
+  segredo lido do Supabase Vault (`internal_job_secret`) — nunca em
+  texto na migration.
+- **Achado real durante a validação ao vivo (não relacionado à lógica de
+  negócio, infraestrutura pré-existente):** primeira execução do cron
+  revelou que o Express não tinha `trust proxy` configurado — sob
+  tráfego real da Vercel (atrás de um proxy de borda),
+  `express-rate-limit` não conseguia validar `X-Forwarded-For`
+  (`ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`, ainda respondia 200 mas com
+  erro logado). Corrigido com `app.set('trust proxy', 1)` em
+  `backend/src/app.ts` (seção 12.3) — não é requisito novo, é correção
+  de infraestrutura de segurança pré-existente, agora só visível porque
+  há tráfego periódico real.
+- Validado ao vivo: cron rodou automaticamente (`cron.job_run_details`:
+  `succeeded`) e o backend respondeu 200 sem erros; teste manual direto
+  do endpoint também 200 (`processados:0` — sem agendamentos pendentes
+  no momento, esperado após a limpeza de dados da Fase 15).
+- `npm run verify` completo (lint+typecheck+test+build, dois workspaces)
+  verde; 267 testes backend + 50 frontend, nenhuma regressão.
+- **Pendências reais:** nenhuma pendência de código para RF014. Falta
+  só o teste real de ponta a ponta com uma solicitação aprovada+agendada
+  de verdade publicando no Instagram real (depende de haver um
+  agendamento de teste — decisão de quando semear esse cenário, não
+  bloqueante). RF004 (WhatsApp) segue sem template Meta aprovado —
+  `BLOCKED_EXTERNAL_META`, RF001-convite segue por cota de e-mail.
