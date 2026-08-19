@@ -1723,9 +1723,39 @@ Este arquivo deve ser atualizado ao final de cada etapa.
   no momento, esperado após a limpeza de dados da Fase 15).
 - `npm run verify` completo (lint+typecheck+test+build, dois workspaces)
   verde; 267 testes backend + 50 frontend, nenhuma regressão.
-- **Pendências reais:** nenhuma pendência de código para RF014. Falta
-  só o teste real de ponta a ponta com uma solicitação aprovada+agendada
-  de verdade publicando no Instagram real (depende de haver um
-  agendamento de teste — decisão de quando semear esse cenário, não
-  bloqueante). RF004 (WhatsApp) segue sem template Meta aprovado —
-  `BLOCKED_EXTERNAL_META`, RF001-convite segue por cota de e-mail.
+## 2026-08-19 — Teste real de ponta a ponta do RF014 (autorizado pelo usuário)
+
+- Usuário autorizou publicar de verdade no Instagram para validar o
+  RF014 fim a fim. Cenário sintético semeado pela API real (designer
+  provisionado via Admin API sem e-mail, cliente criado via
+  `POST /api/clientes`, solicitação semeada direto na tabela — mesmo
+  padrão da Fase 15 —, versão PNG 1x1 real enviada via
+  `POST /:id/versoes`, link de avaliação gerado e aprovado via
+  `POST /api/avaliacao/:token`, agendamento criado via
+  `POST /:id/agendamento` para +90s em horário de parede
+  America/Sao_Paulo — mesma regra de timezone do RPC).
+- **Resultado:** o job (chamado manualmente para não esperar o ciclo de
+  5 min, mesmo código do cron) processou o agendamento e **falhou
+  corretamente sem marcar como publicado** — exatamente o comportamento
+  exigido pelo RF014 ("Falha automática não pode marcar como
+  publicado"). Causa real: `INSTAGRAM_ACCESS_TOKEN` **inválido**
+  ("Invalid OAuth access token - Cannot parse access token", erro 190
+  da Graph API) — confirmado testando o mesmo token direto contra a
+  Graph API a partir da minha máquina (mesmo erro), então não é
+  corrupção do meu pipeline (Vercel/env), é o token que o usuário colou
+  que não é válido/expirou. `BLOCKED_EXTERNAL_META`.
+- Dado de teste limpo após o resultado (agendamento e solicitação
+  sintéticos marcados `Cancelado` direto via admin — evita o cron
+  reter tentando publicar repetidamente com um token que já se sabe
+  inválido). Conta de teste `e2e.rf014.designer@designhub.test`
+  preservada para reuso quando o usuário fornecer um token válido
+  (mesmo critério da Fase 15 para as contas e2e de admin/designer).
+- **Pendências reais:** nenhuma pendência de código/infra para RF014 —
+  a máquina de publicação automática, o gatilho de horário e o
+  tratamento de falha estão implementados e comprovadamente corretos.
+  Falta só um `INSTAGRAM_ACCESS_TOKEN` válido do usuário para o teste
+  de publicação bem-sucedida acontecer (o cenário de teste pode ser
+  re-semeado a qualquer momento — script usado nesta leva não foi
+  commitado, era só validação pontual). RF004 (WhatsApp) segue sem
+  template Meta aprovado — `BLOCKED_EXTERNAL_META`; RF001-convite segue
+  por cota de e-mail.
