@@ -75,6 +75,8 @@ export interface ListSolicitacoesResult {
 export interface ListSolicitacoesParams {
   status?: SolicitacaoStatus | undefined;
   idCliente?: number | undefined;
+  dataInicio?: string | undefined;
+  dataFim?: string | undefined;
   page?: number;
 }
 
@@ -90,6 +92,8 @@ export function listSolicitacoes(params: ListSolicitacoesParams): Promise<ListSo
   const query = new URLSearchParams();
   if (params.status) query.set('status', params.status);
   if (params.idCliente) query.set('idCliente', String(params.idCliente));
+  if (params.dataInicio) query.set('dataInicio', params.dataInicio);
+  if (params.dataFim) query.set('dataFim', params.dataFim);
   query.set('page', String(params.page ?? 1));
   return apiRequest<ListSolicitacoesResult>(`/api/solicitacoes?${query.toString()}`);
 }

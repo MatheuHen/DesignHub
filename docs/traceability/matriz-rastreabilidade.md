@@ -1,6 +1,6 @@
 # Matriz de Rastreabilidade — DesignHub (TFC II)
 
-Atualizado em: 2026-08-19. Fonte: código real do repositório (não é
+Atualizado em: 2026-08-22. Fonte: código real do repositório (não é
 planejamento — cada linha aponta para arquivo/rota/tabela/teste existente).
 
 Legenda de status: `OK` = implementado, testado e (quando aplicável) validado
@@ -16,7 +16,7 @@ credencial/aprovação externa (Meta) para o teste real acontecer.
 | Serviço/Repo | `backend/src/services/designer.service.ts`, `repositories/designer.repository.ts` |
 | Banco | `usuario`, `designer` (`20260816120100_usuario_designer_administrador.sql`); RPC `create_designer_profile` (`20260816130100_...sql`) |
 | Teste | `designer.routes.test.ts`, `designer.service.test.ts`, `designer.repository.test.ts` |
-| Status | **OK** — CRUD completo, exclusão respeita impedimento histórico. Convite real por e-mail: `BLOCKED_EXTERNAL` (cota de e-mail do Supabase Free). |
+| Status | **OK** — CRUD completo, exclusão respeita impedimento histórico. Criação define a senha diretamente na tela (FIGURA 28, `auth.admin.createUser` com `email_confirm=true`) — não depende mais de e-mail de convite; designer pode logar imediatamente após o cadastro. |
 
 ## RF002 — Autenticar Usuário
 
@@ -49,7 +49,7 @@ credencial/aprovação externa (Meta) para o teste real acontecer.
 | Serviço/Repo | `atendimento.service.ts`, `atendimento.repository.ts`, `integrations/whatsapp/whatsappClient.ts`, `webhookSignature.ts`, `atendimentoQuestions.ts` |
 | Banco | `atendimento`, `resposta_cliente`, `whatsapp_webhook_evento` (`20260816120400_...`, `20260816140000_...`) |
 | Teste | `atendimento.service.test.ts`, `atendimento.repository.test.ts`, `whatsapp.routes.test.ts`, `webhookSignature.test.ts` |
-| Status | **BLOCKED_EXTERNAL_META** — código/máquina de perguntas/idempotência/prazo de 2 dias (RN05, cron em `internalAtendimento.routes.ts`) completos e testados; falta template de mensagem aprovado pela Meta para o primeiro envio real. |
+| Status | **OK — validado em produção real em 2026-08-22.** Template `inicio_atendimento_designhub` (pt_BR) aprovado pela Meta; fluxo completo exercitado de ponta a ponta via API real (designer autenticado → `POST /clientes/:id/atendimentos` → template abre a conversa + pergunta de confirmação como texto → 5 respostas reais recebidas via webhook → `solicitacao` criada automaticamente ao concluir). Duas causas raiz de infraestrutura encontradas e corrigidas nesta validação: (1) WABA não estava inscrita no webhook do app (`subscribed_apps` vazio) e o app não tinha nenhum webhook registrado (`/{app-id}/subscriptions` vazio) — ambos configurados via Graph API; (2) `wa_id` que a Meta envia para números BR pode omitir o 9º dígito do celular — `normalizePhone` (`atendimento.repository.ts`) agora canoniza os dois lados da comparação. |
 
 ## RF005 — Manter/Acompanhar Solicitação de Arte
 
@@ -60,7 +60,7 @@ credencial/aprovação externa (Meta) para o teste real acontecer.
 | Serviço/Repo | `solicitacao.service.ts`, `solicitacao.repository.ts` |
 | Banco | `solicitacao` (`20260816120300_solicitacao.sql`) |
 | Teste | `solicitacao.routes.test.ts`, `.service.test.ts`, `.repository.test.ts` |
-| Status | **OK** — nasce em `Em produção` via RF004, listagem/filtros/detalhe/histórico/versões funcionando. |
+| Status | **OK** — nasce em `Em produção` via RF004 (validado ao vivo em 2026-08-22, solicitação real #12), listagem/filtros (status, cliente, data)/detalhe/histórico/versões funcionando. |
 
 ## RF006 — Bloquear Designer por Atraso
 
@@ -158,9 +158,7 @@ credencial/aprovação externa (Meta) para o teste real acontecer.
 
 ## Bloqueios externos reais (não são falhas de implementação)
 
-1. **RF004 (WhatsApp)** — `BLOCKED_EXTERNAL_META`: template de mensagem
-   aguardando aprovação da Meta Business Manager.
-2. **RF001 (convite de designer por e-mail)** — `BLOCKED_EXTERNAL`: cota de
-   e-mail transacional do Supabase Free esgotada/limitada.
-
-Nenhum outro RF possui bloqueio externo pendente nesta data.
+Nenhum bloqueio externo pendente nesta data (2026-08-22). RF004 (template
+Meta) e RF014 (token Instagram) foram validados com sucesso real em
+produção; RF001 deixou de depender de e-mail de convite (fluxo trocado para
+definição de senha pelo admin na criação, FIGURA 28).

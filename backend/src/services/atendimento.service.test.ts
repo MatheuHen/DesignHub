@@ -149,26 +149,41 @@ describe('iniciarAtendimento (RF004/RN02/RN03, RF006)', () => {
     expect(sendTextMessageMock).not.toHaveBeenCalled();
   });
 
-  it('cria o atendimento e envia a primeira pergunta', async () => {
+  it('cria o atendimento, abre a conversa com o template e envia a primeira pergunta como texto', async () => {
     findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
     findActiveAtendimentoByClienteIdMock.mockResolvedValue(null);
     createAtendimentoMock.mockResolvedValue({ id: 42 });
     sendTemplateMessageMock.mockResolvedValue({ wamid: 'wamid.out.1' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid.out.2' });
 
     const result = await iniciarAtendimento({} as never, 'designer-1', 1);
 
     expect(result).toEqual({ idAtendimento: 42 });
-    // item 20: mensagem que abre a conversa (business-initiated) usa template, não texto livre.
-    expect(sendTemplateMessageMock).toHaveBeenCalledWith('5511999999999', [expect.any(String)]);
-    expect(sendTextMessageMock).not.toHaveBeenCalled();
+    // item 20: mensagem que abre a conversa (business-initiated) usa template
+    // sem parâmetro (corpo aprovado sem variável); a pergunta de confirmação
+    // (RN08) segue como texto livre, já dentro da janela de 24h aberta.
+    expect(sendTemplateMessageMock).toHaveBeenCalledWith('5511999999999');
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.any(String));
     expect(deleteAtendimentoMock).not.toHaveBeenCalled();
   });
 
-  it('compensa (remove o atendimento) quando o envio da primeira pergunta falha', async () => {
+  it('compensa (remove o atendimento) quando o envio do template de abertura falha', async () => {
     findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
     findActiveAtendimentoByClienteIdMock.mockResolvedValue(null);
     createAtendimentoMock.mockResolvedValue({ id: 42 });
     sendTemplateMessageMock.mockRejectedValue(new Error('WhatsApp indisponível'));
+
+    await expect(iniciarAtendimento({} as never, 'designer-1', 1)).rejects.toThrow('WhatsApp indisponível');
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+    expect(deleteAtendimentoMock).toHaveBeenCalledWith(expect.anything(), 42);
+  });
+
+  it('compensa (remove o atendimento) quando o template abre a conversa mas o envio da primeira pergunta falha', async () => {
+    findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    findActiveAtendimentoByClienteIdMock.mockResolvedValue(null);
+    createAtendimentoMock.mockResolvedValue({ id: 42 });
+    sendTemplateMessageMock.mockResolvedValue({ wamid: 'wamid.out.1' });
+    sendTextMessageMock.mockRejectedValue(new Error('WhatsApp indisponível'));
 
     await expect(iniciarAtendimento({} as never, 'designer-1', 1)).rejects.toThrow('WhatsApp indisponível');
     expect(deleteAtendimentoMock).toHaveBeenCalledWith(expect.anything(), 42);

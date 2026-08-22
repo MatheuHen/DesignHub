@@ -3,9 +3,12 @@ import { SOLICITACAO_STATUSES } from '../lib/statusTransitions.js';
 
 export { SOLICITACAO_STATUSES };
 
+/** RF005: "listagem/filtros por cliente, designer, status e data" — data é a data de criação (YYYY-MM-DD). */
 export const listSolicitacoesQuerySchema = z.object({
   status: z.enum(SOLICITACAO_STATUSES).optional(),
   idCliente: z.coerce.number().int().positive().optional(),
+  dataInicio: z.string().date().optional(),
+  dataFim: z.string().date().optional(),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });

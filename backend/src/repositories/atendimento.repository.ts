@@ -2,8 +2,20 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { ConflictError } from '../lib/errors.js';
 
+/**
+ * RF004: normaliza para dígitos e canoniza a ambiguidade documentada da
+ * própria Meta para números do Brasil — o `wa_id` que a Cloud API envia em
+ * `from` pode ou não incluir o 9º dígito do celular, independentemente de
+ * como o número foi cadastrado (`cliente.whatsapp`). Sem essa canonização, o
+ * matching do webhook falha silenciosamente para clientes reais (RN09: toda
+ * resposta deve ficar registrada).
+ */
 export function normalizePhone(value: string): string {
-  return value.replace(/\D/g, '');
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 13 && digits.startsWith('55') && digits[4] === '9') {
+    return digits.slice(0, 4) + digits.slice(5);
+  }
+  return digits;
 }
 
 const clienteWhatsappRowSchema = z.object({

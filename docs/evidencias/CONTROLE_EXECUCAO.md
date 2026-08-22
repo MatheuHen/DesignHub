@@ -1974,3 +1974,86 @@ Este arquivo deve ser atualizado ao final de cada etapa.
 - Próxima etapa: usuário testar ao vivo
   (`https://designhub-frontend-ten.vercel.app`) e reportar qualquer
   divergência restante; depois seguir para Fase 17.
+
+## 2026-08-22 — RF004 WhatsApp validado 100% real + fechamento pré-Fase 17
+
+- Template Meta `inicio_atendimento_designhub` (pt_BR) aprovado pelo
+  usuário. **RF004 validado de ponta a ponta em produção real**: designer
+  autenticado inicia atendimento (API real) → template abre a conversa →
+  pergunta de confirmação enviada como texto → cliente respondeu 5x pelo
+  WhatsApp real → todas as respostas persistidas via webhook → `solicitacao`
+  #12 criada automaticamente ao concluir (incluindo upload real de imagem de
+  referência via Media API).
+- Duas causas raiz de infraestrutura (não de lógica) encontradas e
+  corrigidas durante a validação ao vivo:
+  1. Nenhum webhook estava de fato inscrito na Meta (`subscribed_apps` do
+     WABA vazio **e** `/{app-id}/subscriptions` do App vazio — nenhum
+     callback URL jamais tinha sido registrado). Corrigido via Graph API
+     (`POST .../subscribed_apps` + `POST .../subscriptions` com callback_url
+     + verify_token + `fields=messages`); handshake e mensagens confirmados
+     ao vivo depois.
+  2. `wa_id` que a Meta envia para números BR pode omitir o 9º dígito do
+     celular, enquanto o número é cadastrado com o 9º dígito — o matching do
+     webhook falhava silenciosamente. `normalizePhone`
+     (`atendimento.repository.ts`) agora canoniza ambos os lados (13→12
+     dígitos quando aplicável); testes novos cobrindo os 3 casos.
+  3. Também corrigido: template aprovado pela Meta tem corpo sem variável
+     (0 params), mas o código enviava 1 param — `sendTemplateMessage` passou
+     a abrir a conversa sem parâmetro, com a pergunta de confirmação (RN08)
+     enviada em seguida como texto livre, já dentro da janela de 24h aberta
+     (`atendimento.service.ts`).
+  4. Bug real e pré-existente descoberto pelo teste: `cliente.whatsapp`
+     sem código do país (11 dígitos) passava na validação antiga
+     (`length >= 10`), causando a mesma perda silenciosa de resposta que o
+     próprio comentário do schema já alertava. `whatsappSchema`
+     (`cliente.schemas.ts`) endurecido para `>= 12` dígitos.
+- Ajuste de texto a pedido do usuário: pergunta de observações encurtada
+  para `Escreva uma observação sobre a arte ou responda "não tenho".`
+  (RN08 não exige texto literal).
+- Perfil do WhatsApp Business: foto de perfil configurada via API oficial
+  (upload resumable + `whatsapp_business_profile`), logo trocada 2x a
+  pedido do usuário (versão final: `logoofc.png`, fora do repositório —
+  arquivo de trabalho, nunca commitado). Nome de exibição segue com erro de
+  digitação ("DesingHub") herdado de configuração anterior à Meta — não é
+  seguro corrigir por API sem revisão; usuário orientado a corrigir em
+  WhatsApp Manager → Phone Numbers → Profile → Display name.
+- Auditoria de fidelidade do frontend (subagente `frontend-quality`,
+  leitura, RF001/RF002/RF003/RF005/RF006/RF009/RF010/RF012/RF013/RF016):
+  único achado real — RF005 exige filtro por cliente e por data na listagem
+  de solicitações, só existia filtro por status. Corrigido: filtro por
+  cliente e por intervalo de datas (`dataInicio`/`dataFim`) adicionados em
+  `SolicitacoesPage.tsx` + suporte no backend (`listSolicitacoesQuerySchema`,
+  `solicitacao.repository.ts`). Demais itens revisados sem divergência.
+- Auditoria RF001-RF016 (matriz de rastreabilidade, ambos os arquivos
+  atualizados — `docs/rastreabilidade/*.csv` e `docs/traceability/*.md`):
+  - RF001 agora **validado ao vivo em produção real**: admin autenticado
+    criou designer via API real (senha definida na criação, FIGURA 28,
+    sem e-mail de convite) e o novo designer logou imediatamente com a
+    senha definida — bloqueio antigo de cota de e-mail deixou de existir
+    (o fluxo não depende mais de e-mail). Dado de teste limpo (usuário
+    inativado + removido do Auth) logo após a validação.
+  - RF004: ver acima — de `BLOCKED_EXTERNAL_META` para `IMPLEMENTADO_E2E_REAL`.
+  - RF014: matriz corrigida para refletir o sucesso real já obtido em
+    2026-08-19 (estava desatualizada, ainda dizia bloqueado).
+  - RF006/RF011: notas atualizadas — gatilho real do RF006 e a transição
+    inicial do RF011 também já exercitados ao vivo via WhatsApp real nesta
+    sessão; as 8 arestas do RF011 estão todas cobertas por evidência ao
+    vivo (em sessões distintas).
+  - Nenhum bloqueio externo real pendente no momento deste checkpoint.
+- Rotas de produção testadas (F5/URL direta): `/`, `/login`,
+  `/esqueci-senha`, `/redefinir-senha`, `/designer`, `/designer/clientes`,
+  `/designer/solicitacoes`, `/designer/solicitacoes/:id`,
+  `/designer/agendamentos`, `/admin`, `/admin/designers`,
+  `/avaliacao/:token` (inválido) — todas 200, nenhum 404.
+- Validações: `npm run lint`/`typecheck`/`test`/`build` limpos nos dois
+  workspaces — **285 testes backend (+6) + 53 frontend (+0, mesma
+  contagem) = 338**, nenhuma regressão. Backend e frontend redeployados em
+  produção (`vercel build --prod` + `vercel deploy --prebuilt --prod`) após
+  cada lote de mudanças; `GET /api/health` e rotas do frontend confirmados
+  ao vivo depois de cada deploy.
+- **Pendência real não bloqueante**: corrigir manualmente o nome de
+  exibição do WhatsApp Business ("DesingHub" → "DesignHub") no WhatsApp
+  Manager — não é código, é configuração de perfil da Meta.
+- Próxima etapa: commit + push desta leva (autorizado pelo usuário nesta
+  sessão, "Não pedir autorização para commit/push desta finalização");
+  depois Fase 17 (documentação/rastreabilidade final de entrega).

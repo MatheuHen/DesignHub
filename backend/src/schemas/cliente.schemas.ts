@@ -13,7 +13,7 @@ const whatsappSchema = z
   .trim()
   .min(8)
   .max(20)
-  .refine((value) => value.replace(/\D/g, '').length >= 10, {
+  .refine((value) => value.replace(/\D/g, '').length >= 12, {
     message: 'Informe o WhatsApp com código do país (ex.: 5511999999999).',
   });
 

@@ -87,8 +87,12 @@ export async function iniciarAtendimento(
   try {
     // RF004/item 20: mensagem que abre a conversa é business-initiated (fora
     // da janela de 24h) — a Cloud API exige `type: 'template'`, não texto
-    // livre. O texto de RN08 vira parâmetro {{1}} do template aprovado.
-    await sendTemplateMessage(cliente.whatsapp, [primeiraPergunta.prompt]);
+    // livre. O template aprovado pela Meta (`inicio_atendimento_designhub`)
+    // não possui variável no corpo, então é enviado sem parâmetros; a
+    // pergunta de confirmação (RN08) é enviada em seguida como texto livre,
+    // já dentro da janela de 24h que o template acabou de abrir.
+    await sendTemplateMessage(cliente.whatsapp);
+    await sendTextMessage(cliente.whatsapp, primeiraPergunta.prompt);
   } catch (sendError) {
     await deleteAtendimento(adminClient, atendimento.id);
     throw sendError;

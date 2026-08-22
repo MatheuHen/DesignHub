@@ -20,7 +20,10 @@ export const ATENDIMENTO_QUESTIONS: readonly QuestionDefinition[] = [
   },
   { key: 'tema', prompt: 'Qual é o tema da arte que você deseja?' },
   { key: 'cores', prompt: 'Você tem preferência de cores? Se sim, quais?' },
-  { key: 'observacoes', prompt: 'Deseja adicionar alguma observação sobre a arte?' },
+  {
+    key: 'observacoes',
+    prompt: "Escreva uma observação sobre a arte ou responda \"não tenho\".",
+  },
   {
     key: 'referencia',
     prompt:

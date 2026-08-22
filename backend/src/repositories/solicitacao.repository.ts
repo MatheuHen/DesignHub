@@ -4,6 +4,13 @@ import { ConflictError, NotFoundError } from '../lib/errors.js';
 import { SOLICITACAO_STATUSES } from '../lib/statusTransitions.js';
 import type { ListSolicitacoesQuery, UpdateSolicitacaoInput } from '../schemas/solicitacao.schemas.js';
 
+/** RF005: `dataFim` do filtro é um dia (YYYY-MM-DD) inclusivo; `data_criacao` é datetime, então o limite superior é o início do dia seguinte. */
+function nextDay(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
 const solicitacaoRowSchema = z.object({
   id_solicitacao: z.number(),
   id_designer: z.string(),
@@ -66,6 +73,8 @@ export async function listSolicitacoes(
 
   if (filters.status) query = query.eq('status', filters.status);
   if (filters.idCliente) query = query.eq('id_cliente', filters.idCliente);
+  if (filters.dataInicio) query = query.gte('data_criacao', filters.dataInicio);
+  if (filters.dataFim) query = query.lt('data_criacao', nextDay(filters.dataFim));
 
   const from = (filters.page - 1) * filters.pageSize;
   const to = from + filters.pageSize - 1;

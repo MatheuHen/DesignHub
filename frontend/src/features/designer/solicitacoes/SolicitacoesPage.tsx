@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import { statusSlug } from '../../../lib/statusStyle';
+import { listClientes, type Cliente } from '../clientes/api';
 import { listSolicitacoes, SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from './api';
 
 function formatDate(value: string): string {
@@ -27,13 +28,28 @@ export function SolicitacoesPage() {
   const [statusFilter, setStatusFilter] = useState<SolicitacaoStatus | ''>(
     isSolicitacaoStatus(statusParam) ? statusParam : '',
   );
+  const [clienteFilter, setClienteFilter] = useState('');
+  const [dataInicioFilter, setDataInicioFilter] = useState('');
+  const [dataFimFilter, setDataFimFilter] = useState('');
+  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listClientes({ pageSize: 100 })
+      .then((result) => setClientes(result.items))
+      .catch(() => setClientes([]));
+  }, []);
 
   const reload = useCallback(() => {
     setLoading(true);
     setError(null);
-    listSolicitacoes({ status: statusFilter || undefined })
+    listSolicitacoes({
+      status: statusFilter || undefined,
+      idCliente: clienteFilter ? Number(clienteFilter) : undefined,
+      dataInicio: dataInicioFilter || undefined,
+      dataFim: dataFimFilter || undefined,
+    })
       .then((result) => {
         setItems(result.items);
         setTotal(result.total);
@@ -44,7 +60,7 @@ export function SolicitacoesPage() {
         );
       })
       .finally(() => setLoading(false));
-  }, [statusFilter]);
+  }, [statusFilter, clienteFilter, dataInicioFilter, dataFimFilter]);
 
   useEffect(() => {
     reload();
@@ -74,6 +90,36 @@ export function SolicitacoesPage() {
             </option>
           ))}
         </select>
+
+        <label htmlFor="solicitacao-cliente-filter">Cliente</label>
+        <select
+          id="solicitacao-cliente-filter"
+          value={clienteFilter}
+          onChange={(event) => setClienteFilter(event.target.value)}
+        >
+          <option value="">Todos</option>
+          {clientes.map((cliente) => (
+            <option key={cliente.id} value={cliente.id}>
+              {cliente.nome}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="solicitacao-data-inicio-filter">De</label>
+        <input
+          id="solicitacao-data-inicio-filter"
+          type="date"
+          value={dataInicioFilter}
+          onChange={(event) => setDataInicioFilter(event.target.value)}
+        />
+
+        <label htmlFor="solicitacao-data-fim-filter">Até</label>
+        <input
+          id="solicitacao-data-fim-filter"
+          type="date"
+          value={dataFimFilter}
+          onChange={(event) => setDataFimFilter(event.target.value)}
+        />
       </div>
 
       {loading && <p role="status">Carregando solicitações…</p>}

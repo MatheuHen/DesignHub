@@ -18,6 +18,7 @@ export interface ListClientesResult {
 export interface ListClientesParams {
   search?: string | undefined;
   page?: number;
+  pageSize?: number;
 }
 
 export interface CreateClienteInput {
@@ -36,6 +37,7 @@ export interface UpdateClienteInput {
 export function listClientes(params: ListClientesParams): Promise<ListClientesResult> {
   const query = new URLSearchParams();
   if (params.search) query.set('search', params.search);
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
   query.set('page', String(params.page ?? 1));
   return apiRequest<ListClientesResult>(`/api/clientes?${query.toString()}`);
 }

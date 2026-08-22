@@ -3,8 +3,23 @@ import {
   expireStaleAtendimentos,
   findSolicitacaoEmAndamentoByClienteId,
   insertResposta,
+  normalizePhone,
   registerWebhookEventOnce,
 } from './atendimento.repository.js';
+
+describe('normalizePhone (RF004: ambiguidade do 9º dígito BR entre wa_id e cadastro)', () => {
+  it('canoniza um número BR de 13 dígitos (com o 9º dígito) para a forma de 12 dígitos', () => {
+    expect(normalizePhone('55 64 98888-5274')).toBe(normalizePhone('55 64 8888-5274'));
+  });
+
+  it('mantém um número BR de 12 dígitos (sem o 9º dígito) inalterado', () => {
+    expect(normalizePhone('556484035274')).toBe('556484035274');
+  });
+
+  it('não altera números não-BR (país diferente de 55) mesmo com 13 dígitos', () => {
+    expect(normalizePhone('1234567891234')).toBe('1234567891234');
+  });
+});
 
 function insertClient(error: { code?: string; message: string } | null) {
   return {
