@@ -215,6 +215,99 @@ export async function listRespostasBySolicitacao(
   return z.array(respostaEntrySchema).parse(data ?? []);
 }
 
+const ajusteRowSchema = z.object({
+  id_ajuste: z.number(),
+  descricao: z.string(),
+  observacoes: z.string().nullable(),
+  imagem_referencia_url: z.string().nullable(),
+  created_at: z.string(),
+  avaliacao: z.union([
+    z.object({ versao_arte: z.union([z.object({ numero_versao: z.number() }), z.array(z.object({ numero_versao: z.number() })), z.null()]) }),
+    z.array(z.object({ versao_arte: z.union([z.object({ numero_versao: z.number() }), z.array(z.object({ numero_versao: z.number() })), z.null()]) })),
+    z.null(),
+  ]),
+});
+
+export interface AjusteEntry {
+  idAjuste: number;
+  numeroVersao: number | null;
+  descricao: string;
+  observacoes: string | null;
+  imagemReferenciaUrl: string | null;
+  createdAt: string;
+}
+
+/**
+ * RF010: "Designer deve visualizar claramente o solicitado" — descrição do
+ * ajuste (RN21) do cliente, associada à versão avaliada, para consulta pelo
+ * designer no detalhe da solicitação (RF005).
+ */
+export async function listAjustesBySolicitacao(
+  client: SupabaseClient,
+  idSolicitacao: number,
+): Promise<AjusteEntry[]> {
+  const result: unknown = await client
+    .from('ajuste')
+    .select(
+      'id_ajuste, descricao, observacoes, imagem_referencia_url, created_at, avaliacao!inner(versao_arte!inner(id_solicitacao, numero_versao))',
+    )
+    .eq('avaliacao.versao_arte.id_solicitacao', idSolicitacao)
+    .order('created_at', { ascending: true });
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao buscar ajustes: ${error.message}`);
+
+  const rows = z.array(ajusteRowSchema).parse(data ?? []);
+  return rows.map((row) => {
+    const avaliacao = Array.isArray(row.avaliacao) ? (row.avaliacao[0] ?? null) : row.avaliacao;
+    const versaoArte = avaliacao
+      ? Array.isArray(avaliacao.versao_arte)
+        ? (avaliacao.versao_arte[0] ?? null)
+        : avaliacao.versao_arte
+      : null;
+    return {
+      idAjuste: row.id_ajuste,
+      numeroVersao: versaoArte?.numero_versao ?? null,
+      descricao: row.descricao,
+      observacoes: row.observacoes,
+      imagemReferenciaUrl: row.imagem_referencia_url,
+      createdAt: row.created_at,
+    };
+  });
+}
+
+const ajusteReferenciaRowSchema = z.object({
+  imagem_referencia_url: z.string().nullable(),
+  avaliacao: z.union([
+    z.object({ versao_arte: z.union([z.object({ id_solicitacao: z.number() }), z.array(z.object({ id_solicitacao: z.number() })), z.null()]) }),
+    z.array(z.object({ versao_arte: z.union([z.object({ id_solicitacao: z.number() }), z.array(z.object({ id_solicitacao: z.number() })), z.null()]) })),
+    z.null(),
+  ]),
+});
+
+/**
+ * RF010 + seção 12.5: busca o path privado da imagem de referência do
+ * ajuste filtrando por `id_ajuste` **e** `id_solicitacao` simultaneamente
+ * (mesmo padrão anti-IDOR de `getVersaoArteByIdAndSolicitacao`, Fase 8).
+ */
+export async function getAjusteReferenciaPath(
+  client: SupabaseClient,
+  idAjuste: number,
+  idSolicitacao: number,
+): Promise<string | null> {
+  const result: unknown = await client
+    .from('ajuste')
+    .select('imagem_referencia_url, avaliacao!inner(versao_arte!inner(id_solicitacao))')
+    .eq('id_ajuste', idAjuste)
+    .eq('avaliacao.versao_arte.id_solicitacao', idSolicitacao)
+    .maybeSingle();
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao buscar referência do ajuste: ${error.message}`);
+  if (!data) return null;
+
+  const row = ajusteReferenciaRowSchema.parse(data);
+  return row.imagem_referencia_url;
+}
+
 /**
  * Seção 12.1/12.4: mesmo padrão de defesa em profundidade já usado em
  * `cliente.repository.ts` — a escrita via service role também filtra por

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import { statusSlug } from '../../../lib/statusStyle';
+import { listClientes, type Cliente } from '../clientes/api';
 import { AGENDAMENTO_STATUSES, listAgendamentos, type Agendamento, type AgendamentoStatus } from './api';
 
 function formatDate(value: string): string {
@@ -18,13 +19,28 @@ export function AgendamentosPage() {
   const [items, setItems] = useState<Agendamento[]>([]);
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState<AgendamentoStatus | ''>('');
+  const [clienteFilter, setClienteFilter] = useState('');
+  const [dataInicioFilter, setDataInicioFilter] = useState('');
+  const [dataFimFilter, setDataFimFilter] = useState('');
+  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listClientes({ pageSize: 100 })
+      .then((result) => setClientes(result.items))
+      .catch(() => setClientes([]));
+  }, []);
 
   const reload = useCallback(() => {
     setLoading(true);
     setError(null);
-    listAgendamentos({ status: statusFilter || undefined })
+    listAgendamentos({
+      status: statusFilter || undefined,
+      idCliente: clienteFilter ? Number(clienteFilter) : undefined,
+      dataInicio: dataInicioFilter || undefined,
+      dataFim: dataFimFilter || undefined,
+    })
       .then((result) => {
         setItems(result.items);
         setTotal(result.total);
@@ -35,7 +51,7 @@ export function AgendamentosPage() {
         );
       })
       .finally(() => setLoading(false));
-  }, [statusFilter]);
+  }, [statusFilter, clienteFilter, dataInicioFilter, dataFimFilter]);
 
   useEffect(() => {
     reload();
@@ -61,6 +77,36 @@ export function AgendamentosPage() {
             </option>
           ))}
         </select>
+
+        <label htmlFor="agendamento-cliente-filter">Cliente</label>
+        <select
+          id="agendamento-cliente-filter"
+          value={clienteFilter}
+          onChange={(event) => setClienteFilter(event.target.value)}
+        >
+          <option value="">Todos</option>
+          {clientes.map((cliente) => (
+            <option key={cliente.id} value={cliente.id}>
+              {cliente.nome}
+            </option>
+          ))}
+        </select>
+
+        <label htmlFor="agendamento-data-inicio-filter">De</label>
+        <input
+          id="agendamento-data-inicio-filter"
+          type="date"
+          value={dataInicioFilter}
+          onChange={(event) => setDataInicioFilter(event.target.value)}
+        />
+
+        <label htmlFor="agendamento-data-fim-filter">Até</label>
+        <input
+          id="agendamento-data-fim-filter"
+          type="date"
+          value={dataFimFilter}
+          onChange={(event) => setDataFimFilter(event.target.value)}
+        />
       </div>
 
       {loading && <p role="status">Carregando agendamentos…</p>}

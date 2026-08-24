@@ -7,16 +7,22 @@ const {
   listHistoricoSolicitacaoMock,
   listRespostasBySolicitacaoMock,
   listVersoesArteMock,
+  listAjustesBySolicitacaoMock,
+  getAjusteReferenciaPathMock,
   updateSolicitacaoFieldsMock,
   getActiveAgendamentoSummaryMock,
+  createVersaoArteDownloadUrlMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   getSolicitacaoDetailMock: vi.fn(),
   listHistoricoSolicitacaoMock: vi.fn(),
   listRespostasBySolicitacaoMock: vi.fn(),
   listVersoesArteMock: vi.fn(),
+  listAjustesBySolicitacaoMock: vi.fn(),
+  getAjusteReferenciaPathMock: vi.fn(),
   updateSolicitacaoFieldsMock: vi.fn(),
   getActiveAgendamentoSummaryMock: vi.fn(),
+  createVersaoArteDownloadUrlMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({
@@ -28,12 +34,18 @@ vi.mock('../repositories/solicitacao.repository.js', () => ({
   listHistoricoSolicitacao: listHistoricoSolicitacaoMock,
   listRespostasBySolicitacao: listRespostasBySolicitacaoMock,
   listVersoesArte: listVersoesArteMock,
+  listAjustesBySolicitacao: listAjustesBySolicitacaoMock,
+  getAjusteReferenciaPath: getAjusteReferenciaPathMock,
   listSolicitacoes: vi.fn(),
   updateSolicitacaoFields: updateSolicitacaoFieldsMock,
 }));
 
 vi.mock('../repositories/agendamento.repository.js', () => ({
   getActiveAgendamentoSummary: getActiveAgendamentoSummaryMock,
+}));
+
+vi.mock('../repositories/versaoArte.repository.js', () => ({
+  createVersaoArteDownloadUrl: createVersaoArteDownloadUrlMock,
 }));
 
 const { getSolicitacaoDetail, updateSolicitacao } = await import('./solicitacao.service.js');
@@ -58,8 +70,11 @@ describe('solicitacao.service (RF005)', () => {
     listHistoricoSolicitacaoMock.mockReset().mockResolvedValue([]);
     listRespostasBySolicitacaoMock.mockReset().mockResolvedValue([]);
     listVersoesArteMock.mockReset().mockResolvedValue([]);
+    listAjustesBySolicitacaoMock.mockReset().mockResolvedValue([]);
+    getAjusteReferenciaPathMock.mockReset();
     updateSolicitacaoFieldsMock.mockReset();
     getActiveAgendamentoSummaryMock.mockReset();
+    createVersaoArteDownloadUrlMock.mockReset();
   });
 
   it('getSolicitacaoDetail lança NotFoundError quando não pertence ao designer (ownership via RLS)', async () => {

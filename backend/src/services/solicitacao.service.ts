@@ -1,23 +1,29 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
+import { createVersaoArteDownloadUrl } from '../repositories/versaoArte.repository.js';
 import { NotFoundError } from '../lib/errors.js';
 import {
   getActiveAgendamentoSummary,
   type ActiveAgendamentoSummary,
 } from '../repositories/agendamento.repository.js';
 import {
+  getAjusteReferenciaPath,
   getSolicitacaoDetail as getSolicitacaoDetailRepo,
+  listAjustesBySolicitacao,
   listHistoricoSolicitacao,
   listRespostasBySolicitacao,
   listSolicitacoes as listSolicitacoesRepo,
   listVersoesArte,
   updateSolicitacaoFields,
+  type AjusteEntry,
   type HistoricoEntry,
   type RespostaEntry,
   type SolicitacaoDetail,
   type VersaoArteEntry,
 } from '../repositories/solicitacao.repository.js';
 import type { ListSolicitacoesQuery, UpdateSolicitacaoInput } from '../schemas/solicitacao.schemas.js';
+
+const AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS = 300;
 
 /** RF005/RN44: leitura via cliente escopado ao próprio designer (RLS garante ownership). */
 export async function listSolicitacoes(
@@ -48,6 +54,7 @@ export async function getSolicitacaoDetail(
   historico: HistoricoEntry[];
   respostasAtendimento: RespostaEntry[];
   versoes: VersaoArteEntry[];
+  ajustes: AjusteEntry[];
   agendamento: ActiveAgendamentoSummary | null;
 }> {
   const solicitacao = await getSolicitacaoDetailRepo(userClient, id);
@@ -55,14 +62,42 @@ export async function getSolicitacaoDetail(
     throw new NotFoundError('Solicitação não encontrada.');
   }
 
-  const [historico, respostasAtendimento, versoes, agendamento] = await Promise.all([
+  const [historico, respostasAtendimento, versoes, ajustes, agendamento] = await Promise.all([
     listHistoricoSolicitacao(userClient, id),
     listRespostasBySolicitacao(userClient, id),
     listVersoesArte(userClient, id),
+    listAjustesBySolicitacao(userClient, id),
     solicitacao.status === 'Agendado' ? getActiveAgendamentoSummary(userClient, id) : Promise.resolve(null),
   ]);
 
-  return { solicitacao, historico, respostasAtendimento, versoes, agendamento };
+  return { solicitacao, historico, respostasAtendimento, versoes, ajustes, agendamento };
+}
+
+export interface AjusteReferenciaUrl {
+  url: string;
+  expiresInSeconds: number;
+}
+
+/** RF010 + seção 12.5: URL assinada de curta duração da referência do ajuste, só para o designer dono da solicitação. */
+export async function getAjusteReferenciaUrl(
+  userClient: SupabaseClient,
+  idSolicitacao: number,
+  idAjuste: number,
+  callerId: string,
+): Promise<AjusteReferenciaUrl> {
+  const solicitacao = await getSolicitacaoDetailRepo(userClient, idSolicitacao);
+  if (!solicitacao || solicitacao.idDesigner !== callerId) {
+    throw new NotFoundError('Solicitação não encontrada.');
+  }
+
+  const path = await getAjusteReferenciaPath(userClient, idAjuste, idSolicitacao);
+  if (!path) {
+    throw new NotFoundError('Referência do ajuste não encontrada.');
+  }
+
+  const adminClient = getSupabaseAdminClient();
+  const url = await createVersaoArteDownloadUrl(adminClient, path, AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS);
+  return { url, expiresInSeconds: AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS };
 }
 
 /**

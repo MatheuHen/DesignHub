@@ -45,3 +45,8 @@ export const versaoArteParamsSchema = z.object({
   id: z.coerce.number().int().positive(),
   versaoId: z.coerce.number().int().positive(),
 });
+
+export const ajusteParamsSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  ajusteId: z.coerce.number().int().positive(),
+});

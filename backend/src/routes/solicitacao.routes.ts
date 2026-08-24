@@ -7,6 +7,7 @@ import { uploadVersaoArte as uploadVersaoArteMiddleware } from '../middleware/up
 import { agendamentoBodySchema } from '../schemas/agendamento.schemas.js';
 import { reassignSolicitacaoSchema } from '../schemas/designer.schemas.js';
 import {
+  ajusteParamsSchema,
   listSolicitacoesQuerySchema,
   solicitacaoIdParamSchema,
   updateSolicitacaoSchema,
@@ -22,6 +23,7 @@ import { gerarLinkAvaliacao } from '../services/avaliacao.service.js';
 import { reassignSolicitacao } from '../services/designer.service.js';
 import { registrarPublicacaoManual } from '../services/publicacao.service.js';
 import {
+  getAjusteReferenciaUrl,
   getSolicitacaoDetail,
   listSolicitacoes,
   updateSolicitacao,
@@ -182,6 +184,22 @@ solicitacaoRouter.get(
       const { id, versaoId } = versaoArteParamsSchema.parse(request.params);
       const client = getSupabaseUserClient(request.auth!.accessToken);
       const result = await getVersaoArteDownloadUrl(client, id, versaoId, request.auth!.userId);
+      response.status(200).json(result);
+    } catch (error) {
+      next(toAppError(error));
+    }
+  },
+);
+
+/** RF010 + seção 12.5: URL assinada de curta duração para a referência opcional de um ajuste. */
+solicitacaoRouter.get(
+  '/:id/ajustes/:ajusteId/referencia-url',
+  requireProfile('designer'),
+  async (request, response, next) => {
+    try {
+      const { id, ajusteId } = ajusteParamsSchema.parse(request.params);
+      const client = getSupabaseUserClient(request.auth!.accessToken);
+      const result = await getAjusteReferenciaUrl(client, id, ajusteId, request.auth!.userId);
       response.status(200).json(result);
     } catch (error) {
       next(toAppError(error));

@@ -161,6 +161,7 @@ export async function getActiveAgendamentoBySolicitacao(
 const clienteEmbedSchema = z.object({ nome: z.string() });
 const solicitacaoEmbedSchema = z.object({
   tema: z.string().nullable(),
+  id_cliente: z.number(),
   cliente: z.union([clienteEmbedSchema, z.array(clienteEmbedSchema), z.null()]),
 });
 
@@ -195,13 +196,16 @@ export async function listAgendamentos(
   let builder = client
     .from('agendamento_publicacao')
     .select(
-      'id_agendamento, id_solicitacao, data_publicacao, horario, legenda, status, created_at, solicitacao(tema, cliente(nome))',
+      'id_agendamento, id_solicitacao, data_publicacao, horario, legenda, status, created_at, solicitacao!inner(tema, id_cliente, cliente(nome))',
       { count: 'exact' },
     )
     .order('data_publicacao', { ascending: true })
     .order('horario', { ascending: true });
 
   if (query.status) builder = builder.eq('status', query.status);
+  if (query.idCliente) builder = builder.eq('solicitacao.id_cliente', query.idCliente);
+  if (query.dataInicio) builder = builder.gte('data_publicacao', query.dataInicio);
+  if (query.dataFim) builder = builder.lte('data_publicacao', query.dataFim);
 
   const from = (query.page - 1) * query.pageSize;
   const to = from + query.pageSize - 1;

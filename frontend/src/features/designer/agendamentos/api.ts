@@ -24,6 +24,9 @@ export interface ListAgendamentosResult {
 
 export interface ListAgendamentosParams {
   status?: AgendamentoStatus | undefined;
+  idCliente?: number | undefined;
+  dataInicio?: string | undefined;
+  dataFim?: string | undefined;
   page?: number;
 }
 
@@ -31,6 +34,9 @@ export interface ListAgendamentosParams {
 export function listAgendamentos(params: ListAgendamentosParams): Promise<ListAgendamentosResult> {
   const query = new URLSearchParams();
   if (params.status) query.set('status', params.status);
+  if (params.idCliente) query.set('idCliente', String(params.idCliente));
+  if (params.dataInicio) query.set('dataInicio', params.dataInicio);
+  if (params.dataFim) query.set('dataFim', params.dataFim);
   query.set('page', String(params.page ?? 1));
   return apiRequest<ListAgendamentosResult>(`/api/agendamentos?${query.toString()}`);
 }

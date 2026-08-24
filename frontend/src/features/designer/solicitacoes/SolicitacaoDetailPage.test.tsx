@@ -9,6 +9,7 @@ const {
   updateSolicitacaoMock,
   uploadVersaoArteMock,
   getVersaoArteDownloadUrlMock,
+  getAjusteReferenciaUrlMock,
   gerarLinkAvaliacaoMock,
   createAgendamentoMock,
   updateAgendamentoMock,
@@ -19,6 +20,7 @@ const {
   updateSolicitacaoMock: vi.fn(),
   uploadVersaoArteMock: vi.fn(),
   getVersaoArteDownloadUrlMock: vi.fn(),
+  getAjusteReferenciaUrlMock: vi.fn(),
   gerarLinkAvaliacaoMock: vi.fn(),
   createAgendamentoMock: vi.fn(),
   updateAgendamentoMock: vi.fn(),
@@ -34,6 +36,7 @@ vi.mock('./api', async (importOriginal) => {
     updateSolicitacao: updateSolicitacaoMock,
     uploadVersaoArte: uploadVersaoArteMock,
     getVersaoArteDownloadUrl: getVersaoArteDownloadUrlMock,
+    getAjusteReferenciaUrl: getAjusteReferenciaUrlMock,
     gerarLinkAvaliacao: gerarLinkAvaliacaoMock,
     createAgendamento: createAgendamentoMock,
     updateAgendamento: updateAgendamentoMock,
@@ -81,6 +84,7 @@ const sampleDetail: SolicitacaoDetailResult = {
   ],
   respostasAtendimento: [{ pergunta: 'Qual o tema?', resposta: 'Tema X', data_hora: '2026-01-01T00:00:00Z' }],
   versoes: [],
+  ajustes: [],
   agendamento: null,
 };
 
@@ -100,6 +104,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     updateSolicitacaoMock.mockReset();
     uploadVersaoArteMock.mockReset();
     getVersaoArteDownloadUrlMock.mockReset();
+    getAjusteReferenciaUrlMock.mockReset();
     gerarLinkAvaliacaoMock.mockReset();
     createAgendamentoMock.mockReset();
     updateAgendamentoMock.mockReset();
@@ -116,6 +121,28 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     expect(screen.getByText('Qual o tema?')).toBeInTheDocument();
     expect(screen.getByText(/Solicitação criada/)).toBeInTheDocument();
     expect(screen.getByText('Nenhuma versão enviada ainda.')).toBeInTheDocument();
+  });
+
+  it('exibe a descrição do ajuste solicitado pelo cliente (RF010: "designer deve visualizar claramente o solicitado")', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      ajustes: [
+        {
+          idAjuste: 1,
+          numeroVersao: 1,
+          descricao: 'Trocar a cor de fundo para azul.',
+          observacoes: null,
+          imagemReferenciaUrl: 'solicitacoes/10/referencias/abc.png',
+          createdAt: '2026-01-02T00:00:00Z',
+        },
+      ],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Ajustes solicitados pelo cliente')).toBeInTheDocument();
+    expect(screen.getByText('Trocar a cor de fundo para azul.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ver referência' })).toBeInTheDocument();
   });
 
   it('salva as alterações do formulário', async () => {

@@ -7,6 +7,7 @@ import {
   cancelAgendamento,
   createAgendamento,
   gerarLinkAvaliacao,
+  getAjusteReferenciaUrl,
   getSolicitacaoDetail,
   getVersaoArteDownloadUrl,
   registrarPublicacaoManual,
@@ -50,6 +51,9 @@ export function SolicitacaoDetailPage() {
 
   const [downloadingVersaoId, setDownloadingVersaoId] = useState<number | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  const [downloadingAjusteId, setDownloadingAjusteId] = useState<number | null>(null);
+  const [ajusteDownloadError, setAjusteDownloadError] = useState<string | null>(null);
 
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -159,6 +163,22 @@ export function SolicitacaoDetailPage() {
         );
       })
       .finally(() => setDownloadingVersaoId(null));
+  }
+
+  function handleDownloadAjusteReferencia(idAjuste: number) {
+    setDownloadingAjusteId(idAjuste);
+    setAjusteDownloadError(null);
+
+    getAjusteReferenciaUrl(id, idAjuste)
+      .then(({ url }) => {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      })
+      .catch((downloadErr: unknown) => {
+        setAjusteDownloadError(
+          downloadErr instanceof ApiError ? downloadErr.message : 'Não foi possível gerar o link de download.',
+        );
+      })
+      .finally(() => setDownloadingAjusteId(null));
   }
 
   function handleGerarLink() {
@@ -319,6 +339,38 @@ export function SolicitacaoDetailPage() {
               </ul>
             )}
           </section>
+
+          {data.ajustes.length > 0 && (
+            <section aria-labelledby="ajustes-title">
+              <h2 id="ajustes-title">Ajustes solicitados pelo cliente</h2>
+              <ul>
+                {data.ajustes.map((ajuste) => (
+                  <li key={ajuste.idAjuste}>
+                    <strong>
+                      {ajuste.numeroVersao !== null ? `V${ajuste.numeroVersao} — ` : ''}
+                      {formatDateTime(ajuste.createdAt)}
+                    </strong>
+                    <p>{ajuste.descricao}</p>
+                    {ajuste.observacoes && <p>Observações: {ajuste.observacoes}</p>}
+                    {ajuste.imagemReferenciaUrl && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadAjusteReferencia(ajuste.idAjuste)}
+                        disabled={downloadingAjusteId === ajuste.idAjuste}
+                      >
+                        {downloadingAjusteId === ajuste.idAjuste ? 'Gerando link…' : 'Ver referência'}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {ajusteDownloadError && (
+                <p role="alert" className="auth-error">
+                  {ajusteDownloadError}
+                </p>
+              )}
+            </section>
+          )}
 
           <section aria-labelledby="versoes-title">
             <h2 id="versoes-title">Versões da arte</h2>

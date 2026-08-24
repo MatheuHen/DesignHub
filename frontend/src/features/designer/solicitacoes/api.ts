@@ -57,11 +57,21 @@ export interface AgendamentoAtivo {
   legenda: string | null;
 }
 
+export interface AjusteEntry {
+  idAjuste: number;
+  numeroVersao: number | null;
+  descricao: string;
+  observacoes: string | null;
+  imagemReferenciaUrl: string | null;
+  createdAt: string;
+}
+
 export interface SolicitacaoDetailResult {
   solicitacao: SolicitacaoDetail;
   historico: HistoricoEntry[];
   respostasAtendimento: RespostaEntry[];
   versoes: VersaoArteEntry[];
+  ajustes: AjusteEntry[];
   agendamento: AgendamentoAtivo | null;
 }
 
@@ -136,6 +146,11 @@ export interface VersaoArteDownloadUrl {
 /** RF008 + seção 12.5: URL assinada de curta duração para visualização/download. */
 export function getVersaoArteDownloadUrl(id: number, idVersao: number): Promise<VersaoArteDownloadUrl> {
   return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/versoes/${idVersao}/download-url`);
+}
+
+/** RF010 + seção 12.5: URL assinada de curta duração para a referência opcional de um ajuste. */
+export function getAjusteReferenciaUrl(id: number, idAjuste: number): Promise<VersaoArteDownloadUrl> {
+  return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/ajustes/${idAjuste}/referencia-url`);
 }
 
 export interface GerarLinkAvaliacaoResult {

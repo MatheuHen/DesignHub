@@ -24,9 +24,12 @@ export const agendamentoBodySchema = z.object({
 });
 export type AgendamentoBody = z.infer<typeof agendamentoBodySchema>;
 
-/** RF012: listagem com filtros — só os agendamentos do próprio designer (RN44). */
+/** RF012: listagem com filtros por cliente, status e data — só os agendamentos do próprio designer (RN44). */
 export const listAgendamentosQuerySchema = z.object({
   status: z.enum(AGENDAMENTO_STATUSES).optional(),
+  idCliente: z.coerce.number().int().positive().optional(),
+  dataInicio: z.string().date().optional(),
+  dataFim: z.string().date().optional(),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
