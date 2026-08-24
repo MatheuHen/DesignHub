@@ -2057,3 +2057,63 @@ Este arquivo deve ser atualizado ao final de cada etapa.
 - Próxima etapa: commit + push desta leva (autorizado pelo usuário nesta
   sessão, "Não pedir autorização para commit/push desta finalização");
   depois Fase 17 (documentação/rastreabilidade final de entrega).
+
+## 2026-08-22/23 — Auditoria final de fidelidade documental (protótipo x produção)
+
+- Fonte usada: `docs/tfc-oficial/01_Roteiro_Correcoes_Pendentes_TFC_DesignHub.docx`
+  (extraído e lido integralmente — só trata de correções textuais do TFC
+  escrito/apresentação, nenhum requisito novo além do já congelado no
+  CLAUDE.md) e `03_TFC1_CORRECOES_CONSOLIDADAS.pdf` (112 páginas,
+  renderizado via pymupdf, FIGURA 2-29 comparadas uma a uma contra
+  screenshots reais de produção via Playwright headless, login real como
+  designer e admin).
+- **Bug crítico de infraestrutura encontrado e corrigido**: `vercel build
+  --prod` local não estava injetando `VITE_SUPABASE_URL`/
+  `VITE_SUPABASE_PUBLISHABLE_KEY`/`VITE_API_URL` no bundle do frontend
+  (`import.meta.env` ficava vazio) — o site ficou com o login
+  completamente fora do ar ("Supabase não configurado") desde o primeiro
+  redeploy desta sessão até a correção. Resolvido usando `vercel deploy
+  --prod` (build na nuvem da Vercel) em vez de `vercel build --prod`
+  local. **Recomendação para o futuro**: sempre usar `vercel deploy
+  --prod` direto para o frontend (não `--prebuilt`), a causa raiz da
+  diferença de comportamento não foi 100% isolada.
+- Gaps reais encontrados contra os protótipos (commit `3fc5dc6`):
+  - RF012: faltava filtro por cliente/data em Publicações e Agendamentos
+    (só status existia) — corrigido.
+  - RF010: texto literal do requisito ("Designer deve visualizar
+    claramente o solicitado") não era atendido — a descrição do ajuste e
+    a referência opcional do cliente nunca eram expostas ao designer em
+    nenhuma tela. Corrigido: nova rota `GET
+    /:id/ajustes/:ajusteId/referencia-url` + seção "Ajustes solicitados
+    pelo cliente" no detalhe da solicitação.
+  - RF005 (achado e corrigido antes deste checkpoint, mesma sessão):
+    filtro por cliente/data também faltava em Solicitações.
+- Divergências avaliadas e conscientemente aceitas (não são gap real —
+  IA/consolidação de tela, sem perda funcional, dentro do permitido pela
+  seção 11.1 do CLAUDE.md — "não precisa pixel perfect"):
+  - FIGURA 8/9 (Iniciar Atendimento como tela dedicada com lista de
+    "últimos atendimentos" com status) — implementação consolida em botão
+    por linha na tela de Clientes; RF004 funciona integralmente, histórico
+    de Q&A fica acessível via detalhe da solicitação (RF005).
+  - FIGURA 14 ("Informações do Designer" ao lado de "Informações do
+    Cliente") — designer já vê a própria identidade na topbar; sem RN que
+    exija esse bloco duplicado.
+  - FIGURA 27 (coluna "Solicitações" com contagem por designer na listagem
+    de Designers) — não implementada; nenhum RF/RN exige essa contagem
+    especificamente, registrado como possível polimento futuro, não como
+    bug.
+  - FIGURA 26 (Detalhes da Publicação como tela própria) — funcionalidade
+    (status/data/legenda/cancelar/editar/registrar publicação, aviso de
+    3h) já está presente, consolidada dentro do detalhe da solicitação.
+- Validações: `npm run lint`/`typecheck`/`test`/`build` limpos nos dois
+  workspaces — **285 testes backend (+0 vs. checkpoint anterior desta
+  leva) + 54 frontend (+1) = 339**, nenhuma regressão. Backend e frontend
+  redeployados e confirmados ao vivo (`GET /api/health` 200; bundle do
+  frontend confirmado com a URL do Supabase presente via grep).
+- Commit `3fc5dc6`, pushado.
+- **Pendência real não bloqueante (config externa, não código)**: nome de
+  exibição do WhatsApp Business ainda não confirmado corrigido
+  ("DesingHub" → "DesignHub") — usuário reportou ter mexido no WhatsApp
+  Manager, API ainda retorna o valor antigo (pode ser propagação).
+- Próxima etapa: Fase 17 (documentação/rastreabilidade final de entrega),
+  quando o usuário autorizar avançar.
