@@ -2117,3 +2117,67 @@ Este arquivo deve ser atualizado ao final de cada etapa.
   Manager, API ainda retorna o valor antigo (pode ser propagação).
 - Próxima etapa: Fase 17 (documentação/rastreabilidade final de entrega),
   quando o usuário autorizar avançar.
+
+## 2026-08-24 — CHECKPOINT (antes de /clear)
+
+- **Fase atual**: entre a auditoria final de fidelidade (concluída) e a
+  Fase 17 (documentação/rastreabilidade de entrega, ainda não iniciada).
+- **Fases concluídas**: 1–16 completas; auditoria final de fidelidade
+  documental (protótipo x produção) concluída nesta sessão, com os gaps
+  reais corrigidos (ver checkpoint anterior, commits `3fc5dc6`/`107eb48`).
+- **Tarefa em andamento**: nenhuma — usuário pediu inventário read-only
+  completo do sistema (atores, telas, fluxos, WhatsApp, status, campos,
+  divergências) para decidir o que ajustar antes de começar a Fase 17.
+  Esse inventário foi entregue na conversa (não gerou arquivo novo).
+- **Último ponto concluído**: inventário completo respondido ao usuário,
+  cobrindo 14 seções (atores/acessos, telas/rotas, fluxo cliente, fluxo
+  designer, fluxo admin, estado real do WhatsApp, login de cliente,
+  agendamento/publicação, textos técnicos vazando na UI, favicon, campos
+  reais por tela, status reais, divergências A–F). Nenhuma correção de
+  código foi feita a partir desse inventário ainda — é só diagnóstico.
+- **Achados registrados no inventário, pendentes de decisão do usuário
+  (nenhum corrigido ainda)**:
+  1. Texto técnico "(RF004/RN03, Serviço Automático)" aparece no
+     Histórico visível ao designer — vem hardcoded de
+     `supabase/migrations/20260816140000_whatsapp_atendimento_functions.sql`
+     (linha 76) e replicado em
+     `20260818100000_atendimento_checa_solicitacao_em_andamento.sql`
+     (linha 79).
+  2. Imagem de referência do cliente aparece para o designer como path
+     cru do Storage (texto), sem preview/link — em
+     `respostasAtendimento` (`SolicitacaoDetailPage.tsx`), diferente do
+     tratamento já dado aos ajustes (que têm botão "Ver referência" com
+     URL assinada).
+  3. Sem favicon próprio (`frontend/index.html` não tem `<link
+     rel="icon">`; não existe `frontend/public/`).
+  4. Cliente não tem painel/acompanhamento contínuo nem escolhe
+     data/horário de agendamento — comportamento já é este por design
+     (RF009/RF010 preveem só o link de avaliação), registrado apenas
+     para clareza, não é um bug.
+- **Testes verdes ainda válidos** (nenhum arquivo de código mudou depois
+  desta execução): `npm run verify` (lint+typecheck+test+build, dois
+  workspaces) — **285 testes backend + 54 frontend = 339**, tudo verde.
+- **Arquivos principais alterados nesta sessão** (já commitados e
+  pushados, nada pendente de commit): ver commits `63adf61`, `3fc5dc6`,
+  `107eb48` — WhatsApp (`atendimento.service.ts`,
+  `atendimento.repository.ts`, `atendimentoQuestions.ts`,
+  `cliente.schemas.ts`), filtros de Solicitações/Publicações
+  (`solicitacao.schemas.ts`/`.repository.ts`,
+  `agendamento.schemas.ts`/`.repository.ts`, telas correspondentes),
+  visibilidade de ajustes (`solicitacao.repository.ts`/`.service.ts`,
+  `SolicitacaoDetailPage.tsx`), matrizes de rastreabilidade.
+- **Bloqueios externos**: nenhum bloqueio externo de credencial/API
+  pendente. WhatsApp e Instagram validados reais em produção.
+- **Pendências reais**:
+  1. Confirmar propagação do nome de exibição do WhatsApp Business
+     ("DesingHub" → "DesignHub") — usuário já corrigiu no WhatsApp
+     Manager, só falta a Meta propagar (não é ação nossa).
+  2. Decidir com o usuário quais dos 4 achados do inventário acima ele
+     quer corrigir antes da Fase 17 (nenhum foi implementado ainda,
+     conforme pedido explícito de não alterar código nesta rodada).
+  3. Fase 17 (texto final do TFC II, screenshots, ensaio de
+     apresentação) não iniciada.
+- **Git**: `git status` limpo, exceto `logoofc.png` (arquivo solto na
+  raiz do repo, não faz parte do produto — usado só para configurar a
+  foto de perfil do WhatsApp Business via API, decisão já registrada no
+  checkpoint anterior de não versionar).
