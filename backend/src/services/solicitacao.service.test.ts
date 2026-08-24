@@ -9,6 +9,8 @@ const {
   listVersoesArteMock,
   listAjustesBySolicitacaoMock,
   getAjusteReferenciaPathMock,
+  getReferenciaPathBySolicitacaoMock,
+  getAgendamentoPreferenciaMock,
   updateSolicitacaoFieldsMock,
   getActiveAgendamentoSummaryMock,
   createVersaoArteDownloadUrlMock,
@@ -20,6 +22,8 @@ const {
   listVersoesArteMock: vi.fn(),
   listAjustesBySolicitacaoMock: vi.fn(),
   getAjusteReferenciaPathMock: vi.fn(),
+  getReferenciaPathBySolicitacaoMock: vi.fn(),
+  getAgendamentoPreferenciaMock: vi.fn(),
   updateSolicitacaoFieldsMock: vi.fn(),
   getActiveAgendamentoSummaryMock: vi.fn(),
   createVersaoArteDownloadUrlMock: vi.fn(),
@@ -36,6 +40,8 @@ vi.mock('../repositories/solicitacao.repository.js', () => ({
   listVersoesArte: listVersoesArteMock,
   listAjustesBySolicitacao: listAjustesBySolicitacaoMock,
   getAjusteReferenciaPath: getAjusteReferenciaPathMock,
+  getReferenciaPathBySolicitacao: getReferenciaPathBySolicitacaoMock,
+  getAgendamentoPreferencia: getAgendamentoPreferenciaMock,
   listSolicitacoes: vi.fn(),
   updateSolicitacaoFields: updateSolicitacaoFieldsMock,
 }));
@@ -72,6 +78,8 @@ describe('solicitacao.service (RF005)', () => {
     listVersoesArteMock.mockReset().mockResolvedValue([]);
     listAjustesBySolicitacaoMock.mockReset().mockResolvedValue([]);
     getAjusteReferenciaPathMock.mockReset();
+    getReferenciaPathBySolicitacaoMock.mockReset();
+    getAgendamentoPreferenciaMock.mockReset().mockResolvedValue(null);
     updateSolicitacaoFieldsMock.mockReset();
     getActiveAgendamentoSummaryMock.mockReset();
     createVersaoArteDownloadUrlMock.mockReset();
@@ -93,6 +101,16 @@ describe('solicitacao.service (RF005)', () => {
       NotFoundError,
     );
     expect(listHistoricoSolicitacaoMock).not.toHaveBeenCalled();
+  });
+
+  it('getSolicitacaoDetail permite Administrador consultar solicitação de qualquer designer (RF016/QUADRO 61)', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue(sampleSolicitacao);
+    listHistoricoSolicitacaoMock.mockResolvedValue([]);
+
+    const result = await getSolicitacaoDetail({} as never, 10, 'admin-1', { allowAnyDesigner: true });
+
+    expect(result.solicitacao).toEqual(sampleSolicitacao);
+    expect(listHistoricoSolicitacaoMock).toHaveBeenCalled();
   });
 
   it('getSolicitacaoDetail retorna solicitação + histórico + atendimento + versões', async () => {

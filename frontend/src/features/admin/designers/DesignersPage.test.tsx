@@ -83,7 +83,7 @@ describe('DesignersPage (RF001/RF015)', () => {
 
     renderPage();
 
-    expect(await screen.findByText('Dora Designer')).toBeInTheDocument();
+    expect(await screen.findByRole('cell', { name: 'Dora Designer' })).toBeInTheDocument();
     expect(screen.getByText('dora@exemplo.com')).toBeInTheDocument();
   });
 
@@ -100,7 +100,7 @@ describe('DesignersPage (RF001/RF015)', () => {
     deleteDesignerMock.mockResolvedValue(undefined);
 
     renderPage();
-    await screen.findByText('Dora Designer');
+    await screen.findByRole('cell', { name: 'Dora Designer' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
     expect(deleteDesignerMock).not.toHaveBeenCalled();
@@ -124,7 +124,7 @@ describe('DesignersPage (RF001/RF015)', () => {
     );
 
     renderPage();
-    await screen.findByText('Dora Designer');
+    await screen.findByRole('cell', { name: 'Dora Designer' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));

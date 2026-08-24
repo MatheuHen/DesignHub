@@ -7,7 +7,9 @@ import {
   type ActiveAgendamentoSummary,
 } from '../repositories/agendamento.repository.js';
 import {
+  getAgendamentoPreferencia,
   getAjusteReferenciaPath,
+  getReferenciaPathBySolicitacao,
   getSolicitacaoDetail as getSolicitacaoDetailRepo,
   listAjustesBySolicitacao,
   listHistoricoSolicitacao,
@@ -15,15 +17,18 @@ import {
   listSolicitacoes as listSolicitacoesRepo,
   listVersoesArte,
   updateSolicitacaoFields,
+  type AgendamentoPreferencia,
   type AjusteEntry,
   type HistoricoEntry,
   type RespostaEntry,
   type SolicitacaoDetail,
   type VersaoArteEntry,
 } from '../repositories/solicitacao.repository.js';
+import { ATENDIMENTO_QUESTIONS } from './atendimentoQuestions.js';
 import type { ListSolicitacoesQuery, UpdateSolicitacaoInput } from '../schemas/solicitacao.schemas.js';
 
 const AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS = 300;
+const REFERENCIA_PROMPT = ATENDIMENTO_QUESTIONS.find((q) => q.key === 'referencia')!.prompt;
 
 /** RF005/RN44: leitura via cliente escopado ao próprio designer (RLS garante ownership). */
 export async function listSolicitacoes(
@@ -49,6 +54,7 @@ export async function getSolicitacaoDetail(
   userClient: SupabaseClient,
   id: number,
   callerId: string,
+  options?: { allowAnyDesigner?: boolean },
 ): Promise<{
   solicitacao: SolicitacaoDetail;
   historico: HistoricoEntry[];
@@ -56,21 +62,29 @@ export async function getSolicitacaoDetail(
   versoes: VersaoArteEntry[];
   ajustes: AjusteEntry[];
   agendamento: ActiveAgendamentoSummary | null;
+  preferenciaAgendamento: AgendamentoPreferencia | null;
 }> {
   const solicitacao = await getSolicitacaoDetailRepo(userClient, id);
-  if (!solicitacao || solicitacao.idDesigner !== callerId) {
+  // RF016/QUADRO 61 ("Consultar"): o Administrador pode ler qualquer
+  // solicitação (RLS `solicitacao_select_owner_or_admin` já autoriza via
+  // `is_admin()` em todas as tabelas relacionadas) — só o Designer
+  // continua restrito à própria solicitação (defesa em profundidade além
+  // da RLS, seção 12.1 do CLAUDE.md).
+  if (!solicitacao || (!options?.allowAnyDesigner && solicitacao.idDesigner !== callerId)) {
     throw new NotFoundError('Solicitação não encontrada.');
   }
 
-  const [historico, respostasAtendimento, versoes, ajustes, agendamento] = await Promise.all([
-    listHistoricoSolicitacao(userClient, id),
-    listRespostasBySolicitacao(userClient, id),
-    listVersoesArte(userClient, id),
-    listAjustesBySolicitacao(userClient, id),
-    solicitacao.status === 'Agendado' ? getActiveAgendamentoSummary(userClient, id) : Promise.resolve(null),
-  ]);
+  const [historico, respostasAtendimento, versoes, ajustes, agendamento, preferenciaAgendamento] =
+    await Promise.all([
+      listHistoricoSolicitacao(userClient, id),
+      listRespostasBySolicitacao(userClient, id),
+      listVersoesArte(userClient, id),
+      listAjustesBySolicitacao(userClient, id),
+      solicitacao.status === 'Agendado' ? getActiveAgendamentoSummary(userClient, id) : Promise.resolve(null),
+      getAgendamentoPreferencia(userClient, id),
+    ]);
 
-  return { solicitacao, historico, respostasAtendimento, versoes, ajustes, agendamento };
+  return { solicitacao, historico, respostasAtendimento, versoes, ajustes, agendamento, preferenciaAgendamento };
 }
 
 export interface AjusteReferenciaUrl {
@@ -93,6 +107,31 @@ export async function getAjusteReferenciaUrl(
   const path = await getAjusteReferenciaPath(userClient, idAjuste, idSolicitacao);
   if (!path) {
     throw new NotFoundError('Referência do ajuste não encontrada.');
+  }
+
+  const adminClient = getSupabaseAdminClient();
+  const url = await createVersaoArteDownloadUrl(adminClient, path, AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS);
+  return { url, expiresInSeconds: AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS };
+}
+
+/**
+ * RF004/item 5 + seção 12.5: URL assinada de curta duração da imagem/arquivo
+ * de referência que o cliente enviou pelo WhatsApp durante o atendimento
+ * inicial — nunca expõe o path cru do Storage ao designer.
+ */
+export async function getAtendimentoReferenciaUrl(
+  userClient: SupabaseClient,
+  idSolicitacao: number,
+  callerId: string,
+): Promise<AjusteReferenciaUrl> {
+  const solicitacao = await getSolicitacaoDetailRepo(userClient, idSolicitacao);
+  if (!solicitacao || solicitacao.idDesigner !== callerId) {
+    throw new NotFoundError('Solicitação não encontrada.');
+  }
+
+  const path = await getReferenciaPathBySolicitacao(userClient, idSolicitacao, REFERENCIA_PROMPT);
+  if (!path) {
+    throw new NotFoundError('Referência não encontrada.');
   }
 
   const adminClient = getSupabaseAdminClient();

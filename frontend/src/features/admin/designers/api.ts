@@ -83,10 +83,14 @@ export function deleteDesigner(id: string): Promise<void> {
  */
 export function listSolicitacoesAdmin(params: {
   status?: SolicitacaoStatus | undefined;
+  idDesigner?: string | undefined;
+  clienteNome?: string | undefined;
   page?: number;
 }): Promise<ListSolicitacoesResult> {
   const query = new URLSearchParams();
   if (params.status) query.set('status', params.status);
+  if (params.idDesigner) query.set('idDesigner', params.idDesigner);
+  if (params.clienteNome) query.set('clienteNome', params.clienteNome);
   query.set('page', String(params.page ?? 1));
   return apiRequest<ListSolicitacoesResult>(`/api/solicitacoes/admin/todas?${query.toString()}`);
 }

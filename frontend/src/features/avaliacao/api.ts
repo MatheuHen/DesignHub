@@ -2,6 +2,33 @@ const apiUrl = import.meta.env.VITE_API_URL ?? '';
 
 export type AvaliacaoLinkState = 'valid' | 'invalid' | 'expired' | 'used';
 
+export interface AvaliacaoTrackingVersao {
+  numeroVersao: number;
+  formato: string;
+  dataEnvio: string;
+  downloadUrl: string;
+}
+
+export interface AvaliacaoTrackingHistoricoEntry {
+  acao: string;
+  statusNovo: string | null;
+  dataHora: string;
+}
+
+export interface AvaliacaoTrackingAgendamento {
+  dataPublicacao: string;
+  horario: string;
+  status: string;
+}
+
+export interface AvaliacaoTracking {
+  status: string;
+  tema: string | null;
+  versoes: AvaliacaoTrackingVersao[];
+  historico: AvaliacaoTrackingHistoricoEntry[];
+  agendamento: AvaliacaoTrackingAgendamento | null;
+}
+
 export interface AvaliacaoPreview {
   state: AvaliacaoLinkState;
   tema?: string | null;
@@ -10,6 +37,8 @@ export interface AvaliacaoPreview {
   observacoes?: string | null;
   downloadUrl?: string;
   expiresInSeconds?: number;
+  /** RN13/RN14/RN18: presente quando state === 'used' — acompanhamento somente-leitura. */
+  tracking?: AvaliacaoTracking;
 }
 
 export interface SubmitAvaliacaoResult {
@@ -22,6 +51,10 @@ export interface SubmitAvaliacaoInput {
   descricao?: string | undefined;
   observacoes?: string | undefined;
   referencia?: File | undefined;
+  /** RN22: só relevante quando decisao === 'Aprovado'. */
+  desejaAgendamento?: boolean | undefined;
+  dataDesejada?: string | undefined;
+  horarioDesejado?: string | undefined;
 }
 
 interface ApiErrorBody {
@@ -72,6 +105,11 @@ export async function submitAvaliacao(
   if (input.descricao) formData.append('descricao', input.descricao);
   if (input.observacoes) formData.append('observacoes', input.observacoes);
   if (input.referencia) formData.append('referencia', input.referencia);
+  if (input.desejaAgendamento !== undefined) {
+    formData.append('desejaAgendamento', input.desejaAgendamento ? 'true' : 'false');
+  }
+  if (input.dataDesejada) formData.append('dataDesejada', input.dataDesejada);
+  if (input.horarioDesejado) formData.append('horarioDesejado', input.horarioDesejado);
 
   const response = await fetch(`${apiUrl}/api/avaliacao/${token}`, { method: 'POST', body: formData });
   return parseOrThrow<SubmitAvaliacaoResult>(response);

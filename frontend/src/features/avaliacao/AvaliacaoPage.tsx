@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { PublicApiError, getAvaliacaoPreview, submitAvaliacao, type AvaliacaoPreview } from './api';
 
-type ViewState = 'loading' | 'error' | 'preview' | 'ajustes-form' | 'confirm-cancelar' | 'submitted';
+type ViewState = 'loading' | 'error' | 'preview' | 'ajustes-form' | 'confirm-cancelar' | 'aprovar-agendamento' | 'submitted';
 
 const FRIENDLY_LINK_MESSAGE: Record<'invalid' | 'expired' | 'used', string> = {
   invalid: 'Este link de avaliação não é válido. Solicite um novo link ao designer responsável.',
@@ -32,6 +32,10 @@ export function AvaliacaoPage() {
   const [observacoesAjuste, setObservacoesAjuste] = useState('');
   const [referenciaAjuste, setReferenciaAjuste] = useState<File | null>(null);
 
+  const [desejaAgendamento, setDesejaAgendamento] = useState<boolean | null>(null);
+  const [dataDesejada, setDataDesejada] = useState('');
+  const [horarioDesejado, setHorarioDesejado] = useState('');
+
   const load = useCallback(() => {
     setView('loading');
     setErrorMessage(null);
@@ -52,10 +56,20 @@ export function AvaliacaoPage() {
     load();
   }, [load]);
 
-  function handleAprovar() {
+  function handleConfirmarAprovacao(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (desejaAgendamento && (!dataDesejada || !horarioDesejado)) {
+      setActionError('Informe a data e o horário desejados.');
+      return;
+    }
     setSubmitting(true);
     setActionError(null);
-    submitAvaliacao(token, { decisao: 'Aprovado' })
+    submitAvaliacao(token, {
+      decisao: 'Aprovado',
+      desejaAgendamento: desejaAgendamento ?? false,
+      dataDesejada: desejaAgendamento ? dataDesejada : undefined,
+      horarioDesejado: desejaAgendamento ? horarioDesejado : undefined,
+    })
       .then(() => {
         setSubmittedStatus('Aprovado');
         setView('submitted');
@@ -120,16 +134,66 @@ export function AvaliacaoPage() {
           </>
         )}
 
-        {preview && preview.state !== 'valid' && view !== 'loading' && view !== 'submitted' && (
+        {/* RN13/RN14/RN18: link já usado, mas ainda identifica a solicitação — mostra acompanhamento somente-leitura em vez de só um erro. */}
+        {preview && preview.state === 'used' && preview.tracking && view !== 'loading' && view !== 'submitted' && (
           <>
-            <h1>Avaliação de arte</h1>
-            <p role="alert" className="auth-error">
-              {FRIENDLY_LINK_MESSAGE[preview.state]}
+            <h1>Acompanhamento da solicitação{preview.tracking.tema ? `: ${preview.tracking.tema}` : ''}</h1>
+            <p>
+              <strong>Status atual:</strong> {preview.tracking.status}
             </p>
+
+            <h2>Versões</h2>
+            {preview.tracking.versoes.length === 0 ? (
+              <p>Nenhuma versão enviada ainda.</p>
+            ) : (
+              <ul>
+                {preview.tracking.versoes.map((versao) => (
+                  <li key={versao.numeroVersao}>
+                    V{versao.numeroVersao} ({versao.formato}) —{' '}
+                    {new Date(versao.dataEnvio).toLocaleDateString('pt-BR')}{' '}
+                    <a href={versao.downloadUrl} target="_blank" rel="noopener noreferrer">
+                      Ver arte
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {preview.tracking.agendamento && (
+              <>
+                <h2>Agendamento</h2>
+                <p>
+                  {new Date(`${preview.tracking.agendamento.dataPublicacao}T00:00:00`).toLocaleDateString('pt-BR')}{' '}
+                  às {preview.tracking.agendamento.horario.slice(0, 5)} — {preview.tracking.agendamento.status}
+                </p>
+              </>
+            )}
+
+            <h2>Histórico</h2>
+            <ul>
+              {preview.tracking.historico.map((entrada, index) => (
+                <li key={`${entrada.dataHora}-${index}`}>
+                  {new Date(entrada.dataHora).toLocaleString('pt-BR')} — {entrada.acao}
+                </li>
+              ))}
+            </ul>
           </>
         )}
 
-        {preview && preview.state === 'valid' && (view === 'preview' || view === 'ajustes-form' || view === 'confirm-cancelar') && (
+        {preview &&
+          preview.state !== 'valid' &&
+          !(preview.state === 'used' && preview.tracking) &&
+          view !== 'loading' &&
+          view !== 'submitted' && (
+            <>
+              <h1>Avaliação de arte</h1>
+              <p role="alert" className="auth-error">
+                {FRIENDLY_LINK_MESSAGE[preview.state]}
+              </p>
+            </>
+          )}
+
+        {preview && preview.state === 'valid' && (view === 'preview' || view === 'ajustes-form' || view === 'confirm-cancelar' || view === 'aprovar-agendamento') && (
           <>
             <h1>Avalie sua arte{preview.tema ? `: ${preview.tema}` : ''}</h1>
             <p>Versão V{preview.numeroVersao}</p>
@@ -154,7 +218,7 @@ export function AvaliacaoPage() {
                 <button
                   type="button"
                   className="avaliacao-approve"
-                  onClick={handleAprovar}
+                  onClick={() => setView('aprovar-agendamento')}
                   disabled={submitting}
                 >
                   Aprovar
@@ -171,6 +235,63 @@ export function AvaliacaoPage() {
                   Cancelar
                 </button>
               </div>
+            )}
+
+            {view === 'aprovar-agendamento' && (
+              <form
+                className="designer-form"
+                onSubmit={handleConfirmarAprovacao}
+                aria-label="Confirmar aprovação"
+              >
+                <p>Deseja agendar a publicação da arte agora?</p>
+                <div className="avaliacao-actions">
+                  <button
+                    type="button"
+                    className={desejaAgendamento === true ? 'avaliacao-approve' : ''}
+                    onClick={() => setDesejaAgendamento(true)}
+                  >
+                    Sim, quero agendar
+                  </button>
+                  <button
+                    type="button"
+                    className={desejaAgendamento === false ? 'avaliacao-approve' : ''}
+                    onClick={() => setDesejaAgendamento(false)}
+                  >
+                    Não, decido depois com o designer
+                  </button>
+                </div>
+
+                {desejaAgendamento && (
+                  <>
+                    <label htmlFor="agendamento-data-desejada">Data desejada</label>
+                    <input
+                      id="agendamento-data-desejada"
+                      type="date"
+                      value={dataDesejada}
+                      onChange={(event) => setDataDesejada(event.target.value)}
+                      required
+                    />
+
+                    <label htmlFor="agendamento-horario-desejado">Horário desejado</label>
+                    <input
+                      id="agendamento-horario-desejado"
+                      type="time"
+                      value={horarioDesejado}
+                      onChange={(event) => setHorarioDesejado(event.target.value)}
+                      required
+                    />
+                  </>
+                )}
+
+                <div className="designer-form-actions">
+                  <button type="submit" disabled={submitting || desejaAgendamento === null}>
+                    {submitting ? 'Enviando…' : 'Confirmar aprovação'}
+                  </button>
+                  <button type="button" onClick={() => setView('preview')} disabled={submitting}>
+                    Voltar
+                  </button>
+                </div>
+              </form>
             )}
 
             {view === 'confirm-cancelar' && (
@@ -234,7 +355,7 @@ export function AvaliacaoPage() {
           </>
         )}
 
-        {(view === 'preview' || view === 'ajustes-form' || view === 'confirm-cancelar') && (
+        {(view === 'preview' || view === 'ajustes-form' || view === 'confirm-cancelar' || view === 'aprovar-agendamento') && (
           <p className="avaliacao-lgpd-note">
             Seus dados (avaliação, ajustes e referências enviadas) são usados apenas para o
             fluxo de aprovação desta arte, conforme a LGPD (Lei nº 13.709/2018).

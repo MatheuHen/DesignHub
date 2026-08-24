@@ -24,6 +24,7 @@ import { reassignSolicitacao } from '../services/designer.service.js';
 import { registrarPublicacaoManual } from '../services/publicacao.service.js';
 import {
   getAjusteReferenciaUrl,
+  getAtendimentoReferenciaUrl,
   getSolicitacaoDetail,
   listSolicitacoes,
   updateSolicitacao,
@@ -87,17 +88,29 @@ solicitacaoRouter.get('/admin/todas', requireProfile('administrador'), async (re
   }
 });
 
-/** RF005: detalhes com status, atendimento e histórico de transições. */
-solicitacaoRouter.get('/:id', requireProfile('designer'), async (request, response, next) => {
-  try {
-    const { id } = solicitacaoIdParamSchema.parse(request.params);
-    const client = getSupabaseUserClient(request.auth!.accessToken);
-    const result = await getSolicitacaoDetail(client, id, request.auth!.userId);
-    response.status(200).json(result);
-  } catch (error) {
-    next(toAppError(error));
-  }
-});
+/**
+ * RF005/RF016: detalhes com status, atendimento e histórico de transições.
+ * Administrador também acessa (QUADRO 61: ação "Consultar" da listagem de
+ * solicitações atribuídas) — sempre somente leitura, nunca escreve por
+ * esta rota.
+ */
+solicitacaoRouter.get(
+  '/:id',
+  requireProfile('designer', 'administrador'),
+  async (request, response, next) => {
+    try {
+      const { id } = solicitacaoIdParamSchema.parse(request.params);
+      const client = getSupabaseUserClient(request.auth!.accessToken);
+      const isAdmin = request.profile!.perfil === 'administrador';
+      const result = await getSolicitacaoDetail(client, id, request.auth!.userId, {
+        allowAnyDesigner: isAdmin,
+      });
+      response.status(200).json(result);
+    } catch (error) {
+      next(toAppError(error));
+    }
+  },
+);
 
 /** RF005: edição dos campos descritivos pelo designer responsável. */
 solicitacaoRouter.patch('/:id', requireProfile('designer'), async (request, response, next) => {
@@ -200,6 +213,22 @@ solicitacaoRouter.get(
       const { id, ajusteId } = ajusteParamsSchema.parse(request.params);
       const client = getSupabaseUserClient(request.auth!.accessToken);
       const result = await getAjusteReferenciaUrl(client, id, ajusteId, request.auth!.userId);
+      response.status(200).json(result);
+    } catch (error) {
+      next(toAppError(error));
+    }
+  },
+);
+
+/** RF004/item 5 + seção 12.5: URL assinada de curta duração da referência enviada pelo cliente no WhatsApp. */
+solicitacaoRouter.get(
+  '/:id/atendimento-referencia-url',
+  requireProfile('designer'),
+  async (request, response, next) => {
+    try {
+      const { id } = solicitacaoIdParamSchema.parse(request.params);
+      const client = getSupabaseUserClient(request.auth!.accessToken);
+      const result = await getAtendimentoReferenciaUrl(client, id, request.auth!.userId);
       response.status(200).json(result);
     } catch (error) {
       next(toAppError(error));

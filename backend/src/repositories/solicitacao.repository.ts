@@ -4,6 +4,11 @@ import { ConflictError, NotFoundError } from '../lib/errors.js';
 import { SOLICITACAO_STATUSES } from '../lib/statusTransitions.js';
 import type { ListSolicitacoesQuery, UpdateSolicitacaoInput } from '../schemas/solicitacao.schemas.js';
 
+/** Mesmo padrão de `cliente.repository.ts`/`designer.repository.ts`: escapa caracteres especiais do ILIKE do PostgREST. */
+function escapeIlikeTerm(term: string): string {
+  return term.replace(/[%,()]/g, (match) => `\\${match}`);
+}
+
 /** RF005: `dataFim` do filtro é um dia (YYYY-MM-DD) inclusivo; `data_criacao` é datetime, então o limite superior é o início do dia seguinte. */
 function nextDay(isoDate: string): string {
   const date = new Date(`${isoDate}T00:00:00.000Z`);
@@ -66,13 +71,18 @@ export async function listSolicitacoes(
   let query = client
     .from('solicitacao')
     .select(
-      'id_solicitacao, id_cliente, id_designer, tema, status, data_criacao, prazo_primeira_versao, cliente(nome)',
+      // `!inner` não muda o resultado quando `clienteNome` não é usado (todo
+      // solicitacao.id_cliente é NOT NULL) — só habilita filtrar pelo campo
+      // embutido (QUADRO 59: campo de pesquisa por Cliente na listagem admin).
+      'id_solicitacao, id_cliente, id_designer, tema, status, data_criacao, prazo_primeira_versao, cliente!inner(nome)',
       { count: 'exact' },
     )
     .order('data_criacao', { ascending: false });
 
   if (filters.status) query = query.eq('status', filters.status);
   if (filters.idCliente) query = query.eq('id_cliente', filters.idCliente);
+  if (filters.idDesigner) query = query.eq('id_designer', filters.idDesigner);
+  if (filters.clienteNome) query = query.ilike('cliente.nome', `%${escapeIlikeTerm(filters.clienteNome)}%`);
   if (filters.dataInicio) query = query.gte('data_criacao', filters.dataInicio);
   if (filters.dataFim) query = query.lt('data_criacao', nextDay(filters.dataFim));
 
@@ -215,6 +225,45 @@ export async function listRespostasBySolicitacao(
   return z.array(respostaEntrySchema).parse(data ?? []);
 }
 
+/**
+ * RF004/item 5: a resposta da pergunta de referência do chatbot guarda o
+ * path privado do Storage (não a imagem em si) — usado para gerar a URL
+ * assinada exibida ao designer em vez do path cru. Filtra pelo formato de
+ * path conhecido (`atendimentos/.../referencias/...`) para nunca confundir
+ * com a resposta literal "não tenho".
+ */
+export async function getReferenciaPathBySolicitacao(
+  client: SupabaseClient,
+  idSolicitacao: number,
+  perguntaReferencia: string,
+): Promise<string | null> {
+  const atendimentoResult: unknown = await client
+    .from('atendimento')
+    .select('id_atendimento')
+    .eq('id_solicitacao', idSolicitacao)
+    .maybeSingle();
+  const { data: atendimentoData, error: atendimentoError } = atendimentoResult as {
+    data: unknown;
+    error: { message: string } | null;
+  };
+  if (atendimentoError) throw new Error(`Falha ao buscar atendimento: ${atendimentoError.message}`);
+  if (!atendimentoData) return null;
+
+  const idAtendimento = z.object({ id_atendimento: z.number() }).parse(atendimentoData).id_atendimento;
+
+  const result: unknown = await client
+    .from('resposta_cliente')
+    .select('resposta')
+    .eq('id_atendimento', idAtendimento)
+    .eq('pergunta', perguntaReferencia)
+    .like('resposta', 'atendimentos/%/referencias/%')
+    .maybeSingle();
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao buscar referência: ${error.message}`);
+  if (!data) return null;
+  return z.object({ resposta: z.string() }).parse(data).resposta;
+}
+
 const ajusteRowSchema = z.object({
   id_ajuste: z.number(),
   descricao: z.string(),
@@ -306,6 +355,51 @@ export async function getAjusteReferenciaPath(
 
   const row = ajusteReferenciaRowSchema.parse(data);
   return row.imagem_referencia_url;
+}
+
+const agendamentoPreferenciaRowSchema = z.object({
+  deseja_agendamento: z.boolean().nullable(),
+  data_desejada: z.string().nullable(),
+  horario_desejado: z.string().nullable(),
+  data_avaliacao: z.string(),
+});
+
+export interface AgendamentoPreferencia {
+  desejaAgendamento: boolean | null;
+  dataDesejada: string | null;
+  horarioDesejado: string | null;
+}
+
+/**
+ * RN22/RN27: preferência de agendamento que o cliente informou ao aprovar
+ * a versão atual — só existe (não-null) quando ele respondeu "sim" na
+ * decisão de aprovação. Sempre a avaliação "Aprovado" mais recente da
+ * solicitação (RF012 só é alcançável depois de uma aprovação).
+ */
+export async function getAgendamentoPreferencia(
+  client: SupabaseClient,
+  idSolicitacao: number,
+): Promise<AgendamentoPreferencia | null> {
+  const result: unknown = await client
+    .from('avaliacao')
+    .select(
+      'deseja_agendamento, data_desejada, horario_desejado, data_avaliacao, versao_arte!inner(id_solicitacao)',
+    )
+    .eq('decisao', 'Aprovado')
+    .eq('versao_arte.id_solicitacao', idSolicitacao)
+    .order('data_avaliacao', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao buscar preferência de agendamento: ${error.message}`);
+  if (!data) return null;
+
+  const row = agendamentoPreferenciaRowSchema.parse(data);
+  return {
+    desejaAgendamento: row.deseja_agendamento,
+    dataDesejada: row.data_desejada,
+    horarioDesejado: row.horario_desejado,
+  };
 }
 
 /**

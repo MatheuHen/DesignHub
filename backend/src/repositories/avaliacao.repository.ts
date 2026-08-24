@@ -69,7 +69,11 @@ export async function getAvaliacaoLinkState(
 
   const row = linkPreviewRowSchema.parse(data);
   if (row.revoked_at) return { state: 'invalid', idVersao: null };
-  if (row.used_at) return { state: 'used', idVersao: null };
+  // RN13/RN14: um link já usado continua identificando a solicitação para
+  // a visão de acompanhamento somente-leitura (não permite nova decisão,
+  // isso é reforçado em `submit_avaliacao`/`P0004`) — por isso `idVersao`
+  // não é mais ocultado neste estado, diferente de `invalid`/`expired`.
+  if (row.used_at) return { state: 'used', idVersao: row.id_versao };
   if (new Date(row.expires_at).getTime() < Date.now()) return { state: 'expired', idVersao: null };
   return { state: 'valid', idVersao: row.id_versao };
 }
@@ -128,6 +132,149 @@ export async function getVersaoArtePreview(
   };
 }
 
+const trackingSolicitacaoRowSchema = z.object({
+  id_solicitacao: z.number(),
+  status: z.string(),
+  tema: z.string().nullable(),
+});
+
+export interface TrackingSolicitacao {
+  idSolicitacao: number;
+  status: string;
+  tema: string | null;
+}
+
+/** RN13: status atual da solicitação, para a visão de acompanhamento público (somente leitura). */
+export async function getTrackingSolicitacaoByVersao(
+  adminClient: SupabaseClient,
+  idVersao: number,
+): Promise<TrackingSolicitacao | null> {
+  const versaoResult: unknown = await adminClient
+    .from('versao_arte')
+    .select('id_solicitacao')
+    .eq('id_versao', idVersao)
+    .maybeSingle();
+  const { data: versaoData, error: versaoError } = versaoResult as {
+    data: unknown;
+    error: { message: string } | null;
+  };
+  if (versaoError) throw new Error(`Falha ao buscar versão: ${versaoError.message}`);
+  if (!versaoData) return null;
+  const idSolicitacao = z.object({ id_solicitacao: z.number() }).parse(versaoData).id_solicitacao;
+
+  const result: unknown = await adminClient
+    .from('solicitacao')
+    .select('id_solicitacao, status, tema')
+    .eq('id_solicitacao', idSolicitacao)
+    .maybeSingle();
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao buscar solicitação: ${error.message}`);
+  if (!data) return null;
+
+  const row = trackingSolicitacaoRowSchema.parse(data);
+  return { idSolicitacao: row.id_solicitacao, status: row.status, tema: row.tema };
+}
+
+const trackingVersaoRowSchema = z.object({
+  id_versao: z.number(),
+  numero_versao: z.number(),
+  formato: z.string(),
+  data_envio: z.string(),
+  arquivo_url: z.string(),
+});
+
+export interface TrackingVersao {
+  idVersao: number;
+  numeroVersao: number;
+  formato: string;
+  dataEnvio: string;
+  arquivoUrl: string;
+}
+
+/** RN14/RN18: versões acessíveis ao cliente para consulta (arquivo_url convertido em URL assinada no service). */
+export async function listTrackingVersoes(
+  adminClient: SupabaseClient,
+  idSolicitacao: number,
+): Promise<TrackingVersao[]> {
+  const result: unknown = await adminClient
+    .from('versao_arte')
+    .select('id_versao, numero_versao, formato, data_envio, arquivo_url')
+    .eq('id_solicitacao', idSolicitacao)
+    .order('numero_versao', { ascending: true });
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao buscar versões: ${error.message}`);
+
+  const rows = z.array(trackingVersaoRowSchema).parse(data ?? []);
+  return rows.map((row) => ({
+    idVersao: row.id_versao,
+    numeroVersao: row.numero_versao,
+    formato: row.formato,
+    dataEnvio: row.data_envio,
+    arquivoUrl: row.arquivo_url,
+  }));
+}
+
+const trackingHistoricoRowSchema = z.object({
+  acao: z.string(),
+  status_novo: z.string().nullable(),
+  data_hora: z.string(),
+});
+
+export interface TrackingHistoricoEntry {
+  acao: string;
+  statusNovo: string | null;
+  dataHora: string;
+}
+
+/** RN14: evolução da solicitação (avaliação, ajustes, aprovação, cancelamento, agendamento, publicação). */
+export async function listTrackingHistorico(
+  adminClient: SupabaseClient,
+  idSolicitacao: number,
+): Promise<TrackingHistoricoEntry[]> {
+  const result: unknown = await adminClient
+    .from('historico_solicitacao')
+    .select('acao, status_novo, data_hora')
+    .eq('id_solicitacao', idSolicitacao)
+    .order('data_hora', { ascending: true });
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao buscar histórico: ${error.message}`);
+
+  const rows = z.array(trackingHistoricoRowSchema).parse(data ?? []);
+  return rows.map((row) => ({ acao: row.acao, statusNovo: row.status_novo, dataHora: row.data_hora }));
+}
+
+const trackingAgendamentoRowSchema = z.object({
+  data_publicacao: z.string(),
+  horario: z.string(),
+  status: z.string(),
+});
+
+export interface TrackingAgendamento {
+  dataPublicacao: string;
+  horario: string;
+  status: string;
+}
+
+/** RN14: situação do agendamento — o mais recente, ativo ou não (para refletir cancelamento/publicação). */
+export async function getTrackingAgendamento(
+  adminClient: SupabaseClient,
+  idSolicitacao: number,
+): Promise<TrackingAgendamento | null> {
+  const result: unknown = await adminClient
+    .from('agendamento_publicacao')
+    .select('data_publicacao, horario, status')
+    .eq('id_solicitacao', idSolicitacao)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao buscar agendamento: ${error.message}`);
+  if (!data) return null;
+
+  const row = trackingAgendamentoRowSchema.parse(data);
+  return { dataPublicacao: row.data_publicacao, horario: row.horario, status: row.status };
+}
+
 const submitAvaliacaoRowSchema = z.object({
   id_solicitacao: z.number(),
   status_novo: z.string(),
@@ -140,7 +287,7 @@ export interface SubmitAvaliacaoResult {
   numeroVersao: number;
 }
 
-/** RF009/RF010: submete a decisão do cliente via RPC atômica. */
+/** RF009/RF010/RN22: submete a decisão do cliente via RPC atômica. */
 export async function submitAvaliacao(
   adminClient: SupabaseClient,
   params: {
@@ -149,6 +296,9 @@ export async function submitAvaliacao(
     descricaoAjuste: string | undefined;
     observacoesAjuste: string | undefined;
     imagemReferenciaPath: string | undefined;
+    desejaAgendamento?: boolean | undefined;
+    dataDesejada?: string | undefined;
+    horarioDesejado?: string | undefined;
   },
 ): Promise<SubmitAvaliacaoResult> {
   const result: unknown = await adminClient.rpc('submit_avaliacao', {
@@ -157,6 +307,9 @@ export async function submitAvaliacao(
     p_descricao_ajuste: params.descricaoAjuste ?? null,
     p_observacoes_ajuste: params.observacoesAjuste ?? null,
     p_imagem_referencia_path: params.imagemReferenciaPath ?? null,
+    p_deseja_agendamento: params.desejaAgendamento ?? null,
+    p_data_desejada: params.dataDesejada ?? null,
+    p_horario_desejado: params.horarioDesejado ?? null,
   });
   const { data, error } = result as {
     data: unknown;

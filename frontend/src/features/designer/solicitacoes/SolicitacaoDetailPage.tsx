@@ -8,15 +8,20 @@ import {
   createAgendamento,
   gerarLinkAvaliacao,
   getAjusteReferenciaUrl,
+  getAtendimentoReferenciaUrl,
   getSolicitacaoDetail,
   getVersaoArteDownloadUrl,
   registrarPublicacaoManual,
   updateAgendamento,
-  updateSolicitacao,
   uploadVersaoArte,
   type GerarLinkAvaliacaoResult,
   type SolicitacaoDetailResult,
 } from './api';
+
+/** RF004/item 5: mesmo formato de path gerado por `downloadAndStoreReferencia` no backend. */
+function isReferenciaPath(value: string): boolean {
+  return /^atendimentos\/\d+\/referencias\//.test(value);
+}
 
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString('pt-BR');
@@ -34,14 +39,6 @@ export function SolicitacaoDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [tema, setTema] = useState('');
-  const [cores, setCores] = useState('');
-  const [observacoes, setObservacoes] = useState('');
-  const [descricao, setDescricao] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
   const uploadFormRef = useRef<HTMLFormElement>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadObservacoes, setUploadObservacoes] = useState('');
@@ -54,6 +51,9 @@ export function SolicitacaoDetailPage() {
 
   const [downloadingAjusteId, setDownloadingAjusteId] = useState<number | null>(null);
   const [ajusteDownloadError, setAjusteDownloadError] = useState<string | null>(null);
+
+  const [downloadingAtendimentoReferencia, setDownloadingAtendimentoReferencia] = useState(false);
+  const [atendimentoReferenciaError, setAtendimentoReferenciaError] = useState<string | null>(null);
 
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -79,10 +79,6 @@ export function SolicitacaoDetailPage() {
     getSolicitacaoDetail(id)
       .then((result) => {
         setData(result);
-        setTema(result.solicitacao.tema ?? '');
-        setCores(result.solicitacao.cores ?? '');
-        setObservacoes(result.solicitacao.observacoes ?? '');
-        setDescricao(result.solicitacao.descricao ?? '');
         setAgendData(result.agendamento?.dataPublicacao ?? '');
         setAgendHorario(result.agendamento?.horario.slice(0, 5) ?? '');
         setAgendLegenda(result.agendamento?.legenda ?? '');
@@ -98,30 +94,6 @@ export function SolicitacaoDetailPage() {
   useEffect(() => {
     reload();
   }, [reload]);
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaving(true);
-    setSaveError(null);
-    setSaved(false);
-
-    updateSolicitacao(id, {
-      tema: tema || null,
-      cores: cores || null,
-      observacoes: observacoes || null,
-      descricao: descricao || null,
-    })
-      .then(() => {
-        setSaved(true);
-        reload();
-      })
-      .catch((submitError: unknown) => {
-        setSaveError(
-          submitError instanceof ApiError ? submitError.message : 'Não foi possível salvar as alterações.',
-        );
-      })
-      .finally(() => setSaving(false));
-  }
 
   function handleUploadSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -179,6 +151,22 @@ export function SolicitacaoDetailPage() {
         );
       })
       .finally(() => setDownloadingAjusteId(null));
+  }
+
+  function handleDownloadAtendimentoReferencia() {
+    setDownloadingAtendimentoReferencia(true);
+    setAtendimentoReferenciaError(null);
+
+    getAtendimentoReferenciaUrl(id)
+      .then(({ url }) => {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      })
+      .catch((downloadErr: unknown) => {
+        setAtendimentoReferenciaError(
+          downloadErr instanceof ApiError ? downloadErr.message : 'Não foi possível gerar o link de download.',
+        );
+      })
+      .finally(() => setDownloadingAtendimentoReferencia(false));
   }
 
   function handleGerarLink() {
@@ -286,42 +274,23 @@ export function SolicitacaoDetailPage() {
             </div>
           </div>
 
-          <form className="designer-form" onSubmit={handleSubmit} aria-label="Editar solicitação">
-            <h2>Informações do Chatbot</h2>
+          {/* QUADRO 34 (Alteração de solicitação de arte): Tema, Preferência de
+              cores e Observações são "Somente leitura" nesta tela — quem
+              produz esses dados é o atendimento estruturado do WhatsApp
+              (RF004/RN08), não uma edição livre pelo designer aqui. */}
+          <section aria-labelledby="dados-solicitacao-title" className="info-box">
+            <h2 id="dados-solicitacao-title">Dados da solicitação</h2>
 
-            <label htmlFor="solicitacao-tema">Tema</label>
-            <input id="solicitacao-tema" value={tema} onChange={(event) => setTema(event.target.value)} />
-
-            <label htmlFor="solicitacao-cores">Cores</label>
-            <input id="solicitacao-cores" value={cores} onChange={(event) => setCores(event.target.value)} />
-
-            <label htmlFor="solicitacao-observacoes">Observações</label>
-            <input
-              id="solicitacao-observacoes"
-              value={observacoes}
-              onChange={(event) => setObservacoes(event.target.value)}
-            />
-
-            <label htmlFor="solicitacao-descricao">Descrição</label>
-            <input
-              id="solicitacao-descricao"
-              value={descricao}
-              onChange={(event) => setDescricao(event.target.value)}
-            />
-
-            {saveError && (
-              <p role="alert" className="auth-error">
-                {saveError}
-              </p>
-            )}
-            {saved && !saveError && <p className="atendimento-success">Alterações salvas.</p>}
-
-            <div className="designer-form-actions">
-              <button type="submit" disabled={saving}>
-                {saving ? 'Salvando…' : 'Salvar alterações'}
-              </button>
-            </div>
-          </form>
+            <p>
+              <strong>Tema:</strong> {data.solicitacao.tema || '—'}
+            </p>
+            <p>
+              <strong>Preferência de cores:</strong> {data.solicitacao.cores || '—'}
+            </p>
+            <p>
+              <strong>Observações:</strong> {data.solicitacao.observacoes || '—'}
+            </p>
+          </section>
 
           <section aria-labelledby="atendimento-title">
             <h2 id="atendimento-title">Respostas do atendimento (WhatsApp)</h2>
@@ -333,10 +302,25 @@ export function SolicitacaoDetailPage() {
                   <li key={`${resposta.pergunta}-${index}`}>
                     <strong>{resposta.pergunta}</strong>
                     <br />
-                    {resposta.resposta}
+                    {isReferenciaPath(resposta.resposta) ? (
+                      <button
+                        type="button"
+                        onClick={handleDownloadAtendimentoReferencia}
+                        disabled={downloadingAtendimentoReferencia}
+                      >
+                        {downloadingAtendimentoReferencia ? 'Gerando link…' : 'Ver referência'}
+                      </button>
+                    ) : (
+                      resposta.resposta
+                    )}
                   </li>
                 ))}
               </ul>
+            )}
+            {atendimentoReferenciaError && (
+              <p role="alert" className="auth-error">
+                {atendimentoReferenciaError}
+              </p>
             )}
           </section>
 
@@ -483,6 +467,19 @@ export function SolicitacaoDetailPage() {
                   às {data.agendamento.horario.slice(0, 5)}
                   {data.agendamento.legenda && <> — {data.agendamento.legenda}</>}
                 </p>
+              )}
+
+              {/* RN22: preferência que o cliente informou ao aprovar — só a leitura, quem cria/gerencia o agendamento continua sendo o designer (RF012). */}
+              {data.preferenciaAgendamento?.desejaAgendamento === true && (
+                <p>
+                  O cliente indicou que deseja agendar para{' '}
+                  {data.preferenciaAgendamento.dataDesejada &&
+                    new Date(`${data.preferenciaAgendamento.dataDesejada}T00:00:00`).toLocaleDateString('pt-BR')}{' '}
+                  às {data.preferenciaAgendamento.horarioDesejado?.slice(0, 5)}.
+                </p>
+              )}
+              {data.preferenciaAgendamento?.desejaAgendamento === false && (
+                <p>O cliente optou por decidir o agendamento junto com você depois.</p>
               )}
 
               <form

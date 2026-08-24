@@ -3,10 +3,18 @@ import { SOLICITACAO_STATUSES } from '../lib/statusTransitions.js';
 
 export { SOLICITACAO_STATUSES };
 
-/** RF005: "listagem/filtros por cliente, designer, status e data" — data é a data de criação (YYYY-MM-DD). */
+/**
+ * RF005/RF016: "listagem/filtros por cliente, designer, status e data" —
+ * data é a data de criação (YYYY-MM-DD). `idDesigner` (QUADRO 59) só é
+ * significativo na listagem admin de "Solicitações atribuídas" (RF016) —
+ * na listagem do próprio designer é sempre o próprio, então o filtro é
+ * redundante mas inofensivo.
+ */
 export const listSolicitacoesQuerySchema = z.object({
   status: z.enum(SOLICITACAO_STATUSES).optional(),
   idCliente: z.coerce.number().int().positive().optional(),
+  idDesigner: z.string().uuid().optional(),
+  clienteNome: z.string().trim().min(1).max(150).optional(),
   dataInicio: z.string().date().optional(),
   dataFim: z.string().date().optional(),
   page: z.coerce.number().int().min(1).max(10_000).default(1),

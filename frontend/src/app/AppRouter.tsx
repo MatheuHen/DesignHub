@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { AdminHome } from '../features/admin/AdminHome';
 import { DesignersPage } from '../features/admin/designers/DesignersPage';
+import { AdminSolicitacaoDetailPage } from '../features/admin/solicitacoes/AdminSolicitacaoDetailPage';
 import { AuthProvider } from '../features/auth/AuthContext';
 import { ForgotPasswordPage } from '../features/auth/ForgotPasswordPage';
 import { LoginPage } from '../features/auth/LoginPage';
@@ -47,6 +48,7 @@ export function AppRouter() {
           >
             <Route index element={<AdminHome />} />
             <Route path="designers" element={<DesignersPage />} />
+            <Route path="solicitacoes/:id" element={<AdminSolicitacaoDetailPage />} />
           </Route>
           <Route path="/" element={<RootRedirect />} />
           <Route path="*" element={<Navigate to="/" replace />} />

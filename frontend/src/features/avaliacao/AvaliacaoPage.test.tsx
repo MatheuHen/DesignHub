@@ -72,15 +72,69 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
     expect(screen.queryByRole('button', { name: 'Aprovar' })).not.toBeInTheDocument();
   });
 
-  it('aprova a arte com um clique', async () => {
+  it('mostra o acompanhamento somente-leitura quando o link já foi usado, mas identifica a solicitação (RN13/RN14/RN18)', async () => {
+    getAvaliacaoPreviewMock.mockResolvedValue({
+      state: 'used',
+      tracking: {
+        status: 'Agendado',
+        tema: 'Post promocional',
+        versoes: [
+          { numeroVersao: 1, formato: 'PDF', dataEnvio: '2026-01-01T00:00:00Z', downloadUrl: 'https://exemplo.supabase.co/v1' },
+        ],
+        historico: [
+          { acao: 'Solicitação criada a partir do atendimento pelo WhatsApp', statusNovo: 'Em produção', dataHora: '2026-01-01T00:00:00Z' },
+        ],
+        agendamento: { dataPublicacao: '2026-09-01', horario: '14:00:00', status: 'Agendado' },
+      },
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/Acompanhamento da solicitação/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Agendado/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: 'Ver arte' })).toHaveAttribute('href', 'https://exemplo.supabase.co/v1');
+    expect(screen.getByText(/Solicitação criada a partir do atendimento pelo WhatsApp/)).toBeInTheDocument();
+    expect(screen.queryByText('Este link de avaliação já foi utilizado.')).not.toBeInTheDocument();
+  });
+
+  it('aprova a arte sem desejar agendamento (RN22)', async () => {
     getAvaliacaoPreviewMock.mockResolvedValue(validPreview);
     submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado' });
 
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Aprovar' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Não, decido depois com o designer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar aprovação' }));
 
     await waitFor(() => {
-      expect(submitAvaliacaoMock).toHaveBeenCalledWith(TOKEN, { decisao: 'Aprovado' });
+      expect(submitAvaliacaoMock).toHaveBeenCalledWith(TOKEN, {
+        decisao: 'Aprovado',
+        desejaAgendamento: false,
+        dataDesejada: undefined,
+        horarioDesejado: undefined,
+      });
+    });
+    expect(await screen.findByText(/Arte aprovada com sucesso/)).toBeInTheDocument();
+  });
+
+  it('aprova a arte informando data/horário desejados de agendamento (RN22/RN27)', async () => {
+    getAvaliacaoPreviewMock.mockResolvedValue(validPreview);
+    submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado' });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Aprovar' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sim, quero agendar' }));
+    fireEvent.change(screen.getByLabelText('Data desejada'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('Horário desejado'), { target: { value: '14:30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar aprovação' }));
+
+    await waitFor(() => {
+      expect(submitAvaliacaoMock).toHaveBeenCalledWith(TOKEN, {
+        decisao: 'Aprovado',
+        desejaAgendamento: true,
+        dataDesejada: '2026-09-01',
+        horarioDesejado: '14:30',
+      });
     });
     expect(await screen.findByText(/Arte aprovada com sucesso/)).toBeInTheDocument();
   });

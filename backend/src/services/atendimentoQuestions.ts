@@ -19,7 +19,10 @@ export const ATENDIMENTO_QUESTIONS: readonly QuestionDefinition[] = [
       'Olá! Vamos iniciar o atendimento para uma nova arte. Suas respostas (tema, cores, observações e referências) serão usadas apenas para produzir e avaliar a sua arte, conforme a LGPD (Lei nº 13.709/2018). Podemos continuar? Responda para confirmar.',
   },
   { key: 'tema', prompt: 'Qual é o tema da arte que você deseja?' },
-  { key: 'cores', prompt: 'Você tem preferência de cores? Se sim, quais?' },
+  {
+    key: 'cores',
+    prompt: 'Qual a sua preferência de cores para a arte? Se não tiver preferência, responda "não tenho".',
+  },
   {
     key: 'observacoes',
     prompt: "Escreva uma observação sobre a arte ou responda \"não tenho\".",

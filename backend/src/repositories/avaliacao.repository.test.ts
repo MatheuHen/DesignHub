@@ -80,7 +80,7 @@ describe('getAvaliacaoLinkState (RF009 — três buckets amigáveis)', () => {
     });
   });
 
-  it('retorna "used" quando o token já foi utilizado', async () => {
+  it('retorna "used" com idVersao (RN13/RN14: acompanhamento somente-leitura continua identificando a solicitação)', async () => {
     const row = {
       expires_at: new Date(Date.now() + 100_000).toISOString(),
       revoked_at: null,
@@ -89,7 +89,7 @@ describe('getAvaliacaoLinkState (RF009 — três buckets amigáveis)', () => {
     };
     await expect(getAvaliacaoLinkState(selectClient(row), 'hash')).resolves.toEqual({
       state: 'used',
-      idVersao: null,
+      idVersao: 1,
     });
   });
 

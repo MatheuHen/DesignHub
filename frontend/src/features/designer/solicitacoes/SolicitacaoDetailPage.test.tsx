@@ -86,6 +86,7 @@ const sampleDetail: SolicitacaoDetailResult = {
   versoes: [],
   ajustes: [],
   agendamento: null,
+  preferenciaAgendamento: null,
 };
 
 function renderPage() {
@@ -145,25 +146,16 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     expect(screen.getByRole('button', { name: 'Ver referência' })).toBeInTheDocument();
   });
 
-  it('salva as alterações do formulário', async () => {
+  it('exibe tema/cores/observações como somente leitura (QUADRO 34: "Alteração de solicitação de arte")', async () => {
     getSolicitacaoDetailMock.mockResolvedValue(sampleDetail);
-    updateSolicitacaoMock.mockResolvedValue(undefined);
 
     renderPage();
-    await screen.findByDisplayValue('Tema X');
 
-    fireEvent.change(screen.getByLabelText('Tema'), { target: { value: 'Tema Novo' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }));
-
-    await waitFor(() => {
-      expect(updateSolicitacaoMock).toHaveBeenCalledWith(10, {
-        tema: 'Tema Novo',
-        cores: 'Azul',
-        observacoes: null,
-        descricao: null,
-      });
-    });
-    expect(await screen.findByText('Alterações salvas.')).toBeInTheDocument();
+    expect(await screen.findByText((_, el) => el?.textContent === 'Tema: Tema X')).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === 'Preferência de cores: Azul')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Tema')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Salvar alterações' })).not.toBeInTheDocument();
+    expect(updateSolicitacaoMock).not.toHaveBeenCalled();
   });
 
   it('exibe o formulário de envio de versão quando o status permite upload (RN26)', async () => {

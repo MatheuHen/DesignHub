@@ -13,6 +13,10 @@ const {
   uploadArquivoToStorageMock,
   removeArquivoFromStorageBestEffortMock,
   createVersaoArteDownloadUrlMock,
+  getTrackingSolicitacaoByVersaoMock,
+  listTrackingVersoesMock,
+  listTrackingHistoricoMock,
+  getTrackingAgendamentoMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   sendTextMessageMock: vi.fn(),
@@ -25,6 +29,10 @@ const {
   uploadArquivoToStorageMock: vi.fn(),
   removeArquivoFromStorageBestEffortMock: vi.fn(),
   createVersaoArteDownloadUrlMock: vi.fn(),
+  getTrackingSolicitacaoByVersaoMock: vi.fn(),
+  listTrackingVersoesMock: vi.fn(),
+  listTrackingHistoricoMock: vi.fn(),
+  getTrackingAgendamentoMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
@@ -39,6 +47,10 @@ vi.mock('../repositories/avaliacao.repository.js', () => ({
   getAvaliacaoLinkState: getAvaliacaoLinkStateMock,
   getVersaoArtePreview: getVersaoArtePreviewMock,
   submitAvaliacao: submitAvaliacaoMock,
+  getTrackingSolicitacaoByVersao: getTrackingSolicitacaoByVersaoMock,
+  listTrackingVersoes: listTrackingVersoesMock,
+  listTrackingHistorico: listTrackingHistoricoMock,
+  getTrackingAgendamento: getTrackingAgendamentoMock,
 }));
 vi.mock('../repositories/versaoArte.repository.js', () => ({
   uploadArquivoToStorage: uploadArquivoToStorageMock,
@@ -119,6 +131,10 @@ describe('getAvaliacaoPreview (RF009 — leitura pública)', () => {
     getAvaliacaoLinkStateMock.mockReset();
     getVersaoArtePreviewMock.mockReset();
     createVersaoArteDownloadUrlMock.mockReset();
+    getTrackingSolicitacaoByVersaoMock.mockReset();
+    listTrackingVersoesMock.mockReset();
+    listTrackingHistoricoMock.mockReset();
+    getTrackingAgendamentoMock.mockReset();
   });
 
   it('retorna apenas o estado quando o link não é válido', async () => {
@@ -126,6 +142,48 @@ describe('getAvaliacaoPreview (RF009 — leitura pública)', () => {
 
     await expect(getAvaliacaoPreview('a'.repeat(64))).resolves.toEqual({ state: 'expired' });
     expect(getVersaoArtePreviewMock).not.toHaveBeenCalled();
+  });
+
+  it('retorna o acompanhamento somente-leitura quando o link já foi usado (RN13/RN14/RN18)', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'used', idVersao: 5 });
+    getTrackingSolicitacaoByVersaoMock.mockResolvedValue({
+      idSolicitacao: 10,
+      status: 'Agendado',
+      tema: 'Post promocional',
+    });
+    listTrackingVersoesMock.mockResolvedValue([
+      { idVersao: 5, numeroVersao: 1, formato: 'PDF', dataEnvio: '2026-01-01T00:00:00Z', arquivoUrl: 'x/v1.pdf' },
+    ]);
+    listTrackingHistoricoMock.mockResolvedValue([
+      { acao: 'Solicitação criada a partir do atendimento pelo WhatsApp', statusNovo: 'Em produção', dataHora: '2026-01-01T00:00:00Z' },
+    ]);
+    getTrackingAgendamentoMock.mockResolvedValue({ dataPublicacao: '2026-09-01', horario: '14:00:00', status: 'Agendado' });
+    createVersaoArteDownloadUrlMock.mockResolvedValue('https://exemplo.supabase.co/signed-v1');
+
+    const result = await getAvaliacaoPreview('a'.repeat(64));
+
+    expect(result).toEqual({
+      state: 'used',
+      tracking: {
+        status: 'Agendado',
+        tema: 'Post promocional',
+        versoes: [
+          { numeroVersao: 1, formato: 'PDF', dataEnvio: '2026-01-01T00:00:00Z', downloadUrl: 'https://exemplo.supabase.co/signed-v1' },
+        ],
+        historico: [
+          { acao: 'Solicitação criada a partir do atendimento pelo WhatsApp', statusNovo: 'Em produção', dataHora: '2026-01-01T00:00:00Z' },
+        ],
+        agendamento: { dataPublicacao: '2026-09-01', horario: '14:00:00', status: 'Agendado' },
+      },
+    });
+  });
+
+  it('não vaza tracking quando o link usado não resolve mais a uma solicitação real', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'used', idVersao: 5 });
+    getTrackingSolicitacaoByVersaoMock.mockResolvedValue(null);
+
+    await expect(getAvaliacaoPreview('a'.repeat(64))).resolves.toEqual({ state: 'used' });
+    expect(listTrackingVersoesMock).not.toHaveBeenCalled();
   });
 
   it('retorna a prévia completa com URL assinada quando o link é válido', async () => {

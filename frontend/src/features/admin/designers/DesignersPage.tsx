@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import { statusSlug } from '../../../lib/statusStyle';
-import type { Solicitacao } from '../../designer/solicitacoes/api';
+import { SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from '../../designer/solicitacoes/api';
 import {
   createDesigner,
   deleteDesigner,
@@ -39,6 +40,11 @@ export function DesignersPage() {
   const [reatribuirSaving, setReatribuirSaving] = useState(false);
   const [reatribuirError, setReatribuirError] = useState<string | null>(null);
 
+  /** QUADRO 59 (RF016): filtros da listagem de solicitações atribuídas — Designer atual, Cliente, Status. */
+  const [solicDesignerFilter, setSolicDesignerFilter] = useState('');
+  const [solicClienteFilter, setSolicClienteFilter] = useState('');
+  const [solicStatusFilter, setSolicStatusFilter] = useState<SolicitacaoStatus | ''>('');
+
   const reload = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -59,11 +65,15 @@ export function DesignersPage() {
 
   const reloadSolicitacoes = useCallback(() => {
     setSolicitacoesLoading(true);
-    listSolicitacoesAdmin({})
-      .then((result) => setSolicitacoes(result.items.filter((item) => REATRIBUIVEIS.has(item.status))))
+    listSolicitacoesAdmin({
+      status: solicStatusFilter || undefined,
+      idDesigner: solicDesignerFilter || undefined,
+      clienteNome: solicClienteFilter || undefined,
+    })
+      .then((result) => setSolicitacoes(result.items))
       .catch(() => setSolicitacoes([]))
       .finally(() => setSolicitacoesLoading(false));
-  }, []);
+  }, [solicStatusFilter, solicDesignerFilter, solicClienteFilter]);
 
   useEffect(() => {
     reload();
@@ -265,24 +275,64 @@ export function DesignersPage() {
         <h2 id="reatribuicao-title">Solicitações atribuídas</h2>
         <p>Selecione uma solicitação e escolha outro designer responsável (RF016).</p>
 
+        <div className="designer-filters">
+          <label htmlFor="solic-designer-filter">Designer atual</label>
+          <select
+            id="solic-designer-filter"
+            value={solicDesignerFilter}
+            onChange={(event) => setSolicDesignerFilter(event.target.value)}
+          >
+            <option value="">Todos</option>
+            {items.map((designer) => (
+              <option key={designer.id} value={designer.id}>
+                {designer.nomeCompleto}
+              </option>
+            ))}
+          </select>
+
+          <label htmlFor="solic-cliente-filter">Cliente</label>
+          <input
+            id="solic-cliente-filter"
+            placeholder="Nome do cliente"
+            value={solicClienteFilter}
+            onChange={(event) => setSolicClienteFilter(event.target.value)}
+          />
+
+          <label htmlFor="solic-status-filter">Status</label>
+          <select
+            id="solic-status-filter"
+            value={solicStatusFilter}
+            onChange={(event) => setSolicStatusFilter(event.target.value as SolicitacaoStatus | '')}
+          >
+            <option value="">Todos</option>
+            {SOLICITACAO_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {solicitacoesLoading && <p role="status">Carregando solicitações…</p>}
-        {!solicitacoesLoading && solicitacoes.length === 0 && <p>Nenhuma solicitação em andamento no momento.</p>}
+        {!solicitacoesLoading && solicitacoes.length === 0 && <p>Nenhuma solicitação encontrada.</p>}
 
         {!solicitacoesLoading && solicitacoes.length > 0 && (
           <table className="designer-table">
-            <caption className="sr-only">Solicitações que podem ser reatribuídas</caption>
+            <caption className="sr-only">Solicitações atribuídas aos designers</caption>
             <thead>
               <tr>
                 <th scope="col">Cliente</th>
+                <th scope="col">Solicitação</th>
                 <th scope="col">Status</th>
                 <th scope="col">Designer atual</th>
-                <th scope="col">Ação</th>
+                <th scope="col">Ações</th>
               </tr>
             </thead>
             <tbody>
               {solicitacoes.map((solicitacao) => (
                 <tr key={solicitacao.id}>
                   <td>{solicitacao.clienteNome}</td>
+                  <td>#{solicitacao.id}</td>
                   <td>
                     <span className={`status-badge status-badge--${statusSlug(solicitacao.status)}`}>
                       {solicitacao.status}
@@ -290,7 +340,8 @@ export function DesignersPage() {
                   </td>
                   <td>{designerNameById.get(solicitacao.idDesigner) ?? solicitacao.idDesigner}</td>
                   <td className="designer-actions">
-                    {reatribuindoId === solicitacao.id ? (
+                    <Link to={`/admin/solicitacoes/${solicitacao.id}`}>Consultar</Link>{' '}
+                    {!REATRIBUIVEIS.has(solicitacao.status) ? null : reatribuindoId === solicitacao.id ? (
                       <>
                         <select
                           aria-label={`Novo designer para a solicitação de ${solicitacao.clienteNome}`}

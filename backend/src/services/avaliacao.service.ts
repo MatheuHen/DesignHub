@@ -13,7 +13,11 @@ import { generateOpaqueToken, hashOpaqueToken } from '../lib/tokens.js';
 import {
   generateAvaliacaoLinkToken,
   getAvaliacaoLinkState,
+  getTrackingAgendamento,
+  getTrackingSolicitacaoByVersao,
   getVersaoArtePreview,
+  listTrackingHistorico,
+  listTrackingVersoes,
   submitAvaliacao,
   type AvaliacaoLinkState,
 } from '../repositories/avaliacao.repository.js';
@@ -104,6 +108,33 @@ export async function gerarLinkAvaliacao(
   };
 }
 
+export interface AvaliacaoTrackingVersao {
+  numeroVersao: number;
+  formato: string;
+  dataEnvio: string;
+  downloadUrl: string;
+}
+
+export interface AvaliacaoTrackingHistoricoEntry {
+  acao: string;
+  statusNovo: string | null;
+  dataHora: string;
+}
+
+export interface AvaliacaoTrackingAgendamento {
+  dataPublicacao: string;
+  horario: string;
+  status: string;
+}
+
+export interface AvaliacaoTracking {
+  status: string;
+  tema: string | null;
+  versoes: AvaliacaoTrackingVersao[];
+  historico: AvaliacaoTrackingHistoricoEntry[];
+  agendamento: AvaliacaoTrackingAgendamento | null;
+}
+
 export interface AvaliacaoPreview {
   state: AvaliacaoLinkState;
   tema?: string | null;
@@ -112,6 +143,51 @@ export interface AvaliacaoPreview {
   observacoes?: string | null;
   downloadUrl?: string;
   expiresInSeconds?: number;
+  tracking?: AvaliacaoTracking;
+}
+
+/**
+ * RN13/RN14/RN18: visão somente-leitura do andamento da solicitação —
+ * status, versões (com URL assinada de curta duração cada), histórico de
+ * transições e agendamento, quando existirem. Escopada estritamente à
+ * solicitação do próprio token (nunca a outras solicitações do mesmo
+ * cliente): resolvida sempre a partir do `id_versao` do link, nunca de um
+ * parâmetro aberto.
+ */
+async function buildAvaliacaoTracking(
+  adminClient: SupabaseClient,
+  idVersao: number,
+): Promise<AvaliacaoTracking | null> {
+  const solicitacao = await getTrackingSolicitacaoByVersao(adminClient, idVersao);
+  if (!solicitacao) return null;
+
+  const [versoesRaw, historico, agendamento] = await Promise.all([
+    listTrackingVersoes(adminClient, solicitacao.idSolicitacao),
+    listTrackingHistorico(adminClient, solicitacao.idSolicitacao),
+    getTrackingAgendamento(adminClient, solicitacao.idSolicitacao),
+  ]);
+
+  const versoes = await Promise.all(
+    versoesRaw.map(async (versao) => ({
+      numeroVersao: versao.numeroVersao,
+      formato: versao.formato,
+      dataEnvio: versao.dataEnvio,
+      downloadUrl: await createVersaoArteDownloadUrl(
+        adminClient,
+        versao.arquivoUrl,
+        DOWNLOAD_URL_EXPIRES_IN_SECONDS,
+        false,
+      ),
+    })),
+  );
+
+  return {
+    status: solicitacao.status,
+    tema: solicitacao.tema,
+    versoes,
+    historico,
+    agendamento,
+  };
 }
 
 /**
@@ -123,6 +199,12 @@ export async function getAvaliacaoPreview(rawToken: string): Promise<AvaliacaoPr
   const adminClient = getSupabaseAdminClient();
   const hash = hashOpaqueToken(rawToken);
   const linkState = await getAvaliacaoLinkState(adminClient, hash);
+
+  if (linkState.state === 'used' && linkState.idVersao !== null) {
+    const tracking = await buildAvaliacaoTracking(adminClient, linkState.idVersao);
+    return tracking ? { state: 'used', tracking } : { state: 'used' };
+  }
+
   if (linkState.state !== 'valid' || linkState.idVersao === null) {
     return { state: linkState.state };
   }
@@ -155,6 +237,9 @@ export interface SubmitAvaliacaoInput {
   descricao: string | undefined;
   observacoes: string | undefined;
   referenciaBuffer: Buffer | undefined;
+  desejaAgendamento?: boolean | undefined;
+  dataDesejada?: string | undefined;
+  horarioDesejado?: string | undefined;
 }
 
 export interface SubmitAvaliacaoOutcome {
@@ -208,6 +293,9 @@ export async function submitAvaliacaoDecisao(
       descricaoAjuste: input.descricao,
       observacoesAjuste: input.observacoes,
       imagemReferenciaPath,
+      desejaAgendamento: input.desejaAgendamento,
+      dataDesejada: input.dataDesejada,
+      horarioDesejado: input.horarioDesejado,
     });
     return { idSolicitacao: result.idSolicitacao, statusNovo: result.statusNovo };
   } catch (error) {

@@ -66,6 +66,12 @@ export interface AjusteEntry {
   createdAt: string;
 }
 
+export interface AgendamentoPreferencia {
+  desejaAgendamento: boolean | null;
+  dataDesejada: string | null;
+  horarioDesejado: string | null;
+}
+
 export interface SolicitacaoDetailResult {
   solicitacao: SolicitacaoDetail;
   historico: HistoricoEntry[];
@@ -73,6 +79,7 @@ export interface SolicitacaoDetailResult {
   versoes: VersaoArteEntry[];
   ajustes: AjusteEntry[];
   agendamento: AgendamentoAtivo | null;
+  preferenciaAgendamento: AgendamentoPreferencia | null;
 }
 
 export interface ListSolicitacoesResult {
@@ -151,6 +158,11 @@ export function getVersaoArteDownloadUrl(id: number, idVersao: number): Promise<
 /** RF010 + seção 12.5: URL assinada de curta duração para a referência opcional de um ajuste. */
 export function getAjusteReferenciaUrl(id: number, idAjuste: number): Promise<VersaoArteDownloadUrl> {
   return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/ajustes/${idAjuste}/referencia-url`);
+}
+
+/** RF004/item 5 + seção 12.5: URL assinada de curta duração para a referência enviada pelo cliente no WhatsApp. */
+export function getAtendimentoReferenciaUrl(id: number): Promise<VersaoArteDownloadUrl> {
+  return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/atendimento-referencia-url`);
 }
 
 export interface GerarLinkAvaliacaoResult {
