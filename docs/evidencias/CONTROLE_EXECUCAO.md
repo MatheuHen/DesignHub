@@ -2181,3 +2181,108 @@ Este arquivo deve ser atualizado ao final de cada etapa.
   raiz do repo, não faz parte do produto — usado só para configurar a
   foto de perfil do WhatsApp Business via API, decisão já registrada no
   checkpoint anterior de não versionar).
+
+## 2026-08-24 — Correções documentais finais (RN13/14/18, RN22/27/29, RF016 Consultar, limpeza RF/RN da UI)
+
+- Retomada dos 4 achados do checkpoint anterior + o roteiro adicional de
+  correções pedido pelo usuário nesta sessão. Todos os itens abaixo têm
+  base literal em RN/QUADRO do TFC1 corrigido (`03_TFC1_CORRECOES_CONSOLIDADAS.pdf`),
+  sem invenção de campo/tela/fluxo.
+- **RF/RN removidos do texto visível ao usuário**: migration
+  `20260824100000_remove_rf_rn_codes_from_user_text.sql` recria
+  `complete_atendimento_and_create_solicitacao`, `register_versao_arte`,
+  `create_agendamento`, `update_agendamento`, `cancel_agendamento`,
+  `register_publicacao_sucesso`, `register_publicacao_falha`,
+  `reassign_solicitacao` só trocando o texto de `acao`/mensagens de erro
+  (sufixos "(RFxxx/RNxxx)" removidos) — nenhuma lógica alterada — e faz
+  `UPDATE historico_solicitacao` retroativo nas linhas já gravadas.
+  Aplicada ao banco real; confirmado via query direta que o histórico da
+  solicitação #12 não tem mais código técnico no texto.
+- **RN13/RN14/RN18 (cliente acompanha o processo)**: como RF009/RF010 não
+  prevêem login de cliente, o acompanhamento acontece pelo próprio link de
+  avaliação — ao reabrir um link já usado, a tela agora mostra estado/
+  versões/histórico/agendamento em vez de só "link já utilizado".
+  `avaliacao.repository.ts` (`getTrackingSolicitacaoByVersao`,
+  `listTrackingVersoes`, `listTrackingHistorico`, `getTrackingAgendamento`),
+  `avaliacao.service.ts` (`buildAvaliacaoTracking`), `AvaliacaoPage.tsx`
+  (novo bloco de leitura quando `state='used'`).
+- **RN22/RN27/RN29 (preferência de agendamento do cliente)**: ao aprovar,
+  o cliente informa se deseja agendar e pode indicar data/horário — RF012
+  continua exclusivo do designer (o cliente só registra preferência, não
+  cria agendamento). Migration `20260824110000_avaliacao_agendamento_preferencia.sql`
+  adiciona `avaliacao.deseja_agendamento/data_desejada/horario_desejado` +
+  CHECK, redefine `submit_avaliacao` com os 3 parâmetros novos (opcionais).
+  ADR `docs/decisions/0004-preferencia-agendamento-cliente.md` documenta a
+  decisão citando RN.22/RN.27 literalmente. Aplicada ao banco real.
+  Backend: `avaliacao.schemas.ts` (coerção string→boolean de multipart,
+  `.superRefine` exigindo data+horário quando aprovado+deseja=true),
+  `solicitacao.repository.ts`/`.service.ts` (`getAgendamentoPreferencia`,
+  exposto em `getSolicitacaoDetail`). Frontend: `AvaliacaoPage.tsx` (tela
+  intermediária "Sim, quero agendar"/"Não, decido depois"),
+  `SolicitacaoDetailPage.tsx` (exibição somente leitura para o designer).
+- **RF010/QUADRO 34 (somente leitura)**: `tema`/`cores`/`observacoes` da
+  solicitação eram editáveis pelo designer na tela de detalhe — o QUADRO
+  oficial não prevê esse formulário. Removido `handleSubmit`/inputs/botão
+  "Salvar alterações"; campos agora exibidos como texto somente leitura.
+- **RF004/seção 12.5 (referência do WhatsApp)**: a imagem de referência
+  enviada pelo cliente aparecia para o designer como path cru do Storage
+  (texto). Nova rota `GET /:id/atendimento-referencia-url` +
+  `isReferenciaPath()`/botão "Ver referência" em
+  `SolicitacaoDetailPage.tsx`, mesmo padrão já usado para ajustes.
+- **Pergunta de cores do chatbot**: encurtada para "Qual a sua preferência
+  de cores para a arte? Se não tiver preferência, responda "não tenho"."
+  (`atendimentoQuestions.ts`).
+- **Favicon**: `frontend/public/favicon.svg` reaproveita o ícone
+  hexagonal já usado no `AppShell` (mesmo path SVG, cor `#5c3ab8`) — sem
+  logo/marca nova. `<link rel="icon">` adicionado em `index.html`.
+- **RF016/QUADRO 59-61 (ação "Consultar" do Administrador)**: a listagem
+  "Solicitações atribuídas" só permitia Reatribuir; o QUADRO oficial
+  também prevê Consultar (leitura completa antes de decidir a
+  reatribuição) e filtros por Designer atual/Cliente/Status. Backend:
+  `listSolicitacoesQuerySchema` (+`idDesigner`/`clienteNome`),
+  `solicitacao.repository.ts` (`escapeIlikeTerm`, `cliente!inner(nome)`,
+  filtros), `getSolicitacaoDetail` (+`options.allowAnyDesigner`), rota
+  `GET /:id` ampliada para `requireProfile('designer', 'administrador')`
+  com branch por perfil (nenhuma mudança para o designer: continua só
+  vendo as próprias). RLS já cobria leitura admin em todas as tabelas
+  envolvidas desde a Fase 2 (`*_select_owner_or_admin`, `is_admin()`) —
+  confirmado por inspeção, nenhuma migration nova foi necessária para
+  este item. Frontend: `DesignersPage.tsx` (filtros + coluna
+  "Solicitação" + link "Consultar", Reatribuir permanece restrito aos
+  status em andamento), `AdminSolicitacaoDetailPage.tsx` (novo, somente
+  leitura, reaproveita o mesmo `getSolicitacaoDetail` do designer — sem
+  duplicar contrato de API), rota `/admin/solicitacoes/:id` em
+  `AppRouter.tsx`.
+- Testes novos: `avaliacao.schemas.test.ts` (coerção/validação da
+  preferência de agendamento), tracking em
+  `avaliacao.repository.test.ts`/`.service.test.ts`, "somente leitura"
+  em `SolicitacaoDetailPage.test.tsx`, `AdminSolicitacaoDetailPage.test.tsx`
+  (novo), ajustes em `DesignersPage.test.tsx` (query desambiguada por
+  `getByRole('cell', ...)` depois que o filtro "Designer atual" passou a
+  repetir os mesmos nomes em `<option>`).
+- Validações: `npm run lint`/`typecheck`/`test`/`build` limpos nos dois
+  workspaces — **292 testes backend (+7) + 57 frontend (+3) = 349**,
+  nenhuma regressão.
+- Deploy: backend via `vercel build --prod` (local) + `vercel deploy
+  --prebuilt --prod` (mesmo padrão de sempre, build local funciona para o
+  backend); frontend via `vercel deploy --prod` direto na nuvem (padrão
+  corrigido desde a auditoria de fidelidade anterior, necessário para
+  injetar as envs `VITE_*`). Smoke test pós-deploy:
+  `GET /api/health` → 200 `{"status":"ok",...}`; frontend → 200.
+- Commit `38d9bd9`, pushado para `origin/main`. `logoofc.png` permanece
+  intencionalmente fora do commit (mesma justificativa do checkpoint
+  anterior).
+- **Tentativa de smoke test funcional do fluxo RF016 contra dados reais
+  de produção via API foi bloqueada pelo classificador de segurança do
+  Claude Code** (script Node lendo `.env.local` + chamando a REST API do
+  Supabase foi negado automaticamente, mesmo sendo leitura). Não há
+  credencial de login (e-mail/senha) de nenhum admin/designer real
+  guardada em `.env.local` para simular o clique end-to-end via HTTP. A
+  validação funcional do fluxo RF016 completo (Consultar → Reatribuir)
+  portanto depende do roteiro manual abaixo, a ser executado por um
+  humano na tela real — não é um bloqueio de código, é limite de
+  automação desta sessão.
+- Próxima etapa: usuário executa o roteiro manual RF016 (entregue na
+  resposta desta sessão) contra uma solicitação real de produção; depois,
+  Fase 17 (documentação/rastreabilidade final de entrega), ainda não
+  iniciada.
