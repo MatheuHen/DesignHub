@@ -1,6 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
-import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+  translateSupabaseAuthErrorMessage,
+} from '../lib/errors.js';
 import {
   assertDesignerIsActive,
   deleteDesigner as deleteDesignerRow,
@@ -66,7 +71,7 @@ export async function createDesigner(input: CreateDesignerInput): Promise<Design
   };
 
   if (error || !data?.user) {
-    throw new ConflictError(error?.message ?? 'Não foi possível criar o designer.');
+    throw new ConflictError(translateSupabaseAuthErrorMessage(error?.message));
   }
 
   try {

@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { translateAuthErrorMessage } from '../../lib/authErrorMessages';
 import { isSupabaseConfigured, supabase } from '../../lib/supabaseClient';
 import { AuthContext, type AuthContextValue, type AuthProfile, type AuthState } from './auth-context';
 
@@ -65,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabase) return { error: 'Supabase não está configurado neste ambiente.' };
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error ? error.message : null };
+    return { error: error ? translateAuthErrorMessage(error.message) : null };
   }, []);
 
   const signOut = useCallback(async () => {

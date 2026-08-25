@@ -44,6 +44,26 @@ export class ExpiredLinkError extends AppError {
   }
 }
 
+/**
+ * Traduz mensagens cruas do Supabase Auth Admin API (inglês) para PT-BR
+ * antes de repassá-las ao usuário final. Nunca expõe o texto original do
+ * provedor: se nenhum padrão conhecido casar, usa um texto genérico.
+ */
+const SUPABASE_AUTH_ERROR_PATTERNS: Array<[RegExp, string]> = [
+  [/already been registered|user already registered|already exists/i, 'Já existe um usuário cadastrado com este e-mail.'],
+  [/password should be at least/i, 'A senha deve ter pelo menos 6 caracteres.'],
+  [/unable to validate email address|invalid.*email/i, 'Informe um e-mail válido.'],
+];
+
+export function translateSupabaseAuthErrorMessage(rawMessage: string | null | undefined): string {
+  if (rawMessage) {
+    for (const [pattern, translated] of SUPABASE_AUTH_ERROR_PATTERNS) {
+      if (pattern.test(rawMessage)) return translated;
+    }
+  }
+  return 'Não foi possível criar o designer.';
+}
+
 /** Normaliza erros de validação (Zod) para o formato de erro HTTP do domínio. */
 export function toAppError(error: unknown): unknown {
   if (error instanceof ZodError) {

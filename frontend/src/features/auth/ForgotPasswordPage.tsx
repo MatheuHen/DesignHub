@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { translateAuthErrorMessage } from '../../lib/authErrorMessages';
 import { isSupabaseConfigured, supabase } from '../../lib/supabaseClient';
 import { ConfigErrorNotice } from './StatusScreens';
 
@@ -29,7 +30,7 @@ export function ForgotPasswordPage() {
       .then(({ error: resetError }) => {
         setSubmitting(false);
         if (resetError) {
-          setError(resetError.message);
+          setError(translateAuthErrorMessage(resetError.message));
           return;
         }
         setSent(true);
