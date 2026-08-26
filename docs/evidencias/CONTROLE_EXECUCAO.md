@@ -2286,3 +2286,85 @@ Este arquivo deve ser atualizado ao final de cada etapa.
   resposta desta sessão) contra uma solicitação real de produção; depois,
   Fase 17 (documentação/rastreabilidade final de entrega), ainda não
   iniciada.
+
+## 2026-08-26 — Rodada de correções reais de testes manuais
+
+Cinco bugs reais reportados após teste manual em produção. Todos investigados
+com evidência (query direta no banco real, impersonação via magic link contra
+a API de produção), corrigidos e revalidados ao vivo após deploy.
+
+- **fix(i18n) `c0e35ec`**: Supabase Auth (login, recuperação/redefinição de
+  senha, criação de designer) despejava erro cru em inglês na UI (ex.: "A
+  user with this email address has already been registered"). Tradutores
+  dedicados frontend/backend, nunca repassam texto original do provedor.
+- **WhatsApp — mensagem inicial corrompida (sem commit, config Meta)**:
+  causa raiz confirmada via Graph API — o template `inicio_atendimento_designhub`
+  estava com o BODY literalmente corrompido no Business Manager (acentos
+  virados `?`), não um bug de encoding do nosso código (nosso pipeline já
+  preserva UTF-8 corretamente, confirmado por query direta no banco).
+  Corrigido pelo procedimento oficial da Meta (`POST /{template-id}` com o
+  texto certo); Meta reaprovou como `APPROVED` com o texto correto.
+- **fix(rf016) `54eb3cc`** — **bug real crítico confirmado e corrigido**:
+  solicitação reatribuída (ex. #12) sumia da listagem do novo designer.
+  Causa raiz: `listSolicitacoes`/`getSolicitacaoDetail` embutem `cliente`
+  via PostgREST; RF016 preserva o cliente (RN06 — cliente pertence a quem
+  cadastrou), então a única policy de SELECT de `cliente` (dono original ou
+  admin) negava a leitura para o novo designer, e o `!inner` derrubava a
+  linha inteira. Nova migration
+  `20260825120000_cliente_select_via_solicitacao_reatribuida.sql` (policy
+  aditiva: também permite SELECT quando o chamador é o designer responsável
+  atual da solicitação vinculada). Aplicada ao banco real via
+  `npx supabase db push --db-url`. Validado ao vivo por impersonação
+  administrativa (magic link) do designer real: antes só retornava 1
+  solicitação, depois retornou as 2 (incluindo #12, histórico/cliente/status
+  preservados) — revalidado de novo após o deploy final.
+- **Unicode/emoji (investigado, sem bug de código confirmado)**: query direta
+  no banco de produção mostrou o emoji 🩷 (U+1FA77) armazenado corretamente
+  ponta a ponta (webhook → banco). Nenhum sanitizador/truncamento no
+  código corta ou substitui caracteres. O "□" relatado é, com evidência
+  forte, limitação de fonte do navegador/SO (emoji Unicode 15.0 recente,
+  comum não renderizar em Windows 10) — não uma corrupção de dados. Não foi
+  criada nenhuma dependência de fonte de emoji para "corrigir" isso (fora do
+  escopo/stack congelada); registrado como `POSSIVEL_MELHORIA_FORA_DO_ESCOPO`
+  apenas se o usuário confirmar que o ambiente de teste real dos clientes
+  finais sofre o mesmo problema.
+- **fix(files) `2d129b7`**: referências (WhatsApp/ajuste) e versões da arte
+  forçavam sempre "Salvar como" (Content-Disposition: attachment), mesmo
+  quando o botão dizia "Ver referência". As 3 rotas de URL assinada aceitam
+  `?inline=1` (mesmo mecanismo já usado pela avaliação pública, RF009);
+  UI agora mostra ["Visualizar", "Baixar"] em vez de uma ação única.
+- **fix(i18n) `434405d`**: auditoria ampla encontrou "(RF006)", "(RF016)",
+  "(RF009/RN19)", "(RF014)", "(RF010)", "(RN22)" vazando em telas/mensagens
+  de erro reais (dashboard do designer, listagem de designers, tela de
+  reatribuição, geração de link de avaliação, registro manual de publicação,
+  validação Zod de avaliação/agendamento) e dentro da função SQL
+  `reassign_solicitacao` (nova migration
+  `20260826090000_remove_rf016_code_from_reassign_error.sql`, aplicada ao
+  banco real). RF/RN continuam em comentários/testes, não mais na UI.
+- **ux(admin) `a58c460`**: filtro "Designer atual" (Solicitações atribuídas)
+  trocado de `<select>` simples para `<input>` + `<datalist>` nativo (sem
+  nova dependência) — pesquisa por nome, mesma regra/permissão de sempre.
+- **Não implementado (decisão consciente, não é bloqueio)**: atalho de
+  cancelamento de solicitação na tela Clientes (item opcional do roteiro do
+  usuário) — evitado por risco de ambiguidade com "Excluir Cliente" e por
+  RF005 já cobrir o fluxo oficial de cancelamento em Solicitações; nenhuma
+  fidelidade documental depende deste atalho.
+- Validações: `npm run verify` (lint+typecheck+test+build, 2 workspaces) —
+  **293 testes backend + 58 frontend (+1 nova: filtro pesquisável) = 351**,
+  tudo verde, 0 regressão.
+- Deploy: backend (`vercel build --prod` + `vercel deploy --prebuilt --prod`)
+  e frontend (`vercel deploy --prod`) — ambos re-publicados; smoke test
+  `GET /api/health` → 200 (todas as dependências `configured`); bundle do
+  frontend confirmado com a URL do backend correta; RF016 revalidado ao
+  vivo contra a API já deployada.
+- Migrations novas aplicadas ao banco real nesta sessão (via
+  `npx supabase db push --db-url`, sem `psql`/`supabase` CLI globais
+  disponíveis, mesma técnica de sessões anteriores):
+  `20260825120000_cliente_select_via_solicitacao_reatribuida.sql`,
+  `20260826090000_remove_rf016_code_from_reassign_error.sql`.
+- Commits: `c0e35ec`, `54eb3cc`, `2d129b7`, `434405d`, `a58c460` — pushados
+  para `origin/main`.
+- **Sem bloqueios externos pendentes** desta rodada.
+- Próxima etapa: usuário decide se quer investigar mais o achado de
+  Unicode/emoji em ambiente real de cliente (provavelmente apenas fonte do
+  SO); depois, Fase 17 segue pendente como já registrado acima.
