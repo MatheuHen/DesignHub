@@ -2368,3 +2368,40 @@ a API de produção), corrigidos e revalidados ao vivo após deploy.
 - Próxima etapa: usuário decide se quer investigar mais o achado de
   Unicode/emoji em ambiente real de cliente (provavelmente apenas fonte do
   SO); depois, Fase 17 segue pendente como já registrado acima.
+
+## 2026-08-26 — CHECKPOINT curto (antes de /clear)
+
+- **Fase atual**: nenhuma fase de implementação em andamento. Entre a rodada
+  de correções reais (concluída) e a Fase 17 (não iniciada).
+- **Fases concluídas**: 1–16 completas; auditoria de fidelidade documental
+  concluída; rodada de correções reais de testes manuais concluída (ver
+  entrada imediatamente acima, commits `c0e35ec`..`56b42cc`).
+- **Tarefa em andamento**: nenhuma.
+- **Último ponto concluído**: rodada de correções reais (i18n, RF016,
+  visualizar/baixar, limpeza RF/RN, filtro pesquisável de designer) —
+  implementada, testada, deployada e revalidada ao vivo em produção.
+- **Próximo passo exato**: usuário decidiu tratar o nome de exibição do
+  WhatsApp Business como não pendente (aceita como está). Nenhum outro item
+  do roteiro de correções ficou em aberto. Próxima etapa real do projeto é
+  a Fase 17 (matriz de rastreabilidade 100%, evidências de teste
+  consolidadas, texto final do TFC II, ensaio do fluxo completo e cenários
+  de falha para a banca) — ainda não iniciada, aguardando o usuário
+  autorizar o início.
+- **Testes verdes ainda válidos** (nenhum arquivo mudou desde a última
+  execução): `npm run verify` (lint+typecheck+test+build, 2 workspaces) —
+  293 testes backend + 58 frontend = 351, 0 regressão.
+- **Arquivos principais alterados nesta rodada** (todos já commitados e
+  pushados): ver commits `c0e35ec`, `54eb3cc`, `2d129b7`, `434405d`,
+  `a58c460`, `56b42cc` — resumo completo na entrada acima.
+- **Bloqueios externos**: nenhum.
+- **Pendências reais**:
+  1. Fase 17 não iniciada (documentação/rastreabilidade final de entrega).
+  2. Achado de Unicode/emoji (🩷 renderizando como "□") permanece como
+     hipótese de limitação de fonte do SO/navegador, não confirmada em
+     dispositivo de cliente real — só investigar de novo se o usuário
+     reportar o mesmo problema fora do ambiente de teste atual.
+  3. `logoofc.png` continua solto na raiz do repo, fora do Git de
+     propósito (usado só para configurar foto de perfil do WhatsApp
+     Business via API).
+- **Git**: `git status` limpo, exceto `logoofc.png` (intencional). Branch
+  `main`, sincronizado com `origin/main` (commit `56b42cc`).
