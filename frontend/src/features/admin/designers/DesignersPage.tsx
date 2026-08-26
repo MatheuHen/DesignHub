@@ -219,7 +219,7 @@ export function DesignersPage() {
                   <span className={`designer-status designer-status--${designer.status}`}>
                     {designer.status === 'ativo' ? 'Ativo' : 'Inativo'}
                   </span>
-                  {designer.bloqueado && <span className="designer-blocked"> (bloqueado — RF006)</span>}
+                  {designer.bloqueado && <span className="designer-blocked"> (bloqueado por atraso)</span>}
                 </td>
                 <td className="designer-actions">
                   <button type="button" onClick={() => setPanel({ mode: 'edit', designer })}>
@@ -273,7 +273,7 @@ export function DesignersPage() {
 
       <section aria-labelledby="reatribuicao-title" style={{ marginTop: 32 }}>
         <h2 id="reatribuicao-title">Solicitações atribuídas</h2>
-        <p>Selecione uma solicitação e escolha outro designer responsável (RF016).</p>
+        <p>Selecione uma solicitação e escolha outro designer responsável.</p>
 
         <div className="designer-filters">
           <label htmlFor="solic-designer-filter">Designer atual</label>

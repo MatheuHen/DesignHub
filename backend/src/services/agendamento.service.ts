@@ -34,7 +34,7 @@ export async function createAgendamento(
   }
   if (solicitacao.status !== 'Aprovado') {
     throw new ConflictError(
-      `Solicitação não está aprovada (status atual: ${solicitacao.status}). Só é possível agendar publicação para arte aprovada (RN30).`,
+      `Solicitação não está aprovada (status atual: ${solicitacao.status}). Só é possível agendar publicação para arte aprovada.`,
     );
   }
 

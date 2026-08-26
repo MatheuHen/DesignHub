@@ -457,7 +457,7 @@ export function SolicitacaoDetailPage() {
               <h2 id="avaliacao-title">Avaliação do cliente</h2>
               <p>
                 Gere o link seguro de avaliação para o cliente aprovar, pedir ajustes ou cancelar a
-                solicitação. O sistema tenta notificar o cliente automaticamente pelo WhatsApp (RF009/RN19).
+                solicitação. O sistema tenta notificar o cliente automaticamente pelo WhatsApp.
               </p>
 
               <div className="designer-form-actions">
@@ -611,7 +611,7 @@ export function SolicitacaoDetailPage() {
               )}
               <p>
                 Use quando a publicação automática no Instagram não estiver disponível: publique a
-                arte manualmente fora do sistema e registre aqui para concluir o fluxo (RF014).
+                arte manualmente fora do sistema e registre aqui para concluir o fluxo.
               </p>
             </section>
           )}

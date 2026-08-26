@@ -99,7 +99,7 @@ export function DesignerHome() {
       {profile?.bloqueado && (
         <p role="alert" className="auth-error" style={{ marginBottom: 20 }}>
           Você está bloqueado para iniciar novos atendimentos: há uma solicitação vencida sem a
-          primeira versão enviada (RF006). Envie a versão pendente ou aguarde o cancelamento para
+          primeira versão enviada. Envie a versão pendente ou aguarde o cancelamento para
           ser desbloqueado.
         </p>
       )}

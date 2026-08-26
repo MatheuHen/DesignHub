@@ -50,14 +50,14 @@ export const submitAvaliacaoBodySchema = z
     if (data.decisao === 'Ajustes' && !data.descricao) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Descrição do ajuste é obrigatória ao solicitar ajustes (RF010).',
+        message: 'Descrição do ajuste é obrigatória ao solicitar ajustes.',
         path: ['descricao'],
       });
     }
     if (data.decisao === 'Aprovado' && data.desejaAgendamento && (!data.dataDesejada || !data.horarioDesejado)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Informe a data e o horário desejados (RN22).',
+        message: 'Informe a data e o horário desejados.',
         path: ['dataDesejada'],
       });
     }
