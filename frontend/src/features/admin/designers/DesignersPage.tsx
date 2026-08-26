@@ -42,6 +42,7 @@ export function DesignersPage() {
 
   /** QUADRO 59 (RF016): filtros da listagem de solicitações atribuídas — Designer atual, Cliente, Status. */
   const [solicDesignerFilter, setSolicDesignerFilter] = useState('');
+  const [solicDesignerSearchText, setSolicDesignerSearchText] = useState('');
   const [solicClienteFilter, setSolicClienteFilter] = useState('');
   const [solicStatusFilter, setSolicStatusFilter] = useState<SolicitacaoStatus | ''>('');
 
@@ -277,18 +278,29 @@ export function DesignersPage() {
 
         <div className="designer-filters">
           <label htmlFor="solic-designer-filter">Designer atual</label>
-          <select
+          <input
             id="solic-designer-filter"
-            value={solicDesignerFilter}
-            onChange={(event) => setSolicDesignerFilter(event.target.value)}
-          >
-            <option value="">Todos</option>
+            list="solic-designer-options"
+            placeholder="Todos (digite para buscar)"
+            value={solicDesignerSearchText}
+            onChange={(event) => {
+              const text = event.target.value;
+              setSolicDesignerSearchText(text);
+              if (!text.trim()) {
+                setSolicDesignerFilter('');
+                return;
+              }
+              const match = items.find(
+                (designer) => designer.nomeCompleto.toLowerCase() === text.trim().toLowerCase(),
+              );
+              if (match) setSolicDesignerFilter(match.id);
+            }}
+          />
+          <datalist id="solic-designer-options">
             {items.map((designer) => (
-              <option key={designer.id} value={designer.id}>
-                {designer.nomeCompleto}
-              </option>
+              <option key={designer.id} value={designer.nomeCompleto} />
             ))}
-          </select>
+          </datalist>
 
           <label htmlFor="solic-cliente-filter">Cliente</label>
           <input

@@ -181,4 +181,25 @@ describe('DesignersPage (RF001/RF015)', () => {
     expect(await screen.findByText('As senhas não coincidem.')).toBeInTheDocument();
     expect(createDesignerMock).not.toHaveBeenCalled();
   });
+
+  it('permite pesquisar o designer no filtro "Designer atual" das solicitações atribuídas', async () => {
+    listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
+
+    renderPage();
+    await screen.findByRole('cell', { name: 'Dora Designer' });
+
+    const searchInput = screen.getByLabelText('Designer atual');
+    expect(searchInput.tagName).toBe('INPUT');
+    expect(document.getElementById('solic-designer-options')?.querySelector('option')?.getAttribute('value')).toBe(
+      'Dora Designer',
+    );
+
+    fireEvent.change(searchInput, { target: { value: 'Dora Designer' } });
+
+    await waitFor(() => {
+      expect(listSolicitacoesAdminMock).toHaveBeenCalledWith(
+        expect.objectContaining({ idDesigner: 'designer-1' }),
+      );
+    });
+  });
 });
