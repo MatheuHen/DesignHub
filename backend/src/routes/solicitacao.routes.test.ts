@@ -244,7 +244,22 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
       url: 'https://exemplo.supabase.co/signed-url',
       expiresInSeconds: 300,
     });
-    expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(expect.anything(), 10, 1, 'user-1');
+    expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(expect.anything(), 10, 1, 'user-1', false);
+  });
+
+  it('GET /:id/versoes/:versaoId/download-url?inline=1 pede URL sem forçar download (botão "Visualizar")', async () => {
+    mockAuthenticatedUser('designer');
+    getVersaoArteDownloadUrlMock.mockResolvedValue({
+      url: 'https://exemplo.supabase.co/signed-url-inline',
+      expiresInSeconds: 300,
+    });
+
+    const response = await request(createApp())
+      .get('/api/solicitacoes/10/versoes/1/download-url?inline=1')
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(200);
+    expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(expect.anything(), 10, 1, 'user-1', true);
   });
 
   it('POST /:id/link-avaliacao é exclusivo do designer — administrador recebe 403', async () => {

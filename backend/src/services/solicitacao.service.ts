@@ -92,12 +92,18 @@ export interface AjusteReferenciaUrl {
   expiresInSeconds: number;
 }
 
-/** RF010 + seção 12.5: URL assinada de curta duração da referência do ajuste, só para o designer dono da solicitação. */
+/**
+ * RF010 + seção 12.5: URL assinada de curta duração da referência do ajuste,
+ * só para o designer dono da solicitação. `inline=true` gera
+ * `Content-Disposition: inline` (botão "Visualizar", abre em nova aba sem
+ * forçar download); padrão continua `attachment` (botão "Baixar").
+ */
 export async function getAjusteReferenciaUrl(
   userClient: SupabaseClient,
   idSolicitacao: number,
   idAjuste: number,
   callerId: string,
+  inline = false,
 ): Promise<AjusteReferenciaUrl> {
   const solicitacao = await getSolicitacaoDetailRepo(userClient, idSolicitacao);
   if (!solicitacao || solicitacao.idDesigner !== callerId) {
@@ -110,7 +116,12 @@ export async function getAjusteReferenciaUrl(
   }
 
   const adminClient = getSupabaseAdminClient();
-  const url = await createVersaoArteDownloadUrl(adminClient, path, AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS);
+  const url = await createVersaoArteDownloadUrl(
+    adminClient,
+    path,
+    AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS,
+    !inline,
+  );
   return { url, expiresInSeconds: AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS };
 }
 
@@ -123,6 +134,7 @@ export async function getAtendimentoReferenciaUrl(
   userClient: SupabaseClient,
   idSolicitacao: number,
   callerId: string,
+  inline = false,
 ): Promise<AjusteReferenciaUrl> {
   const solicitacao = await getSolicitacaoDetailRepo(userClient, idSolicitacao);
   if (!solicitacao || solicitacao.idDesigner !== callerId) {
@@ -135,7 +147,12 @@ export async function getAtendimentoReferenciaUrl(
   }
 
   const adminClient = getSupabaseAdminClient();
-  const url = await createVersaoArteDownloadUrl(adminClient, path, AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS);
+  const url = await createVersaoArteDownloadUrl(
+    adminClient,
+    path,
+    AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS,
+    !inline,
+  );
   return { url, expiresInSeconds: AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS };
 }
 

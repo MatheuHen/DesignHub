@@ -105,12 +105,18 @@ export interface VersaoArteDownloadUrl {
   expiresInSeconds: number;
 }
 
-/** RF008 + seção 12.5: URL assinada de curta duração, só para o designer dono da solicitação. */
+/**
+ * RF008 + seção 12.5: URL assinada de curta duração, só para o designer dono
+ * da solicitação. `inline=true` gera `Content-Disposition: inline` (botão
+ * "Visualizar" — RF008 exige "visualização e download" da versão), mantendo
+ * `forceDownload: true` como padrão para o botão "Baixar".
+ */
 export async function getVersaoArteDownloadUrl(
   userClient: SupabaseClient,
   idSolicitacao: number,
   idVersao: number,
   callerId: string,
+  inline = false,
 ): Promise<VersaoArteDownloadUrl> {
   const solicitacao = await getSolicitacaoCore(userClient, idSolicitacao);
   if (solicitacao.idDesigner !== callerId) {
@@ -123,6 +129,11 @@ export async function getVersaoArteDownloadUrl(
   }
 
   const adminClient = getSupabaseAdminClient();
-  const url = await createVersaoArteDownloadUrl(adminClient, versao.arquivoUrl, DOWNLOAD_URL_EXPIRES_IN_SECONDS);
+  const url = await createVersaoArteDownloadUrl(
+    adminClient,
+    versao.arquivoUrl,
+    DOWNLOAD_URL_EXPIRES_IN_SECONDS,
+    !inline,
+  );
   return { url, expiresInSeconds: DOWNLOAD_URL_EXPIRES_IN_SECONDS };
 }

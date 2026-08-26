@@ -150,19 +150,34 @@ export interface VersaoArteDownloadUrl {
   expiresInSeconds: number;
 }
 
-/** RF008 + seção 12.5: URL assinada de curta duração para visualização/download. */
-export function getVersaoArteDownloadUrl(id: number, idVersao: number): Promise<VersaoArteDownloadUrl> {
-  return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/versoes/${idVersao}/download-url`);
+/**
+ * RF008 + seção 12.5: URL assinada de curta duração para visualização/download.
+ * `inline=true` pede `Content-Disposition: inline` (botão "Visualizar"); o
+ * padrão continua forçando download (botão "Baixar").
+ */
+export function getVersaoArteDownloadUrl(
+  id: number,
+  idVersao: number,
+  inline = false,
+): Promise<VersaoArteDownloadUrl> {
+  const suffix = inline ? '?inline=1' : '';
+  return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/versoes/${idVersao}/download-url${suffix}`);
 }
 
 /** RF010 + seção 12.5: URL assinada de curta duração para a referência opcional de um ajuste. */
-export function getAjusteReferenciaUrl(id: number, idAjuste: number): Promise<VersaoArteDownloadUrl> {
-  return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/ajustes/${idAjuste}/referencia-url`);
+export function getAjusteReferenciaUrl(
+  id: number,
+  idAjuste: number,
+  inline = false,
+): Promise<VersaoArteDownloadUrl> {
+  const suffix = inline ? '?inline=1' : '';
+  return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/ajustes/${idAjuste}/referencia-url${suffix}`);
 }
 
 /** RF004/item 5 + seção 12.5: URL assinada de curta duração para a referência enviada pelo cliente no WhatsApp. */
-export function getAtendimentoReferenciaUrl(id: number): Promise<VersaoArteDownloadUrl> {
-  return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/atendimento-referencia-url`);
+export function getAtendimentoReferenciaUrl(id: number, inline = false): Promise<VersaoArteDownloadUrl> {
+  const suffix = inline ? '?inline=1' : '';
+  return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/atendimento-referencia-url${suffix}`);
 }
 
 export interface GerarLinkAvaliacaoResult {

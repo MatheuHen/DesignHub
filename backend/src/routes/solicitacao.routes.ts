@@ -196,7 +196,8 @@ solicitacaoRouter.get(
     try {
       const { id, versaoId } = versaoArteParamsSchema.parse(request.params);
       const client = getSupabaseUserClient(request.auth!.accessToken);
-      const result = await getVersaoArteDownloadUrl(client, id, versaoId, request.auth!.userId);
+      const inline = request.query.inline === '1';
+      const result = await getVersaoArteDownloadUrl(client, id, versaoId, request.auth!.userId, inline);
       response.status(200).json(result);
     } catch (error) {
       next(toAppError(error));
@@ -212,7 +213,8 @@ solicitacaoRouter.get(
     try {
       const { id, ajusteId } = ajusteParamsSchema.parse(request.params);
       const client = getSupabaseUserClient(request.auth!.accessToken);
-      const result = await getAjusteReferenciaUrl(client, id, ajusteId, request.auth!.userId);
+      const inline = request.query.inline === '1';
+      const result = await getAjusteReferenciaUrl(client, id, ajusteId, request.auth!.userId, inline);
       response.status(200).json(result);
     } catch (error) {
       next(toAppError(error));
@@ -228,7 +230,8 @@ solicitacaoRouter.get(
     try {
       const { id } = solicitacaoIdParamSchema.parse(request.params);
       const client = getSupabaseUserClient(request.auth!.accessToken);
-      const result = await getAtendimentoReferenciaUrl(client, id, request.auth!.userId);
+      const inline = request.query.inline === '1';
+      const result = await getAtendimentoReferenciaUrl(client, id, request.auth!.userId, inline);
       response.status(200).json(result);
     } catch (error) {
       next(toAppError(error));

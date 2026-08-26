@@ -143,7 +143,8 @@ describe('SolicitacaoDetailPage (RF005)', () => {
 
     expect(await screen.findByText('Ajustes solicitados pelo cliente')).toBeInTheDocument();
     expect(screen.getByText('Trocar a cor de fundo para azul.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Ver referência' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Visualizar' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Baixar' })).toBeInTheDocument();
   });
 
   it('exibe tema/cores/observações como somente leitura (QUADRO 34: "Alteração de solicitação de arte")', async () => {
@@ -231,7 +232,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Baixar' }));
 
     await waitFor(() => {
-      expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(10, 1);
+      expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(10, 1, false);
     });
     expect(openSpy).toHaveBeenCalledWith(
       'https://exemplo.supabase.co/signed-url',

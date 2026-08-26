@@ -121,11 +121,11 @@ export function SolicitacaoDetailPage() {
       .finally(() => setUploading(false));
   }
 
-  function handleDownload(idVersao: number) {
+  function handleDownload(idVersao: number, inline: boolean) {
     setDownloadingVersaoId(idVersao);
     setDownloadError(null);
 
-    getVersaoArteDownloadUrl(id, idVersao)
+    getVersaoArteDownloadUrl(id, idVersao, inline)
       .then(({ url }) => {
         window.open(url, '_blank', 'noopener,noreferrer');
       })
@@ -137,11 +137,11 @@ export function SolicitacaoDetailPage() {
       .finally(() => setDownloadingVersaoId(null));
   }
 
-  function handleDownloadAjusteReferencia(idAjuste: number) {
+  function handleDownloadAjusteReferencia(idAjuste: number, inline: boolean) {
     setDownloadingAjusteId(idAjuste);
     setAjusteDownloadError(null);
 
-    getAjusteReferenciaUrl(id, idAjuste)
+    getAjusteReferenciaUrl(id, idAjuste, inline)
       .then(({ url }) => {
         window.open(url, '_blank', 'noopener,noreferrer');
       })
@@ -153,11 +153,11 @@ export function SolicitacaoDetailPage() {
       .finally(() => setDownloadingAjusteId(null));
   }
 
-  function handleDownloadAtendimentoReferencia() {
+  function handleDownloadAtendimentoReferencia(inline: boolean) {
     setDownloadingAtendimentoReferencia(true);
     setAtendimentoReferenciaError(null);
 
-    getAtendimentoReferenciaUrl(id)
+    getAtendimentoReferenciaUrl(id, inline)
       .then(({ url }) => {
         window.open(url, '_blank', 'noopener,noreferrer');
       })
@@ -303,13 +303,22 @@ export function SolicitacaoDetailPage() {
                     <strong>{resposta.pergunta}</strong>
                     <br />
                     {isReferenciaPath(resposta.resposta) ? (
-                      <button
-                        type="button"
-                        onClick={handleDownloadAtendimentoReferencia}
-                        disabled={downloadingAtendimentoReferencia}
-                      >
-                        {downloadingAtendimentoReferencia ? 'Gerando link…' : 'Ver referência'}
-                      </button>
+                      <span className="designer-actions">
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadAtendimentoReferencia(true)}
+                          disabled={downloadingAtendimentoReferencia}
+                        >
+                          {downloadingAtendimentoReferencia ? 'Gerando link…' : 'Visualizar'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadAtendimentoReferencia(false)}
+                          disabled={downloadingAtendimentoReferencia}
+                        >
+                          {downloadingAtendimentoReferencia ? 'Gerando link…' : 'Baixar'}
+                        </button>
+                      </span>
                     ) : (
                       resposta.resposta
                     )}
@@ -337,13 +346,22 @@ export function SolicitacaoDetailPage() {
                     <p>{ajuste.descricao}</p>
                     {ajuste.observacoes && <p>Observações: {ajuste.observacoes}</p>}
                     {ajuste.imagemReferenciaUrl && (
-                      <button
-                        type="button"
-                        onClick={() => handleDownloadAjusteReferencia(ajuste.idAjuste)}
-                        disabled={downloadingAjusteId === ajuste.idAjuste}
-                      >
-                        {downloadingAjusteId === ajuste.idAjuste ? 'Gerando link…' : 'Ver referência'}
-                      </button>
+                      <span className="designer-actions">
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadAjusteReferencia(ajuste.idAjuste, true)}
+                          disabled={downloadingAjusteId === ajuste.idAjuste}
+                        >
+                          {downloadingAjusteId === ajuste.idAjuste ? 'Gerando link…' : 'Visualizar'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadAjusteReferencia(ajuste.idAjuste, false)}
+                          disabled={downloadingAjusteId === ajuste.idAjuste}
+                        >
+                          {downloadingAjusteId === ajuste.idAjuste ? 'Gerando link…' : 'Baixar'}
+                        </button>
+                      </span>
                     )}
                   </li>
                 ))}
@@ -366,13 +384,22 @@ export function SolicitacaoDetailPage() {
                   <li key={versao.id_versao}>
                     V{versao.numero_versao} — {versao.formato} — {formatDateTime(versao.data_envio)}
                     {versao.observacoes && <> — {versao.observacoes}</>}{' '}
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(versao.id_versao)}
-                      disabled={downloadingVersaoId === versao.id_versao}
-                    >
-                      {downloadingVersaoId === versao.id_versao ? 'Gerando link…' : 'Baixar'}
-                    </button>
+                    <span className="designer-actions">
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(versao.id_versao, true)}
+                        disabled={downloadingVersaoId === versao.id_versao}
+                      >
+                        {downloadingVersaoId === versao.id_versao ? 'Gerando link…' : 'Visualizar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(versao.id_versao, false)}
+                        disabled={downloadingVersaoId === versao.id_versao}
+                      >
+                        {downloadingVersaoId === versao.id_versao ? 'Gerando link…' : 'Baixar'}
+                      </button>
+                    </span>
                   </li>
                 ))}
               </ul>
