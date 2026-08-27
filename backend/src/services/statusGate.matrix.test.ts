@@ -136,7 +136,7 @@ describe('gerarLinkAvaliacao — matriz de status (RF009/RN19)', () => {
 });
 
 describe('createAgendamento — matriz de status (RF012/RN30)', () => {
-  const sampleBody = { dataPublicacao: '2026-09-01', horario: '10:00', legenda: undefined };
+  const sampleBody = { dataPublicacao: '2026-09-01', horario: '10:00', legenda: 'Legenda' };
 
   beforeEach(() => {
     getSolicitacaoDetailRepoMock.mockReset();

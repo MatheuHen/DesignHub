@@ -7,6 +7,7 @@ const PG_NOT_FOUND_OR_REVOKED = 'P0002';
 const PG_STATUS_INVALID = 'P0001';
 const PG_DATE_IN_PAST = 'P0004';
 const PG_CANCEL_WINDOW = 'P0005';
+const PG_LEGENDA_OBRIGATORIA = 'P0006';
 
 function mapAgendamentoRpcError(error: { message: string; code?: string }): never {
   if (error.code === PG_NOT_FOUND_OR_REVOKED) throw new NotFoundError('Agendamento não encontrado.');
@@ -14,10 +15,11 @@ function mapAgendamentoRpcError(error: { message: string; code?: string }): neve
   if (error.code === PG_DATE_IN_PAST) {
     throw new ValidationError('Data/horário do agendamento deve ser no futuro.');
   }
+  if (error.code === PG_LEGENDA_OBRIGATORIA) {
+    throw new ValidationError('Informe a legenda da publicação.');
+  }
   if (error.code === PG_CANCEL_WINDOW) {
-    throw new ConflictError(
-      'Cancelamento não permitido: faltam menos de 3 horas para a publicação (RN31).',
-    );
+    throw new ConflictError('Cancelamento não permitido: faltam menos de 3 horas para a publicação.');
   }
   throw new Error(`Falha ao processar agendamento: ${error.message}`);
 }
@@ -34,7 +36,7 @@ export async function createAgendamentoRpc(
     p_id_designer: params.idDesigner,
     p_data_publicacao: params.body.dataPublicacao,
     p_horario: params.body.horario,
-    p_legenda: params.body.legenda ?? null,
+    p_legenda: params.body.legenda,
   });
   const { data, error } = result as {
     data: unknown;
@@ -58,7 +60,7 @@ export async function updateAgendamentoRpc(
     p_id_designer: params.idDesigner,
     p_data_publicacao: params.body.dataPublicacao,
     p_horario: params.body.horario,
-    p_legenda: params.body.legenda ?? null,
+    p_legenda: params.body.legenda,
   });
   const { error } = result as { error: { message: string; code?: string } | null };
   if (error) mapAgendamentoRpcError(error);

@@ -318,6 +318,30 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
     expect(createAgendamentoMock).not.toHaveBeenCalled();
   });
 
+  it('POST /:id/agendamento rejeita corpo sem legenda (400)', async () => {
+    mockAuthenticatedUser('designer');
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/agendamento')
+      .set('Authorization', 'Bearer token-designer')
+      .send({ dataPublicacao: '2026-09-01', horario: '10:00' });
+
+    expect(response.status).toBe(400);
+    expect(createAgendamentoMock).not.toHaveBeenCalled();
+  });
+
+  it('POST /:id/agendamento rejeita legenda em branco (400)', async () => {
+    mockAuthenticatedUser('designer');
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/agendamento')
+      .set('Authorization', 'Bearer token-designer')
+      .send({ dataPublicacao: '2026-09-01', horario: '10:00', legenda: '   ' });
+
+    expect(response.status).toBe(400);
+    expect(createAgendamentoMock).not.toHaveBeenCalled();
+  });
+
   it('POST /:id/agendamento rejeita data/horário fora de faixa mesmo com formato sintaticamente correto (400)', async () => {
     mockAuthenticatedUser('designer');
 
@@ -368,14 +392,14 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
     const response = await request(createApp())
       .patch('/api/solicitacoes/10/agendamento')
       .set('Authorization', 'Bearer token-designer')
-      .send({ dataPublicacao: '2026-09-02', horario: '11:00' });
+      .send({ dataPublicacao: '2026-09-02', horario: '11:00', legenda: 'Legenda' });
 
     expect(response.status).toBe(204);
     expect(updateAgendamentoMock).toHaveBeenCalledWith(
       expect.anything(),
       10,
       'user-1',
-      expect.objectContaining({ dataPublicacao: '2026-09-02', horario: '11:00' }),
+      expect.objectContaining({ dataPublicacao: '2026-09-02', horario: '11:00', legenda: 'Legenda' }),
     );
   });
 
