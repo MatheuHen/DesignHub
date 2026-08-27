@@ -61,7 +61,7 @@ export async function iniciarAtendimento(
   const bloqueado = await syncDesignerBloqueio(adminClient, idDesigner);
   if (bloqueado) {
     throw new ConflictError(
-      'Você possui solicitação vencida sem a primeira versão enviada. Envie a versão pendente ou aguarde o cancelamento para poder iniciar um novo atendimento (RF006).',
+      'Você possui solicitação vencida sem a primeira versão enviada. Envie a versão pendente ou cancele a solicitação para poder iniciar um novo atendimento.',
     );
   }
 

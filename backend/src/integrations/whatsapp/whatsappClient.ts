@@ -110,7 +110,7 @@ export async function sendTemplateMessage(
   }
   if (!whatsappConfigStatus.hasTemplateConfigured) {
     throw new BlockedExternalCredentialError(
-      'WHATSAPP_TEMPLATE_NAME ausente — nenhum template aprovado pela Meta configurado para iniciar conversa (RF004/item 20).',
+      'WHATSAPP_TEMPLATE_NAME ausente — nenhum template aprovado pela Meta configurado para iniciar a conversa.',
     );
   }
 
