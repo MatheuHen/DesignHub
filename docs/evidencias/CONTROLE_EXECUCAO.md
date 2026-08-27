@@ -2405,3 +2405,78 @@ a API de produção), corrigidos e revalidados ao vivo após deploy.
      Business via API).
 - **Git**: `git status` limpo, exceto `logoofc.png` (intencional). Branch
   `main`, sincronizado com `origin/main` (commit `56b42cc`).
+
+## 2026-08-26 — Segunda rodada de correções (testes manuais pós-rodada anterior)
+
+Nove gaps reais reportados após teste manual em produção, investigados contra
+documento oficial e corrigidos. Detalhe completo nos commits; resumo aqui.
+
+- **fix(schedule) `3ab2e3c`**: legenda do agendamento passa a ser obrigatória
+  (RF012/RN28 não a qualificam como opcional) — schema, RPCs SQL (nova
+  migration, `NOT NULL`+`CHECK`), label do frontend. Texto de erro do
+  cancelamento por janela de 3h deixou de expor "(RN31)".
+- **fix(instagram) `e4e17b9`/ADR 0005 — CRITICAL confirmado e corrigido**:
+  publicação automática usava uma única credencial global
+  (`INSTAGRAM_ACCESS_TOKEN`/`INSTAGRAM_ACCOUNT_ID`), publicando a arte de
+  **qualquer** cliente na mesma conta de teste, independente de quem fosse o
+  dono da solicitação — falha real de autorização por objeto entre clientes.
+  Corrigido com tabela `cliente_instagram_conexao` (token por cliente) +
+  fluxo OAuth oficial da Meta ("Instagram API with Instagram Login") por
+  cliente, iniciado pelo designer na tela de Clientes ("Conectar
+  Instagram"). `processarUmAgendamento` só é automático quando o cliente da
+  solicitação tem conexão válida; sem conexão, cai no caminho manual já
+  existente (RF014) sem tentar outra conta. Designer vê aviso quando o
+  Instagram do cliente não está conectado.
+- **ux(upload) `10335b0`/`d3dd332`**: preview real antes do envio (JPG/PNG
+  mostra a imagem; PDF identifica o arquivo + "Visualizar"), com
+  trocar/remover antes de confirmar — novo componente `FilePreviewPicker`,
+  aplicado no envio de nova versão e na referência de ajuste da avaliação
+  pública.
+- **fix(schedule) `d3dd332`**: Data/Horário do agendamento agora são
+  pré-preenchidos com a preferência que o cliente informou ao aprovar
+  (antes só o texto aparecia, os campos ficavam vazios).
+- **fix(i18n) `7964f3f`**: removidos "(RF004/item 20)" e "(RF006)" de
+  mensagens de erro visíveis ao designer (template WhatsApp ausente,
+  bloqueio por atraso).
+- **ux(whatsapp) `e2ffefa`**: mensagem final do questionário agora informa
+  explicitamente que o atendimento automatizado terminou e o processo
+  continua no DesignHub. Confirmado (código + teste novo) que mensagens
+  espontâneas após a conclusão não alteram dados nem criam nova solicitação
+  — já garantido estruturalmente pelo filtro `status='em_andamento'` de
+  `listActiveAtendimentos`.
+- **Confirmado sem alteração necessária (auditoria, não bug)**: cancelamento
+  de solicitação pelo cliente (RF009, já com confirmação em duas etapas,
+  distinto do cancelamento de agendamento); regra de 3h de cancelamento do
+  agendamento (`v_scheduled_at - now() < interval '3 hours'`, já permite
+  exatamente 3h e bloqueia < 3h) — verificação da fronteira em Postgres real
+  ficou `BLOCKED_EXTERNAL` (sem psql/pg local, MCP Supabase sem acesso ao
+  projeto DesignHub), lógica confirmada correta por inspeção; consistência
+  de Visualizar/Baixar nos 3 pontos documentais de arquivo.
+- Validações: `npm run verify` (lint+typecheck+test+build, 2 workspaces) —
+  **324 testes backend (+31) + 67 frontend (+9) = 391**, 0 regressão.
+- Migrations novas aplicadas ao banco real via `npx supabase db push
+  --db-url` (workdir isolado sem `.env.local` para contornar erro de parse
+  do CLI num bloco de notas no topo do arquivo):
+  `20260826100000_agendamento_legenda_obrigatoria.sql`,
+  `20260826120000_cliente_instagram_conexao.sql`.
+- Novas envs de produção configuradas no backend (Vercel):
+  `PUBLIC_BACKEND_URL`, `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`.
+  `INSTAGRAM_ACCESS_TOKEN`/`INSTAGRAM_ACCOUNT_ID` (credencial global antiga)
+  permanecem configuradas mas não são mais lidas pelo código — inofensivas,
+  não removidas nesta rodada.
+- Deploy: backend (`vercel build --prod` + `vercel deploy --prebuilt --prod`,
+  redeployado após configurar as novas envs) e frontend (`vercel deploy
+  --prod`) — smoke test `GET /api/health` → 200 (todas dependências
+  `configured`); `GET /api/instagram/oauth/callback` → 302 (rota nova ativa);
+  frontend → 200.
+- Commits: `3ab2e3c`, `e4e17b9`, `10335b0`, `d3dd332`, `7964f3f`, `e2ffefa`
+  — pushados para `origin/main`.
+- **BLOCKED_EXTERNAL**: teste end-to-end real do handshake OAuth do
+  Instagram (aprovação humana no navegador em instagram.com) não pode ser
+  exercitado nesta sessão automatizada — mecanismo implementado e testado
+  com mocks da Graph API; falta um clique humano em "Conectar Instagram"
+  (tela de Clientes) para revalidar a conta de teste `designhub_26` sob o
+  novo modelo por cliente.
+- Próxima etapa: usuário conecta o Instagram do cliente de teste via UI e
+  executa a bateria manual final (cenários A-F do roteiro desta rodada);
+  depois, Fase 17 segue pendente como já registrado.
