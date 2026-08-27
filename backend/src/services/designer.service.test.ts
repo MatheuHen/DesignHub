@@ -36,7 +36,6 @@ vi.mock('../repositories/designer.repository.js', () => ({
   listDesigners: vi.fn(),
   updateDesignerProfile: vi.fn(),
   setDesignerStatus: vi.fn(),
-  deleteDesigner: vi.fn(),
 }));
 
 vi.mock('../repositories/solicitacao.repository.js', () => ({

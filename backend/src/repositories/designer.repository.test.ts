@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
-import { assertDesignerIsActive, deleteDesigner } from './designer.repository.js';
+import { assertDesignerIsActive } from './designer.repository.js';
 
 function createMaybeSingleClient(row: unknown) {
   return {
@@ -41,30 +41,5 @@ describe('assertDesignerIsActive (RF016/RN44/RN45)', () => {
       designer: { whatsapp: null, bloqueado: false, status_operacional: null },
     });
     await expect(assertDesignerIsActive(client, 'designer-x')).resolves.toBeUndefined();
-  });
-});
-
-describe('deleteDesigner (RF001 — impedimentos históricos)', () => {
-  it('traduz violação de FK em ConflictError acionável', async () => {
-    const client = {
-      auth: {
-        admin: {
-          deleteUser: () =>
-            Promise.resolve({
-              error: { message: 'update or delete on table "designer" violates foreign key constraint', code: '23503' },
-            }),
-        },
-      },
-    } as unknown as Parameters<typeof deleteDesigner>[0];
-
-    await expect(deleteDesigner(client, 'designer-x')).rejects.toBeInstanceOf(ConflictError);
-  });
-
-  it('não lança erro quando a exclusão é bem-sucedida', async () => {
-    const client = {
-      auth: { admin: { deleteUser: () => Promise.resolve({ error: null }) } },
-    } as unknown as Parameters<typeof deleteDesigner>[0];
-
-    await expect(deleteDesigner(client, 'designer-x')).resolves.toBeUndefined();
   });
 });

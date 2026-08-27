@@ -8,7 +8,6 @@ import {
 } from '../lib/errors.js';
 import {
   assertDesignerIsActive,
-  deleteDesigner as deleteDesignerRow,
   getDesignerById,
   insertDesignerProfile,
   listDesigners as listDesignersRepo,
@@ -113,12 +112,6 @@ export async function updateDesigner(id: string, changes: UpdateDesignerInput): 
 export async function changeDesignerStatus(id: string, status: 'ativo' | 'inativo'): Promise<void> {
   const adminClient = getSupabaseAdminClient();
   await setDesignerStatus(adminClient, id, status);
-}
-
-/** RF001: exclusão — impedimentos históricos são traduzidos em ConflictError pelo repository. */
-export async function removeDesigner(id: string): Promise<void> {
-  const adminClient = getSupabaseAdminClient();
-  await deleteDesignerRow(adminClient, id);
 }
 
 /**

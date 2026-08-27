@@ -6,7 +6,6 @@ import { statusSlug } from '../../../lib/statusStyle';
 import { SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from '../../designer/solicitacoes/api';
 import {
   createDesigner,
-  deleteDesigner,
   listDesigners,
   listSolicitacoesAdmin,
   reassignSolicitacao,
@@ -30,7 +29,6 @@ export function DesignersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelState>({ mode: 'closed' });
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
 
   const [solicitacoes, setSolicitacoes] = useState<Solicitacao[]>([]);
@@ -115,25 +113,6 @@ export function DesignersPage() {
         setRowError({
           id: designer.id,
           message: toggleError instanceof ApiError ? toggleError.message : 'Não foi possível atualizar o status.',
-        });
-      });
-  }
-
-  function handleDelete(designer: Designer) {
-    setRowError(null);
-    deleteDesigner(designer.id)
-      .then(() => {
-        setConfirmingDeleteId(null);
-        reload();
-      })
-      .catch((deleteError: unknown) => {
-        setConfirmingDeleteId(null);
-        setRowError({
-          id: designer.id,
-          message:
-            deleteError instanceof ApiError
-              ? deleteError.message
-              : 'Não foi possível excluir o designer.',
         });
       });
   }
@@ -229,20 +208,6 @@ export function DesignersPage() {
                   <button type="button" onClick={() => handleToggleStatus(designer)}>
                     {designer.status === 'ativo' ? 'Inativar' : 'Ativar'}
                   </button>
-                  {confirmingDeleteId === designer.id ? (
-                    <>
-                      <button type="button" onClick={() => handleDelete(designer)}>
-                        Confirmar exclusão
-                      </button>
-                      <button type="button" onClick={() => setConfirmingDeleteId(null)}>
-                        Cancelar
-                      </button>
-                    </>
-                  ) : (
-                    <button type="button" onClick={() => setConfirmingDeleteId(designer.id)}>
-                      Excluir
-                    </button>
-                  )}
                   {rowError?.id === designer.id && (
                     <p role="alert" className="auth-error">
                       {rowError.message}

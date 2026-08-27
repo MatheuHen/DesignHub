@@ -1,20 +1,17 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError } from '../../../lib/apiClient';
 import type { Designer } from './api';
 
 const {
   listDesignersMock,
   createDesignerMock,
-  deleteDesignerMock,
   setDesignerStatusMock,
   listSolicitacoesAdminMock,
   reassignSolicitacaoMock,
 } = vi.hoisted(() => ({
   listDesignersMock: vi.fn(),
   createDesignerMock: vi.fn(),
-  deleteDesignerMock: vi.fn(),
   setDesignerStatusMock: vi.fn(),
   listSolicitacoesAdminMock: vi.fn(),
   reassignSolicitacaoMock: vi.fn(),
@@ -25,7 +22,6 @@ vi.mock('./api', () => ({
   createDesigner: createDesignerMock,
   updateDesigner: vi.fn(),
   setDesignerStatus: setDesignerStatusMock,
-  deleteDesigner: deleteDesignerMock,
   listSolicitacoesAdmin: listSolicitacoesAdminMock,
   reassignSolicitacao: reassignSolicitacaoMock,
 }));
@@ -72,7 +68,6 @@ describe('DesignersPage (RF001/RF015)', () => {
   beforeEach(() => {
     listDesignersMock.mockReset();
     createDesignerMock.mockReset();
-    deleteDesignerMock.mockReset();
     setDesignerStatusMock.mockReset();
     listSolicitacoesAdminMock.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
     reassignSolicitacaoMock.mockReset();
@@ -95,43 +90,32 @@ describe('DesignersPage (RF001/RF015)', () => {
     expect(await screen.findByText('Nenhum designer encontrado.')).toBeInTheDocument();
   });
 
-  it('exige confirmação antes de excluir um designer', async () => {
+  it('ajuste do orientador: não existe ação de excluir para designer ativo (só Editar/Inativar)', async () => {
     listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
-    deleteDesignerMock.mockResolvedValue(undefined);
 
     renderPage();
     await screen.findByRole('cell', { name: 'Dora Designer' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
-    expect(deleteDesignerMock).not.toHaveBeenCalled();
-
-    listDesignersMock.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
-
-    await waitFor(() => {
-      expect(deleteDesignerMock).toHaveBeenCalledWith('designer-1');
-    });
+    expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Inativar' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirmar exclusão' })).not.toBeInTheDocument();
   });
 
-  it('exibe o erro do backend quando a exclusão é rejeitada por impedimento histórico', async () => {
-    listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
-    deleteDesignerMock.mockRejectedValue(
-      new ApiError(
-        409,
-        'CONFLICT',
-        'Não é possível excluir: designer possui clientes ou solicitações vinculados.',
-      ),
-    );
+  it('ajuste do orientador: não existe ação de excluir para designer inativo (só Editar/Ativar)', async () => {
+    listDesignersMock.mockResolvedValue({
+      items: [{ ...sampleDesigner, status: 'inativo' }],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
 
     renderPage();
     await screen.findByRole('cell', { name: 'Dora Designer' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
-
-    expect(
-      await screen.findByText(/Não é possível excluir: designer possui clientes/),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ativar' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument();
   });
 
   it('cria um novo designer a partir do formulário', async () => {

@@ -71,11 +71,6 @@ export function setDesignerStatus(id: string, status: 'ativo' | 'inativo'): Prom
   });
 }
 
-/** RF001: exclusão — pode ser recusada pelo backend por impedimento histórico. */
-export function deleteDesigner(id: string): Promise<void> {
-  return apiRequest<void>(`/api/designers/${id}`, { method: 'DELETE' });
-}
-
 /**
  * RF016/RN47/RN49: leitura admin-only de todas as solicitações (qualquer
  * designer) para localizar o que reatribuir — FIGURA 2/27 "Solicitações

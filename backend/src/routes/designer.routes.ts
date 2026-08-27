@@ -14,7 +14,6 @@ import {
   createDesigner,
   getDesigner,
   listDesigners,
-  removeDesigner,
   updateDesigner,
 } from '../services/designer.service.js';
 
@@ -77,12 +76,7 @@ designerRouter.patch('/:id/status', async (request, response, next) => {
   }
 });
 
-designerRouter.delete('/:id', async (request, response, next) => {
-  try {
-    const { id } = designerIdParamSchema.parse(request.params);
-    await removeDesigner(id);
-    response.status(204).end();
-  } catch (error) {
-    next(toAppError(error));
-  }
-});
+// Ajuste do orientador (2026-08-27): exclusão física de designer removida do
+// fluxo operacional — inativar (status) é o único caminho para retirar um
+// designer de circulação, preservando histórico/rastreabilidade (RNF009).
+// Não existe rota DELETE /api/designers/:id.

@@ -24,7 +24,6 @@ vi.mock('../services/designer.service.js', () => ({
   createDesigner: vi.fn(),
   updateDesigner: vi.fn(),
   changeDesignerStatus: vi.fn(),
-  removeDesigner: vi.fn(),
 }));
 
 const { createApp } = await import('../app.js');
@@ -75,5 +74,17 @@ describe('GET /api/designers — autorização por perfil (RF001/RF015)', () => 
 
     expect(response.status).toBe(200);
     expect(listDesignersMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe('DELETE /api/designers/:id — ajuste do orientador (exclusão removida do fluxo operacional)', () => {
+  it('não existe rota de exclusão de designer (404, mesmo autenticado como administrador)', async () => {
+    mockAuthenticatedUser({ perfil: 'administrador', status: 'ativo' });
+
+    const response = await request(createApp())
+      .delete('/api/designers/designer-1')
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(404);
   });
 });

@@ -183,24 +183,7 @@ export async function setDesignerStatus(
   }
 }
 
-const FOREIGN_KEY_VIOLATION = '23503';
-
-/**
- * RF001: exclusão respeita impedimentos históricos. As FKs de `cliente` e
- * `solicitacao` para `designer` são `on delete restrict`, então o próprio
- * banco rejeita a exclusão quando há histórico — aqui apenas traduzimos
- * esse erro em uma mensagem acionável (reatribuir antes de excluir).
- */
-export async function deleteDesigner(adminClient: SupabaseClient, id: string): Promise<void> {
-  const authResult: unknown = await adminClient.auth.admin.deleteUser(id);
-  const { error } = authResult as { error: { message: string; code?: string } | null };
-
-  if (error) {
-    if (error.code === FOREIGN_KEY_VIOLATION || /foreign key/i.test(error.message)) {
-      throw new ConflictError(
-        'Não é possível excluir: designer possui clientes ou solicitações vinculados. Reatribua-os antes de excluir.',
-      );
-    }
-    throw new Error(`Falha ao excluir designer: ${error.message}`);
-  }
-}
+// Ajuste do orientador (2026-08-27): exclusão física de designer removida do
+// fluxo operacional (frontend, rota, service e este repository) — inativar
+// via `setDesignerStatus` é o único caminho para retirar um designer de
+// circulação, preservando usuário/histórico/rastreabilidade (RNF009).
