@@ -288,6 +288,22 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     expect(sendTextMessageMock).toHaveBeenCalledOnce();
   });
 
+  it('mensagem espontânea após o questionário concluído não altera dados nem cria nova solicitação (item 11)', async () => {
+    // RN08/item 20: `complete_atendimento_and_create_solicitacao` marca o
+    // atendimento como 'concluido' na mesma transação que cria a
+    // solicitação — o filtro `status = 'em_andamento'` de
+    // `listActiveAtendimentos` (repositório real) já exclui esse
+    // atendimento das próximas mensagens do mesmo número, então nenhum
+    // `match` é encontrado.
+    listActiveAtendimentosMock.mockResolvedValue([]);
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ from: '5511999999999', text: { body: 'oi' } })));
+
+    expect(insertRespostaMock).not.toHaveBeenCalled();
+    expect(completeAtendimentoAndCreateSolicitacaoMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+  });
+
   it('não avança o fluxo quando outra requisição concorrente já respondeu a mesma pergunta (seção 12.4)', async () => {
     listActiveAtendimentosMock.mockResolvedValue([
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },

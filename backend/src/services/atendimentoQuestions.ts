@@ -34,5 +34,13 @@ export const ATENDIMENTO_QUESTIONS: readonly QuestionDefinition[] = [
   },
 ] as const;
 
+/**
+ * Item 10 da rodada de correções: informa explicitamente que o atendimento
+ * automatizado (questionário estruturado) terminou — a solicitação segue
+ * para produção/avaliação/agendamento/publicação pelo DesignHub, não é
+ * encerrada. Mensagens enviadas depois deste ponto não são processadas
+ * pelo questionário (RN08/item 11) — só um novo atendimento aberto pelo
+ * designer reabre a coleta estruturada.
+ */
 export const CLOSING_MESSAGE =
-  'Obrigado! Suas respostas foram registradas e sua solicitação já está em produção. Em breve o designer entrará em contato.';
+  'Obrigado! Seu atendimento automatizado desta solicitação foi concluído. As informações foram registradas e o processo continuará no DesignHub. Para solicitar uma nova arte, um novo atendimento deverá ser iniciado pelo designer.';
