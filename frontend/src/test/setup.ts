@@ -7,3 +7,12 @@ import { afterEach } from 'vitest';
 afterEach(() => {
   cleanup();
 });
+
+// jsdom não implementa URL.createObjectURL/revokeObjectURL — necessário para
+// o preview de arquivo antes do envio (FilePreviewPicker).
+if (!URL.createObjectURL) {
+  URL.createObjectURL = () => 'blob:mock-preview-url';
+}
+if (!URL.revokeObjectURL) {
+  URL.revokeObjectURL = () => undefined;
+}

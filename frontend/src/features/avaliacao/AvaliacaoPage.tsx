@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
+import { FilePreviewPicker } from '../../components/FilePreviewPicker';
 import { PublicApiError, getAvaliacaoPreview, submitAvaliacao, type AvaliacaoPreview } from './api';
 
 type ViewState = 'loading' | 'error' | 'preview' | 'ajustes-form' | 'confirm-cancelar' | 'aprovar-agendamento' | 'submitted';
@@ -327,12 +328,12 @@ export function AvaliacaoPage() {
                   onChange={(event) => setObservacoesAjuste(event.target.value)}
                 />
 
-                <label htmlFor="ajuste-referencia">Referência (opcional — PDF, JPG ou PNG)</label>
-                <input
+                <FilePreviewPicker
                   id="ajuste-referencia"
-                  type="file"
+                  label="Referência (opcional — PDF, JPG ou PNG)"
                   accept="application/pdf,image/jpeg,image/png"
-                  onChange={(event) => setReferenciaAjuste(event.target.files?.[0] ?? null)}
+                  file={referenciaAjuste}
+                  onChange={setReferenciaAjuste}
                 />
 
                 <div className="designer-form-actions">
