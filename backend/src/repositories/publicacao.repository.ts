@@ -73,6 +73,25 @@ export async function getVersaoArteAtualDaSolicitacao(
   return { idVersao: row.id_versao, formato: row.formato, arquivoUrl: row.arquivo_url };
 }
 
+const solicitacaoClienteRowSchema = z.object({ id_cliente: z.number() });
+
+/** RF014/ADR 0005: id_cliente da solicitação — necessário para resolver a conexão Instagram daquele cliente específico. */
+export async function getClienteIdDaSolicitacao(
+  adminClient: SupabaseClient,
+  idSolicitacao: number,
+): Promise<number | null> {
+  const result: unknown = await adminClient
+    .from('solicitacao')
+    .select('id_cliente')
+    .eq('id_solicitacao', idSolicitacao)
+    .maybeSingle();
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao buscar cliente da solicitação: ${error.message}`);
+  if (!data) return null;
+
+  return solicitacaoClienteRowSchema.parse(data).id_cliente;
+}
+
 /**
  * RF014/RN29/Gate G: reserva atomicamente o agendamento antes de chamar a
  * Instagram API — evita publicar duas vezes quando o job roda de forma

@@ -45,8 +45,17 @@ const schema = z.object({
    */
   WHATSAPP_TEMPLATE_NAME: z.string().min(1).optional(),
   WHATSAPP_TEMPLATE_LANGUAGE: z.string().min(1).default('pt_BR'),
-  INSTAGRAM_ACCESS_TOKEN: z.string().min(1).optional(),
-  INSTAGRAM_ACCOUNT_ID: z.string().min(1).optional(),
+  /**
+   * RF014/ADR 0005: credenciais do App Meta usadas só para o handshake OAuth
+   * ("Instagram API with Instagram Login") que autoriza a conta de CADA
+   * cliente individualmente — nunca para publicar diretamente. O token de
+   * publicação em si é obtido por cliente e persistido em
+   * `cliente_instagram_conexao`.
+   */
+  INSTAGRAM_APP_ID: z.string().min(1).optional(),
+  INSTAGRAM_APP_SECRET: z.string().min(1).optional(),
+  /** RF014/ADR 0005: base pública do backend, usada para montar o redirect_uri do OAuth do Instagram. */
+  PUBLIC_BACKEND_URL: z.string().url().default('http://localhost:3001'),
   /**
    * RF014/seção 11: segredo compartilhado do endpoint interno de publicação
    * (chamado pelo job/cron, nunca por um usuário). Mínimo de 32 caracteres
@@ -92,8 +101,8 @@ export const whatsappConfigStatus = {
 } as const;
 
 export const instagramConfigStatus = {
-  /** Necessário para publicar automaticamente (RF014) via Instagram API oficial. */
-  hasPublishingClient: Boolean(env.INSTAGRAM_ACCESS_TOKEN && env.INSTAGRAM_ACCOUNT_ID),
+  /** RF014/ADR 0005: necessário para iniciar o handshake OAuth por cliente (não publica sozinho). */
+  hasOAuthClient: Boolean(env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET),
 } as const;
 
 export const internalJobConfigStatus = {

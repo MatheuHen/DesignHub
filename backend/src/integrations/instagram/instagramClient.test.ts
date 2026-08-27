@@ -1,46 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BlockedExternalCredentialError } from '../../lib/errors.js';
-
-const { envMock, instagramConfigStatusMock } = vi.hoisted(() => ({
-  envMock: {
-    INSTAGRAM_ACCESS_TOKEN: 'token-teste',
-    INSTAGRAM_ACCOUNT_ID: '27882228474720270',
-  },
-  instagramConfigStatusMock: {
-    hasPublishingClient: true,
-  },
-}));
-
-vi.mock('../../config/env.js', () => ({
-  env: envMock,
-  instagramConfigStatus: instagramConfigStatusMock,
-}));
 
 const { publishImage } = await import('./instagramClient.js');
 
-describe('instagramClient (RF014 — Instagram API with Instagram Login)', () => {
+const CREDENTIALS = { accessToken: 'token-teste', accountId: '27882228474720270' };
+
+describe('instagramClient (RF014/ADR 0005 — Instagram API with Instagram Login, credencial por cliente)', () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
-    instagramConfigStatusMock.hasPublishingClient = true;
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('lança BlockedExternalCredentialError quando faltam credenciais', async () => {
-    instagramConfigStatusMock.hasPublishingClient = false;
-
-    await expect(publishImage('https://example.com/img.png', 'legenda')).rejects.toBeInstanceOf(
-      BlockedExternalCredentialError,
-    );
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('chama graph.instagram.com (não graph.facebook.com), espera o container ficar FINISHED e publica', async () => {
+  it('chama graph.instagram.com (não graph.facebook.com) com o token/conta recebidos por parâmetro, espera o container ficar FINISHED e publica', async () => {
     vi.useFakeTimers();
     try {
       fetchMock
@@ -48,7 +24,7 @@ describe('instagramClient (RF014 — Instagram API with Instagram Login)', () =>
         .mockResolvedValueOnce(new Response(JSON.stringify({ status_code: 'FINISHED' }), { status: 200 }))
         .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'media-1' }), { status: 200 }));
 
-      const resultPromise = publishImage('https://example.com/img.png', 'legenda de teste');
+      const resultPromise = publishImage(CREDENTIALS, 'https://example.com/img.png', 'legenda de teste');
       await vi.advanceTimersByTimeAsync(1_500);
       const result = await resultPromise;
 
@@ -58,6 +34,7 @@ describe('instagramClient (RF014 — Instagram API with Instagram Login)', () =>
       const [containerUrl, containerInit] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(containerUrl).toBe('https://graph.instagram.com/v21.0/27882228474720270/media');
       expect(containerUrl).not.toContain('graph.facebook.com');
+      expect((containerInit.headers as Record<string, string>).Authorization).toBe('Bearer token-teste');
       const containerBody = JSON.parse(containerInit.body as string) as { image_url: string; caption: string };
       expect(containerBody).toEqual({ image_url: 'https://example.com/img.png', caption: 'legenda de teste' });
 
@@ -73,6 +50,30 @@ describe('instagramClient (RF014 — Instagram API with Instagram Login)', () =>
     }
   });
 
+  it('usa a credencial de OUTRO cliente quando outra credencial é passada — nunca mistura contas (ADR 0005)', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'container-2' }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ status_code: 'FINISHED' }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'media-2' }), { status: 200 }));
+
+      const resultPromise = publishImage(
+        { accessToken: 'token-cliente-b', accountId: 'conta-cliente-b' },
+        'https://example.com/img2.png',
+        'outra legenda',
+      );
+      await vi.advanceTimersByTimeAsync(1_500);
+      await resultPromise;
+
+      const [containerUrl, containerInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(containerUrl).toBe('https://graph.instagram.com/v21.0/conta-cliente-b/media');
+      expect((containerInit.headers as Record<string, string>).Authorization).toBe('Bearer token-cliente-b');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('não publica e falha quando o container nunca fica pronto (Gate G — API oficial, "Media ID is not available")', async () => {
     vi.useFakeTimers();
     try {
@@ -80,7 +81,7 @@ describe('instagramClient (RF014 — Instagram API with Instagram Login)', () =>
         .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'container-1' }), { status: 200 }))
         .mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ status_code: 'IN_PROGRESS' }), { status: 200 })));
 
-      const resultPromise = publishImage('https://example.com/img.png', 'legenda de teste');
+      const resultPromise = publishImage(CREDENTIALS, 'https://example.com/img.png', 'legenda de teste');
       const assertion = expect(resultPromise).rejects.toThrow('não ficou pronto a tempo');
       await vi.advanceTimersByTimeAsync(10_000);
       await assertion;
@@ -99,7 +100,7 @@ describe('instagramClient (RF014 — Instagram API with Instagram Login)', () =>
         .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'container-1' }), { status: 200 }))
         .mockResolvedValueOnce(new Response(JSON.stringify({ status_code: 'ERROR' }), { status: 200 }));
 
-      const resultPromise = publishImage('https://example.com/img.png', 'legenda de teste');
+      const resultPromise = publishImage(CREDENTIALS, 'https://example.com/img.png', 'legenda de teste');
       const assertion = expect(resultPromise).rejects.toThrow('status ERROR');
       await vi.advanceTimersByTimeAsync(1_500);
       await assertion;

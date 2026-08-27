@@ -60,3 +60,24 @@ export function deleteCliente(id: number): Promise<void> {
 export function iniciarAtendimento(id: number): Promise<{ idAtendimento: number }> {
   return apiRequest<{ idAtendimento: number }>(`/api/clientes/${id}/atendimentos`, { method: 'POST' });
 }
+
+export interface InstagramStatus {
+  conectado: boolean;
+  conectadoEm: string | null;
+  expiraEm: string | null;
+}
+
+/** RF014/ADR 0005: status de conexão do Instagram deste cliente — nunca o token. */
+export function getInstagramStatus(id: number): Promise<InstagramStatus> {
+  return apiRequest<InstagramStatus>(`/api/clientes/${id}/instagram/status`);
+}
+
+/** RF014/ADR 0005: URL de autorização oficial da Meta para conectar o Instagram deste cliente. */
+export function getInstagramAuthorizeUrl(id: number): Promise<{ url: string }> {
+  return apiRequest<{ url: string }>(`/api/clientes/${id}/instagram/authorize-url`, { method: 'POST' });
+}
+
+/** RF014/ADR 0005: desconecta o Instagram deste cliente. */
+export function desconectarInstagram(id: number): Promise<void> {
+  return apiRequest<void>(`/api/clientes/${id}/instagram/conexao`, { method: 'DELETE' });
+}

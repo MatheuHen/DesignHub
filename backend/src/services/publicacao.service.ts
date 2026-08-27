@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
-import { instagramConfigStatus } from '../config/env.js';
 import { publishImage } from '../integrations/instagram/instagramClient.js';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 import { getActiveAgendamentoBySolicitacao } from '../repositories/agendamento.repository.js';
+import { getConexaoAtiva } from '../repositories/clienteInstagram.repository.js';
 import {
   claimAgendamentoParaPublicacao,
+  getClienteIdDaSolicitacao,
   getVersaoArteAtualDaSolicitacao,
   listAgendamentosVencidos,
   registerPublicacaoFalha,
@@ -72,8 +73,15 @@ async function processarUmAgendamento(
   const versao = await getVersaoArteAtualDaSolicitacao(adminClient, agendamento.idSolicitacao);
   if (!versao) return 'pendente'; // defensivo — não deveria ocorrer dado o invariante de status
 
-  const elegivel = instagramConfigStatus.hasPublishingClient && AUTO_PUBLISHABLE_FORMATS.has(versao.formato);
-  if (!elegivel) return 'pendente'; // sem credencial ou formato não suportado (ex.: PDF) — fica para publicação manual
+  if (!AUTO_PUBLISHABLE_FORMATS.has(versao.formato)) return 'pendente'; // ex.: PDF — fica para publicação manual
+
+  // RF014/RN29/ADR 0005: elegibilidade automática depende do CLIENTE dono da
+  // solicitação ter autorizado a própria conta Instagram — nunca de uma
+  // credencial global. Sem conexão válida (ou expirada), cai para manual;
+  // nunca tenta publicar na conta de outro cliente.
+  const idCliente = await getClienteIdDaSolicitacao(adminClient, agendamento.idSolicitacao);
+  const conexao = idCliente ? await getConexaoAtiva(adminClient, idCliente) : null;
+  if (!conexao) return 'pendente';
 
   // RF014/RN29/Gate G: reserva o agendamento ANTES de chamar a Instagram API.
   // Se outra execução do job já reservou (execuções sobrepostas), não
@@ -88,7 +96,11 @@ async function processarUmAgendamento(
       DOWNLOAD_URL_EXPIRES_IN_SECONDS,
       false,
     );
-    await publishImage(imageUrl, agendamento.legenda ?? '');
+    await publishImage(
+      { accessToken: conexao.accessToken, accountId: conexao.instagramUserId },
+      imageUrl,
+      agendamento.legenda ?? '',
+    );
     await registerPublicacaoSucesso(adminClient, {
       idAgendamento: agendamento.idAgendamento,
       tipo: 'automatica',

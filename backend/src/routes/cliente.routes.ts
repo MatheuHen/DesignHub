@@ -16,6 +16,11 @@ import {
   removeCliente,
   updateCliente,
 } from '../services/cliente.service.js';
+import {
+  gerarAutorizacaoInstagramUrl,
+  getInstagramStatus,
+  removerInstagramConexao,
+} from '../services/clienteInstagram.service.js';
 
 export const clienteRouter = Router();
 
@@ -73,6 +78,42 @@ clienteRouter.post('/:id/atendimentos', async (request, response, next) => {
     const client = getSupabaseUserClient(request.auth!.accessToken);
     const result = await iniciarAtendimento(client, request.auth!.userId, id);
     response.status(201).json(result);
+  } catch (error) {
+    next(toAppError(error));
+  }
+});
+
+/** RF014/ADR 0005: designer inicia a conexão do Instagram deste cliente específico. */
+clienteRouter.post('/:id/instagram/authorize-url', async (request, response, next) => {
+  try {
+    const { id } = clienteIdParamSchema.parse(request.params);
+    const client = getSupabaseUserClient(request.auth!.accessToken);
+    const result = await gerarAutorizacaoInstagramUrl(client, id, request.auth!.userId);
+    response.status(200).json(result);
+  } catch (error) {
+    next(toAppError(error));
+  }
+});
+
+/** RF014: status de conexão do Instagram deste cliente — nunca o token. */
+clienteRouter.get('/:id/instagram/status', async (request, response, next) => {
+  try {
+    const { id } = clienteIdParamSchema.parse(request.params);
+    const client = getSupabaseUserClient(request.auth!.accessToken);
+    const result = await getInstagramStatus(client, id);
+    response.status(200).json(result);
+  } catch (error) {
+    next(toAppError(error));
+  }
+});
+
+/** RF014: designer desconecta o Instagram deste cliente. */
+clienteRouter.delete('/:id/instagram/conexao', async (request, response, next) => {
+  try {
+    const { id } = clienteIdParamSchema.parse(request.params);
+    const client = getSupabaseUserClient(request.auth!.accessToken);
+    await removerInstagramConexao(client, id);
+    response.status(204).end();
   } catch (error) {
     next(toAppError(error));
   }

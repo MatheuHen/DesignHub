@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import {
   createCliente,
   deleteCliente,
+  desconectarInstagram,
+  getInstagramAuthorizeUrl,
+  getInstagramStatus,
   iniciarAtendimento,
   listClientes,
   updateCliente,
   type Cliente,
+  type InstagramStatus,
 } from './api';
 import { ClienteFormPanel, type ClienteFormValues } from './ClienteFormPanel';
 
@@ -28,6 +33,13 @@ export function ClientesPage() {
   >(null);
   const [startingAtendimentoId, setStartingAtendimentoId] = useState<number | null>(null);
 
+  const [instagramStatus, setInstagramStatus] = useState<Record<number, InstagramStatus>>({});
+  const [connectingInstagramId, setConnectingInstagramId] = useState<number | null>(null);
+  const [instagramFeedback, setInstagramFeedback] = useState<
+    { id: number; type: 'success' | 'error'; message: string } | null
+  >(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const reload = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -35,6 +47,16 @@ export function ClientesPage() {
       .then((result) => {
         setItems(result.items);
         setTotal(result.total);
+        return Promise.all(
+          result.items.map((cliente) =>
+            getInstagramStatus(cliente.id)
+              .then((status) => [cliente.id, status] as const)
+              .catch(() => [cliente.id, { conectado: false, conectadoEm: null, expiraEm: null }] as const),
+          ),
+        );
+      })
+      .then((entries) => {
+        if (entries) setInstagramStatus(Object.fromEntries(entries));
       })
       .catch((loadError: unknown) => {
         setError(
@@ -47,6 +69,64 @@ export function ClientesPage() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  /** RF014/ADR 0005: volta do fluxo OAuth do Instagram (redirect do backend após aprovação/erro na Meta). */
+  useEffect(() => {
+    const resultado = searchParams.get('instagram');
+    if (resultado === 'conectado') {
+      setInstagramFeedback({ id: -1, type: 'success', message: 'Instagram conectado com sucesso.' });
+      reload();
+    } else if (resultado === 'erro') {
+      setInstagramFeedback({
+        id: -1,
+        type: 'error',
+        message: 'Não foi possível conectar o Instagram. Tente novamente.',
+      });
+    }
+    if (resultado) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('instagram');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleConectarInstagram(cliente: Cliente) {
+    setInstagramFeedback(null);
+    setConnectingInstagramId(cliente.id);
+    getInstagramAuthorizeUrl(cliente.id)
+      .then(({ url }) => {
+        window.location.href = url;
+      })
+      .catch((connectError: unknown) => {
+        setInstagramFeedback({
+          id: cliente.id,
+          type: 'error',
+          message:
+            connectError instanceof ApiError ? connectError.message : 'Não foi possível iniciar a conexão com o Instagram.',
+        });
+        setConnectingInstagramId(null);
+      });
+  }
+
+  function handleDesconectarInstagram(cliente: Cliente) {
+    setInstagramFeedback(null);
+    setConnectingInstagramId(cliente.id);
+    desconectarInstagram(cliente.id)
+      .then(() => {
+        setInstagramFeedback({ id: cliente.id, type: 'success', message: 'Instagram desconectado.' });
+        reload();
+      })
+      .catch((disconnectError: unknown) => {
+        setInstagramFeedback({
+          id: cliente.id,
+          type: 'error',
+          message:
+            disconnectError instanceof ApiError ? disconnectError.message : 'Não foi possível desconectar o Instagram.',
+        });
+      })
+      .finally(() => setConnectingInstagramId(null));
+  }
 
   async function handleCreate(values: ClienteFormValues) {
     await createCliente({
@@ -134,6 +214,15 @@ export function ClientesPage() {
         </p>
       )}
 
+      {instagramFeedback?.id === -1 && (
+        <p
+          role={instagramFeedback.type === 'error' ? 'alert' : 'status'}
+          className={instagramFeedback.type === 'error' ? 'auth-error' : 'atendimento-success'}
+        >
+          {instagramFeedback.message}
+        </p>
+      )}
+
       {!loading && !error && items.length === 0 && <p>Nenhum cliente encontrado.</p>}
 
       {!loading && !error && items.length > 0 && (
@@ -144,6 +233,7 @@ export function ClientesPage() {
               <th scope="col">Nome</th>
               <th scope="col">WhatsApp</th>
               <th scope="col">Instagram</th>
+              <th scope="col">Publicação automática</th>
               <th scope="col">Ações</th>
             </tr>
           </thead>
@@ -153,6 +243,39 @@ export function ClientesPage() {
                 <td>{cliente.nome}</td>
                 <td>{cliente.whatsapp}</td>
                 <td>{cliente.instagram ?? '—'}</td>
+                <td>
+                  {instagramStatus[cliente.id]?.conectado ? (
+                    <>
+                      <span>Conectado</span>{' '}
+                      <button
+                        type="button"
+                        onClick={() => handleDesconectarInstagram(cliente)}
+                        disabled={connectingInstagramId === cliente.id}
+                      >
+                        Desconectar
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span>Não conectado</span>{' '}
+                      <button
+                        type="button"
+                        onClick={() => handleConectarInstagram(cliente)}
+                        disabled={connectingInstagramId === cliente.id}
+                      >
+                        {connectingInstagramId === cliente.id ? 'Conectando…' : 'Conectar Instagram'}
+                      </button>
+                    </>
+                  )}
+                  {instagramFeedback?.id === cliente.id && (
+                    <p
+                      role={instagramFeedback.type === 'error' ? 'alert' : 'status'}
+                      className={instagramFeedback.type === 'error' ? 'auth-error' : 'atendimento-success'}
+                    >
+                      {instagramFeedback.message}
+                    </p>
+                  )}
+                </td>
                 <td className="designer-actions">
                   <button
                     type="button"

@@ -10,6 +10,7 @@ import { avaliacaoRouter } from './routes/avaliacao.routes.js';
 import { clienteRouter } from './routes/cliente.routes.js';
 import { designerRouter } from './routes/designer.routes.js';
 import { healthRouter } from './routes/health.routes.js';
+import { instagramOAuthRouter } from './routes/instagramOAuth.routes.js';
 import { internalAtendimentoRouter } from './routes/internalAtendimento.routes.js';
 import { internalPublicacaoRouter } from './routes/internalPublicacao.routes.js';
 import { solicitacaoRouter } from './routes/solicitacao.routes.js';
@@ -65,6 +66,7 @@ export function createApp() {
   app.use('/api/agendamentos', agendamentoRouter);
   app.use('/api/avaliacao', avaliacaoRouter);
   app.use('/api/webhooks/whatsapp', whatsappRouter);
+  app.use('/api/instagram/oauth', instagramOAuthRouter);
   app.use('/api/internal/publicacoes', internalPublicacaoRouter);
   app.use('/api/internal/atendimentos', internalAtendimentoRouter);
 

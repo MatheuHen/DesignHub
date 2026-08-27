@@ -4,11 +4,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../../lib/apiClient';
 import type { Cliente } from './api';
 
-const { listClientesMock, createClienteMock, deleteClienteMock, iniciarAtendimentoMock } = vi.hoisted(() => ({
+const {
+  listClientesMock,
+  createClienteMock,
+  deleteClienteMock,
+  iniciarAtendimentoMock,
+  getInstagramStatusMock,
+  getInstagramAuthorizeUrlMock,
+  desconectarInstagramMock,
+} = vi.hoisted(() => ({
   listClientesMock: vi.fn(),
   createClienteMock: vi.fn(),
   deleteClienteMock: vi.fn(),
   iniciarAtendimentoMock: vi.fn(),
+  getInstagramStatusMock: vi.fn(),
+  getInstagramAuthorizeUrlMock: vi.fn(),
+  desconectarInstagramMock: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
@@ -17,6 +28,9 @@ vi.mock('./api', () => ({
   updateCliente: vi.fn(),
   deleteCliente: deleteClienteMock,
   iniciarAtendimento: iniciarAtendimentoMock,
+  getInstagramStatus: getInstagramStatusMock,
+  getInstagramAuthorizeUrl: getInstagramAuthorizeUrlMock,
+  desconectarInstagram: desconectarInstagramMock,
 }));
 
 vi.mock('../../auth/useAuth', () => ({
@@ -61,6 +75,9 @@ describe('ClientesPage (RF003)', () => {
     createClienteMock.mockReset();
     deleteClienteMock.mockReset();
     iniciarAtendimentoMock.mockReset();
+    getInstagramStatusMock.mockReset().mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
+    getInstagramAuthorizeUrlMock.mockReset();
+    desconectarInstagramMock.mockReset();
   });
 
   it('lista os clientes retornados pela API', async () => {
@@ -146,5 +163,45 @@ describe('ClientesPage (RF003)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar atendimento' }));
 
     expect(await screen.findByText(/já existe um atendimento em andamento/i)).toBeInTheDocument();
+  });
+
+  it('mostra "Não conectado" e permite iniciar a conexão do Instagram (RF014/ADR 0005)', async () => {
+    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
+    getInstagramStatusMock.mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
+    getInstagramAuthorizeUrlMock.mockResolvedValue({ url: 'https://www.instagram.com/oauth/authorize?...' });
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', { value: { ...originalLocation, href: '' }, writable: true });
+
+    renderPage();
+    await screen.findByText('Cliente Teste');
+
+    expect(await screen.findByText('Não conectado')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Conectar Instagram' }));
+
+    await waitFor(() => {
+      expect(getInstagramAuthorizeUrlMock).toHaveBeenCalledWith(1);
+    });
+
+    Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
+  });
+
+  it('mostra "Conectado" e permite desconectar o Instagram (RF014/ADR 0005)', async () => {
+    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
+    getInstagramStatusMock.mockResolvedValue({
+      conectado: true,
+      conectadoEm: '2026-08-20T10:00:00Z',
+      expiraEm: '2026-10-19T10:00:00Z',
+    });
+    desconectarInstagramMock.mockResolvedValue(undefined);
+
+    renderPage();
+    await screen.findByText('Cliente Teste');
+
+    expect(await screen.findByText('Conectado')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Desconectar' }));
+
+    await waitFor(() => {
+      expect(desconectarInstagramMock).toHaveBeenCalledWith(1);
+    });
   });
 });

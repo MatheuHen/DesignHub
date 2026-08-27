@@ -3,7 +3,6 @@ import { ConflictError, NotFoundError } from '../lib/errors.js';
 
 const {
   getSupabaseAdminClientMock,
-  instagramConfigStatusMock,
   publishImageMock,
   getActiveAgendamentoBySolicitacaoMock,
   getVersaoArteAtualDaSolicitacaoMock,
@@ -11,11 +10,12 @@ const {
   claimAgendamentoParaPublicacaoMock,
   registerPublicacaoSucessoMock,
   registerPublicacaoFalhaMock,
+  getClienteIdDaSolicitacaoMock,
   getSolicitacaoDetailRepoMock,
   createVersaoArteDownloadUrlMock,
+  getConexaoAtivaMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
-  instagramConfigStatusMock: { hasPublishingClient: true },
   publishImageMock: vi.fn(),
   getActiveAgendamentoBySolicitacaoMock: vi.fn(),
   getVersaoArteAtualDaSolicitacaoMock: vi.fn(),
@@ -23,15 +23,19 @@ const {
   claimAgendamentoParaPublicacaoMock: vi.fn(),
   registerPublicacaoSucessoMock: vi.fn(),
   registerPublicacaoFalhaMock: vi.fn(),
+  getClienteIdDaSolicitacaoMock: vi.fn(),
   getSolicitacaoDetailRepoMock: vi.fn(),
   createVersaoArteDownloadUrlMock: vi.fn(),
+  getConexaoAtivaMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
-vi.mock('../config/env.js', () => ({ instagramConfigStatus: instagramConfigStatusMock }));
 vi.mock('../integrations/instagram/instagramClient.js', () => ({ publishImage: publishImageMock }));
 vi.mock('../repositories/agendamento.repository.js', () => ({
   getActiveAgendamentoBySolicitacao: getActiveAgendamentoBySolicitacaoMock,
+}));
+vi.mock('../repositories/clienteInstagram.repository.js', () => ({
+  getConexaoAtiva: getConexaoAtivaMock,
 }));
 vi.mock('../repositories/publicacao.repository.js', () => ({
   getVersaoArteAtualDaSolicitacao: getVersaoArteAtualDaSolicitacaoMock,
@@ -39,6 +43,7 @@ vi.mock('../repositories/publicacao.repository.js', () => ({
   claimAgendamentoParaPublicacao: claimAgendamentoParaPublicacaoMock,
   registerPublicacaoSucesso: registerPublicacaoSucessoMock,
   registerPublicacaoFalha: registerPublicacaoFalhaMock,
+  getClienteIdDaSolicitacao: getClienteIdDaSolicitacaoMock,
 }));
 vi.mock('../repositories/solicitacao.repository.js', () => ({
   getSolicitacaoDetail: getSolicitacaoDetailRepoMock,
@@ -51,11 +56,18 @@ const { processarAgendamentosVencidos, registrarPublicacaoManual } = await impor
 
 const AGENDAMENTO_VENCIDO = { idAgendamento: 1, idSolicitacao: 10, legenda: 'Legenda' };
 
-describe('processarAgendamentosVencidos (RF014/RN32-RN35)', () => {
+const CONEXAO_ATIVA = {
+  instagramUserId: 'conta-cliente-10',
+  accessToken: 'token-cliente-10',
+  tokenExpiraEm: '2027-01-01T00:00:00Z',
+};
+
+describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
   beforeEach(() => {
-    instagramConfigStatusMock.hasPublishingClient = true;
     listAgendamentosVencidosMock.mockReset();
     getVersaoArteAtualDaSolicitacaoMock.mockReset();
+    getClienteIdDaSolicitacaoMock.mockReset().mockResolvedValue(10);
+    getConexaoAtivaMock.mockReset().mockResolvedValue(CONEXAO_ATIVA);
     createVersaoArteDownloadUrlMock.mockReset().mockResolvedValue('https://exemplo.supabase.co/signed');
     publishImageMock.mockReset();
     claimAgendamentoParaPublicacaoMock.mockReset().mockResolvedValue(true);
@@ -63,7 +75,7 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35)', () => {
     registerPublicacaoFalhaMock.mockReset().mockResolvedValue(undefined);
   });
 
-  it('publica automaticamente quando há credencial e o formato é elegível (JPG/PNG)', async () => {
+  it('publica automaticamente quando o CLIENTE tem conexão Instagram válida e o formato é elegível (JPG/PNG)', async () => {
     listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
     getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
       idVersao: 1,
@@ -80,14 +92,19 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35)', () => {
       falhas: 0,
       pendentesParaManual: 0,
     });
+    expect(publishImageMock).toHaveBeenCalledWith(
+      { accessToken: 'token-cliente-10', accountId: 'conta-cliente-10' },
+      expect.anything(),
+      expect.anything(),
+    );
     expect(registerPublicacaoSucessoMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ idAgendamento: 1, tipo: 'automatica', atorId: null }),
     );
   });
 
-  it('deixa pendente para publicação manual quando não há credencial do Instagram', async () => {
-    instagramConfigStatusMock.hasPublishingClient = false;
+  it('deixa pendente para publicação manual quando o CLIENTE não tem conexão Instagram (nunca tenta outra conta)', async () => {
+    getConexaoAtivaMock.mockResolvedValue(null);
     listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
     getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
       idVersao: 1,
@@ -99,6 +116,7 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35)', () => {
 
     expect(result).toEqual({ processados: 1, publicadosAutomaticamente: 0, falhas: 0, pendentesParaManual: 1 });
     expect(publishImageMock).not.toHaveBeenCalled();
+    expect(claimAgendamentoParaPublicacaoMock).not.toHaveBeenCalled();
   });
 
   it('deixa pendente para publicação manual quando o formato não é publicável (PDF)', async () => {
