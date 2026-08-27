@@ -15,6 +15,7 @@ const {
   updateAgendamentoMock,
   cancelAgendamentoMock,
   registrarPublicacaoManualMock,
+  getClienteInstagramStatusMock,
 } = vi.hoisted(() => ({
   getSolicitacaoDetailMock: vi.fn(),
   updateSolicitacaoMock: vi.fn(),
@@ -26,6 +27,7 @@ const {
   updateAgendamentoMock: vi.fn(),
   cancelAgendamentoMock: vi.fn(),
   registrarPublicacaoManualMock: vi.fn(),
+  getClienteInstagramStatusMock: vi.fn(),
 }));
 
 vi.mock('./api', async (importOriginal) => {
@@ -42,6 +44,7 @@ vi.mock('./api', async (importOriginal) => {
     updateAgendamento: updateAgendamentoMock,
     cancelAgendamento: cancelAgendamentoMock,
     registrarPublicacaoManual: registrarPublicacaoManualMock,
+    getClienteInstagramStatus: getClienteInstagramStatusMock,
   };
 });
 
@@ -111,6 +114,9 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     updateAgendamentoMock.mockReset();
     cancelAgendamentoMock.mockReset();
     registrarPublicacaoManualMock.mockReset();
+    getClienteInstagramStatusMock
+      .mockReset()
+      .mockResolvedValue({ conectado: true, conectadoEm: '2026-08-20T10:00:00Z', expiraEm: '2026-10-19T10:00:00Z' });
   });
 
   it('mostra detalhes, atendimento e histórico', async () => {
@@ -301,6 +307,56 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     expect(await screen.findByRole('form', { name: 'Agendar publicação' })).toBeInTheDocument();
   });
 
+  it('pré-preenche Data/Horário com a preferência do cliente quando ainda não há agendamento (RN22/RN27)', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Aprovado' },
+      preferenciaAgendamento: {
+        desejaAgendamento: true,
+        dataDesejada: '2026-08-25',
+        horarioDesejado: '20:12:00',
+      },
+    });
+
+    renderPage();
+    await screen.findByRole('form', { name: 'Agendar publicação' });
+
+    expect(screen.getByLabelText('Data')).toHaveValue('2026-08-25');
+    expect(screen.getByLabelText('Horário')).toHaveValue('20:12');
+  });
+
+  it('avisa quando o Instagram do cliente não está conectado (RF014/ADR 0005)', async () => {
+    getClienteInstagramStatusMock.mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Aprovado' },
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/conta do Instagram deste cliente não está conectada/),
+    ).toBeInTheDocument();
+    expect(getClienteInstagramStatusMock).toHaveBeenCalledWith(sampleDetail.solicitacao.idCliente);
+  });
+
+  it('não avisa sobre Instagram quando o cliente já está conectado', async () => {
+    getClienteInstagramStatusMock.mockResolvedValue({
+      conectado: true,
+      conectadoEm: '2026-08-20T10:00:00Z',
+      expiraEm: '2026-10-19T10:00:00Z',
+    });
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Aprovado' },
+    });
+
+    renderPage();
+    await screen.findByRole('form', { name: 'Agendar publicação' });
+
+    expect(screen.queryByText(/não está conectada/)).not.toBeInTheDocument();
+  });
+
   it('cria o agendamento com os dados informados', async () => {
     getSolicitacaoDetailMock.mockResolvedValue({
       ...sampleDetail,
@@ -313,13 +369,14 @@ describe('SolicitacaoDetailPage (RF005)', () => {
 
     fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2026-09-01' } });
     fireEvent.change(screen.getByLabelText('Horário'), { target: { value: '10:00' } });
+    fireEvent.change(screen.getByLabelText('Legenda'), { target: { value: 'Nova arte no ar!' } });
     fireEvent.click(screen.getByRole('button', { name: 'Agendar publicação' }));
 
     await waitFor(() => {
       expect(createAgendamentoMock).toHaveBeenCalledWith(10, {
         dataPublicacao: '2026-09-01',
         horario: '10:00',
-        legenda: undefined,
+        legenda: 'Nova arte no ar!',
       });
     });
     expect(await screen.findByText('Publicação agendada com sucesso.')).toBeInTheDocument();
@@ -375,7 +432,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       agendamento: { idAgendamento: 1, dataPublicacao: '2026-09-01', horario: '10:00:00', legenda: null },
     });
     cancelAgendamentoMock.mockRejectedValue(
-      new ApiError(409, 'CONFLICT', 'Cancelamento não permitido: faltam menos de 3 horas para a publicação (RN31).'),
+      new ApiError(409, 'CONFLICT', 'Cancelamento não permitido: faltam menos de 3 horas para a publicação.'),
     );
 
     renderPage();

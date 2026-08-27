@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
+import { FilePreviewPicker } from '../../../components/FilePreviewPicker';
 import { ApiError } from '../../../lib/apiClient';
 import { statusSlug } from '../../../lib/statusStyle';
 import {
@@ -9,11 +10,13 @@ import {
   gerarLinkAvaliacao,
   getAjusteReferenciaUrl,
   getAtendimentoReferenciaUrl,
+  getClienteInstagramStatus,
   getSolicitacaoDetail,
   getVersaoArteDownloadUrl,
   registrarPublicacaoManual,
   updateAgendamento,
   uploadVersaoArte,
+  type ClienteInstagramStatus,
   type GerarLinkAvaliacaoResult,
   type SolicitacaoDetailResult,
 } from './api';
@@ -73,15 +76,33 @@ export function SolicitacaoDetailPage() {
   const [registeringPublicacao, setRegisteringPublicacao] = useState(false);
   const [publicacaoError, setPublicacaoError] = useState<string | null>(null);
 
+  const [instagramStatus, setInstagramStatus] = useState<ClienteInstagramStatus | null>(null);
+
   const reload = useCallback(() => {
     setLoading(true);
     setError(null);
     getSolicitacaoDetail(id)
       .then((result) => {
         setData(result);
-        setAgendData(result.agendamento?.dataPublicacao ?? '');
-        setAgendHorario(result.agendamento?.horario.slice(0, 5) ?? '');
+        // RN22/RN27: sem agendamento ainda criado, pré-preenche com a preferência que o cliente informou ao aprovar.
+        const preferencia = result.preferenciaAgendamento;
+        const usarPreferencia = !result.agendamento && preferencia?.desejaAgendamento === true;
+        setAgendData(
+          result.agendamento?.dataPublicacao ?? (usarPreferencia ? (preferencia.dataDesejada ?? '') : ''),
+        );
+        setAgendHorario(
+          result.agendamento?.horario.slice(0, 5) ??
+            (usarPreferencia ? (preferencia.horarioDesejado?.slice(0, 5) ?? '') : ''),
+        );
         setAgendLegenda(result.agendamento?.legenda ?? '');
+
+        if (result.solicitacao.status === 'Aprovado' || result.solicitacao.status === 'Agendado') {
+          getClienteInstagramStatus(result.solicitacao.idCliente)
+            .then(setInstagramStatus)
+            .catch(() => setInstagramStatus(null));
+        } else {
+          setInstagramStatus(null);
+        }
       })
       .catch((loadError: unknown) => {
         setError(
@@ -192,7 +213,7 @@ export function SolicitacaoDetailPage() {
     setAgendError(null);
     setAgendSuccess(null);
 
-    const input = { dataPublicacao: agendData, horario: agendHorario, legenda: agendLegenda || undefined };
+    const input = { dataPublicacao: agendData, horario: agendHorario, legenda: agendLegenda };
     const action = data?.agendamento ? updateAgendamento(id, input) : createAgendamento(id, input);
 
     action
@@ -419,12 +440,12 @@ export function SolicitacaoDetailPage() {
               >
                 <h3>Enviar nova versão</h3>
 
-                <label htmlFor="versao-arquivo">Arquivo (PDF, JPG ou PNG)</label>
-                <input
+                <FilePreviewPicker
                   id="versao-arquivo"
-                  type="file"
+                  label="Arquivo (PDF, JPG ou PNG)"
                   accept="application/pdf,image/jpeg,image/png"
-                  onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
+                  file={uploadFile}
+                  onChange={setUploadFile}
                 />
 
                 <label htmlFor="versao-observacoes">Observações (opcional)</label>
@@ -488,6 +509,13 @@ export function SolicitacaoDetailPage() {
             <section aria-labelledby="agendamento-title">
               <h2 id="agendamento-title">Agendamento de publicação</h2>
 
+              {instagramStatus && !instagramStatus.conectado && (
+                <p role="status">
+                  A conta do Instagram deste cliente não está conectada. A publicação deverá ser
+                  realizada manualmente.
+                </p>
+              )}
+
               {data.solicitacao.status === 'Agendado' && data.agendamento && (
                 <p>
                   Agendado para {new Date(`${data.agendamento.dataPublicacao}T00:00:00`).toLocaleDateString('pt-BR')}{' '}
@@ -532,11 +560,12 @@ export function SolicitacaoDetailPage() {
                   required
                 />
 
-                <label htmlFor="agendamento-legenda">Legenda (opcional)</label>
+                <label htmlFor="agendamento-legenda">Legenda</label>
                 <input
                   id="agendamento-legenda"
                   value={agendLegenda}
                   onChange={(event) => setAgendLegenda(event.target.value)}
+                  required
                 />
 
                 {agendError && (
@@ -589,8 +618,8 @@ export function SolicitacaoDetailPage() {
                 </p>
               )}
               <p>
-                O cancelamento só é permitido com pelo menos 3 horas de antecedência do horário
-                planejado (RN31).
+                O cancelamento do agendamento é permitido com pelo menos 3 horas de antecedência do
+                horário planejado.
               </p>
 
               {data.solicitacao.status === 'Agendado' && (

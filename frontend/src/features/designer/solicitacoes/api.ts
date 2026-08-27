@@ -195,7 +195,7 @@ export function gerarLinkAvaliacao(id: number): Promise<GerarLinkAvaliacaoResult
 export interface AgendamentoInput {
   dataPublicacao: string;
   horario: string;
-  legenda?: string | undefined;
+  legenda: string;
 }
 
 /** RF012/RN27/RN30: agenda a publicação — só aceito quando a solicitação está Aprovada. */
@@ -225,4 +225,15 @@ export function cancelAgendamento(id: number): Promise<void> {
 /** RF014/RN29/RN33: fallback manual — designer registra que publicou fora do sistema. */
 export function registrarPublicacaoManual(id: number): Promise<void> {
   return apiRequest<void>(`/api/solicitacoes/${id}/publicacao-manual`, { method: 'POST' });
+}
+
+export interface ClienteInstagramStatus {
+  conectado: boolean;
+  conectadoEm: string | null;
+  expiraEm: string | null;
+}
+
+/** RF014/ADR 0005: status de conexão do Instagram do cliente desta solicitação — nunca o token. */
+export function getClienteInstagramStatus(idCliente: number): Promise<ClienteInstagramStatus> {
+  return apiRequest<ClienteInstagramStatus>(`/api/clientes/${idCliente}/instagram/status`);
 }
