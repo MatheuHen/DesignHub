@@ -10,6 +10,8 @@ const {
   assertDesignerIsActiveMock,
   getSolicitacaoCoreMock,
   reassignSolicitacaoRpcMock,
+  deleteDesignerRowMock,
+  updateDesignerPasswordRowMock,
 } = vi.hoisted(() => ({
   createUserMock: vi.fn(),
   deleteUserMock: vi.fn(),
@@ -19,6 +21,8 @@ const {
   assertDesignerIsActiveMock: vi.fn(),
   getSolicitacaoCoreMock: vi.fn(),
   reassignSolicitacaoRpcMock: vi.fn(),
+  deleteDesignerRowMock: vi.fn(),
+  updateDesignerPasswordRowMock: vi.fn(),
 }));
 
 getSupabaseAdminClientMock.mockImplementation(() => ({
@@ -36,6 +40,8 @@ vi.mock('../repositories/designer.repository.js', () => ({
   listDesigners: vi.fn(),
   updateDesignerProfile: vi.fn(),
   setDesignerStatus: vi.fn(),
+  deleteDesigner: deleteDesignerRowMock,
+  updateDesignerPassword: updateDesignerPasswordRowMock,
 }));
 
 vi.mock('../repositories/solicitacao.repository.js', () => ({
@@ -43,7 +49,9 @@ vi.mock('../repositories/solicitacao.repository.js', () => ({
   reassignSolicitacaoRpc: reassignSolicitacaoRpcMock,
 }));
 
-const { createDesigner, reassignSolicitacao } = await import('./designer.service.js');
+const { createDesigner, reassignSolicitacao, removeDesigner, changeDesignerPassword } = await import(
+  './designer.service.js'
+);
 
 describe('createDesigner (RF001/FIGURA 28)', () => {
   beforeEach(() => {
@@ -168,5 +176,60 @@ describe('reassignSolicitacao (RF016)', () => {
       novoDesignerId: 'designer-novo',
       atorId: 'admin-1',
     });
+  });
+});
+
+describe('removeDesigner (RF001/item 2.4 — exclusão ADITIVA ao Ativo/Inativo)', () => {
+  beforeEach(() => {
+    getDesignerByIdMock.mockReset();
+    deleteDesignerRowMock.mockReset();
+  });
+
+  it('lança NotFoundError quando o designer não existe', async () => {
+    getDesignerByIdMock.mockResolvedValue(null);
+
+    await expect(removeDesigner('admin-1', 'designer-x')).rejects.toBeInstanceOf(NotFoundError);
+    expect(deleteDesignerRowMock).not.toHaveBeenCalled();
+  });
+
+  it('propaga ConflictError do repository quando há impedimento histórico', async () => {
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-x', email: 'x@exemplo.com' });
+    deleteDesignerRowMock.mockRejectedValue(
+      new ConflictError('Não é possível excluir: designer possui clientes ou solicitações vinculados. Reatribua-os antes de excluir.'),
+    );
+
+    await expect(removeDesigner('admin-1', 'designer-x')).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('exclui quando não há impedimento histórico', async () => {
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-x', email: 'x@exemplo.com' });
+    deleteDesignerRowMock.mockResolvedValue(undefined);
+
+    await expect(removeDesigner('admin-1', 'designer-x')).resolves.toBeUndefined();
+    expect(deleteDesignerRowMock).toHaveBeenCalledWith(expect.anything(), 'designer-x');
+  });
+});
+
+describe('changeDesignerPassword (RF001/item 2.1 — admin altera senha do designer)', () => {
+  beforeEach(() => {
+    getDesignerByIdMock.mockReset();
+    updateDesignerPasswordRowMock.mockReset();
+  });
+
+  it('lança NotFoundError quando o designer não existe', async () => {
+    getDesignerByIdMock.mockResolvedValue(null);
+
+    await expect(changeDesignerPassword('admin-1', 'designer-x', 'senha1234')).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+    expect(updateDesignerPasswordRowMock).not.toHaveBeenCalled();
+  });
+
+  it('atualiza a senha via Supabase Auth quando o designer existe', async () => {
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-x', email: 'x@exemplo.com' });
+    updateDesignerPasswordRowMock.mockResolvedValue(undefined);
+
+    await expect(changeDesignerPassword('admin-1', 'designer-x', 'senha1234')).resolves.toBeUndefined();
+    expect(updateDesignerPasswordRowMock).toHaveBeenCalledWith(expect.anything(), 'designer-x', 'senha1234');
   });
 });

@@ -6,11 +6,13 @@ import { statusSlug } from '../../../lib/statusStyle';
 import { SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from '../../designer/solicitacoes/api';
 import {
   createDesigner,
+  deleteDesigner,
   listDesigners,
   listSolicitacoesAdmin,
   reassignSolicitacao,
   setDesignerStatus,
   updateDesigner,
+  updateDesignerPassword,
   type Designer,
 } from './api';
 import { DesignerFormPanel, type CreateFormValues, type EditFormValues } from './DesignerFormPanel';
@@ -30,6 +32,8 @@ export function DesignersPage() {
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelState>({ mode: 'closed' });
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
+  const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  const [excluindoSaving, setExcluindoSaving] = useState(false);
 
   const [solicitacoes, setSolicitacoes] = useState<Solicitacao[]>([]);
   const [solicitacoesLoading, setSolicitacoesLoading] = useState(true);
@@ -100,6 +104,9 @@ export function DesignersPage() {
       whatsapp: values.whatsapp,
       statusOperacional: values.statusOperacional || null,
     });
+    if (values.novaSenha) {
+      await updateDesignerPassword(designer.id, values.novaSenha, values.confirmaSenha ?? '');
+    }
     setPanel({ mode: 'closed' });
     reload();
   }
@@ -115,6 +122,24 @@ export function DesignersPage() {
           message: toggleError instanceof ApiError ? toggleError.message : 'Não foi possível atualizar o status.',
         });
       });
+  }
+
+  /** RF001/item 2.4: exclusão ADITIVA ao Ativo/Inativo — bloqueada pelo backend quando há histórico vinculado. */
+  function handleConfirmarExclusao(designer: Designer) {
+    setExcluindoSaving(true);
+    setRowError(null);
+    deleteDesigner(designer.id)
+      .then(() => {
+        setExcluindoId(null);
+        reload();
+      })
+      .catch((deleteError: unknown) => {
+        setRowError({
+          id: designer.id,
+          message: deleteError instanceof ApiError ? deleteError.message : 'Não foi possível excluir o designer.',
+        });
+      })
+      .finally(() => setExcluindoSaving(false));
   }
 
   function handleConfirmarReatribuicao(solicitacao: Solicitacao) {
@@ -208,6 +233,33 @@ export function DesignersPage() {
                   <button type="button" onClick={() => handleToggleStatus(designer)}>
                     {designer.status === 'ativo' ? 'Inativar' : 'Ativar'}
                   </button>
+                  {excluindoId === designer.id ? (
+                    <>
+                      <span role="alert">Excluir permanentemente {designer.nomeCompleto}?</span>
+                      <button
+                        type="button"
+                        className="designer-action-danger"
+                        disabled={excluindoSaving}
+                        onClick={() => handleConfirmarExclusao(designer)}
+                      >
+                        {excluindoSaving ? 'Excluindo…' : 'Confirmar exclusão'}
+                      </button>
+                      <button type="button" disabled={excluindoSaving} onClick={() => setExcluindoId(null)}>
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="designer-action-danger"
+                      onClick={() => {
+                        setRowError(null);
+                        setExcluindoId(designer.id);
+                      }}
+                    >
+                      Excluir
+                    </button>
+                  )}
                   {rowError?.id === designer.id && (
                     <p role="alert" className="auth-error">
                       {rowError.message}

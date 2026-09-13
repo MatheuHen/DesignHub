@@ -3,6 +3,7 @@ import { getSupabaseUserClient } from '../config/supabase.js';
 import { toAppError } from '../lib/errors.js';
 import { attachProfile, requireAuth, requireProfile } from '../middleware/auth.js';
 import {
+  changeDesignerPasswordSchema,
   createDesignerSchema,
   designerIdParamSchema,
   listDesignersQuerySchema,
@@ -10,10 +11,12 @@ import {
   updateDesignerSchema,
 } from '../schemas/designer.schemas.js';
 import {
+  changeDesignerPassword,
   changeDesignerStatus,
   createDesigner,
   getDesigner,
   listDesigners,
+  removeDesigner,
   updateDesigner,
 } from '../services/designer.service.js';
 
@@ -76,7 +79,30 @@ designerRouter.patch('/:id/status', async (request, response, next) => {
   }
 });
 
-// Ajuste do orientador (2026-08-27): exclusão física de designer removida do
-// fluxo operacional — inativar (status) é o único caminho para retirar um
-// designer de circulação, preservando histórico/rastreabilidade (RNF009).
-// Não existe rota DELETE /api/designers/:id.
+/** RF001/item 2.1 (correções 13/09/2026): Admin altera a senha do designer. */
+designerRouter.patch('/:id/senha', async (request, response, next) => {
+  try {
+    const { id } = designerIdParamSchema.parse(request.params);
+    const input = changeDesignerPasswordSchema.parse(request.body);
+    await changeDesignerPassword(request.auth!.userId, id, input.novaSenha);
+    response.status(204).end();
+  } catch (error) {
+    next(toAppError(error));
+  }
+});
+
+/**
+ * RF001/item 2.4 (correções 13/09/2026): exclusão física reintroduzida de
+ * forma ADITIVA — Ativo/Inativo continua disponível; Excluir é oferecido
+ * além disso e respeita impedimentos históricos (ConflictError quando o
+ * designer tem cliente/solicitação vinculados).
+ */
+designerRouter.delete('/:id', async (request, response, next) => {
+  try {
+    const { id } = designerIdParamSchema.parse(request.params);
+    await removeDesigner(request.auth!.userId, id);
+    response.status(204).end();
+  } catch (error) {
+    next(toAppError(error));
+  }
+});

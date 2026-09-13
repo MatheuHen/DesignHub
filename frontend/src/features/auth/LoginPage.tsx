@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './useAuth';
 import { ConfigErrorNotice } from './StatusScreens';
+import { PasswordInput } from '../../components/PasswordInput';
 
 export function LoginPage() {
   const { status, signIn } = useAuth();
@@ -48,10 +49,9 @@ export function LoginPage() {
         />
 
         <label htmlFor="login-password">Senha</label>
-        <input
+        <PasswordInput
           id="login-password"
           name="password"
-          type="password"
           autoComplete="current-password"
           required
           value={password}

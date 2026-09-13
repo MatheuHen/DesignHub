@@ -84,6 +84,28 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 
+/**
+ * Item 1 (correções 13/09/2026): links de recuperação de senha/avaliação
+ * indo para localhost em produção. FRONTEND_URL/PUBLIC_BACKEND_URL têm
+ * default de desenvolvimento (seção 8) — em NODE_ENV=production, cair
+ * nesse default significaria compor links reais com host localhost, então
+ * falha alto e explicitamente em vez de gerar um link inválido silencioso.
+ */
+if (env.NODE_ENV === 'production') {
+  const productionIssues: string[] = [];
+  if (!process.env.FRONTEND_URL || /localhost|127\.0\.0\.1/.test(env.FRONTEND_URL)) {
+    productionIssues.push('FRONTEND_URL');
+  }
+  if (!process.env.PUBLIC_BACKEND_URL || /localhost|127\.0\.0\.1/.test(env.PUBLIC_BACKEND_URL)) {
+    productionIssues.push('PUBLIC_BACKEND_URL');
+  }
+  if (productionIssues.length > 0) {
+    throw new Error(
+      `Configuração de produção inválida: ${productionIssues.join(', ')} não pode(m) usar o padrão de desenvolvimento (localhost). Configure a URL pública real no ambiente de deploy.`,
+    );
+  }
+}
+
 export const supabaseConfigStatus = {
   hasPublicClient: Boolean(env.SUPABASE_URL && env.SUPABASE_PUBLISHABLE_KEY),
   hasAdminClient: Boolean(

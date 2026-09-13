@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { PasswordInput } from '../../../components/PasswordInput';
 import type { Designer } from './api';
 
 export interface CreateFormValues {
@@ -12,6 +13,9 @@ export interface EditFormValues {
   nomeCompleto: string;
   whatsapp: string;
   statusOperacional: string;
+  /** RF001/item 2.1: preenchidos apenas quando o Admin decide trocar a senha. */
+  novaSenha?: string;
+  confirmaSenha?: string;
 }
 
 interface CreatePanelProps {
@@ -40,6 +44,8 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
   const [statusOperacional, setStatusOperacional] = useState(
     isCreate ? '' : (props.designer.statusOperacional ?? ''),
   );
+  const [novaSenha, setNovaSenha] = useState('');
+  const [confirmaNovaSenha, setConfirmaNovaSenha] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,12 +57,23 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
       return;
     }
 
+    if (props.mode === 'edit' && (novaSenha || confirmaNovaSenha) && novaSenha !== confirmaNovaSenha) {
+      setError('As senhas informadas não coincidem.');
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
-    const submission = props.mode === 'create'
-      ? props.onSubmit({ nomeCompleto, email, whatsapp, senha })
-      : props.onSubmit({ nomeCompleto, whatsapp, statusOperacional });
+    const submission =
+      props.mode === 'create'
+        ? props.onSubmit({ nomeCompleto, email, whatsapp, senha })
+        : props.onSubmit({
+            nomeCompleto,
+            whatsapp,
+            statusOperacional,
+            ...(novaSenha ? { novaSenha, confirmaSenha: confirmaNovaSenha } : {}),
+          });
 
     void submission
       .catch((submitError: unknown) => {
@@ -90,9 +107,8 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
           />
 
           <label htmlFor="designer-senha">Nova Senha</label>
-          <input
+          <PasswordInput
             id="designer-senha"
-            type="password"
             required
             minLength={8}
             autoComplete="new-password"
@@ -101,9 +117,8 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
           />
 
           <label htmlFor="designer-confirma-senha">Confirma Senha</label>
-          <input
+          <PasswordInput
             id="designer-confirma-senha"
-            type="password"
             required
             minLength={8}
             autoComplete="new-password"
@@ -130,6 +145,28 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
             value={statusOperacional}
             onChange={(event) => setStatusOperacional(event.target.value)}
           />
+
+          <fieldset className="designer-form-senha">
+            <legend>Alterar senha (opcional)</legend>
+
+            <label htmlFor="designer-nova-senha">Nova senha</label>
+            <PasswordInput
+              id="designer-nova-senha"
+              minLength={8}
+              autoComplete="new-password"
+              value={novaSenha}
+              onChange={(event) => setNovaSenha(event.target.value)}
+            />
+
+            <label htmlFor="designer-confirma-nova-senha">Confirmar nova senha</label>
+            <PasswordInput
+              id="designer-confirma-nova-senha"
+              minLength={8}
+              autoComplete="new-password"
+              value={confirmaNovaSenha}
+              onChange={(event) => setConfirmaNovaSenha(event.target.value)}
+            />
+          </fieldset>
         </>
       )}
 

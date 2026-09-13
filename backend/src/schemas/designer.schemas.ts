@@ -23,6 +23,18 @@ export const setDesignerStatusSchema = z.object({
 });
 export type SetDesignerStatusInput = z.infer<typeof setDesignerStatusSchema>;
 
+/** RF001/item 2.1: Admin altera a senha de um designer existente. */
+export const changeDesignerPasswordSchema = z
+  .object({
+    novaSenha: z.string().min(8).max(72),
+    confirmarSenha: z.string().min(8).max(72),
+  })
+  .refine((data) => data.novaSenha === data.confirmarSenha, {
+    message: 'As senhas informadas não coincidem.',
+    path: ['confirmarSenha'],
+  });
+export type ChangeDesignerPasswordInput = z.infer<typeof changeDesignerPasswordSchema>;
+
 export const listDesignersQuerySchema = z.object({
   search: z.string().trim().max(150).optional(),
   status: z.enum(['ativo', 'inativo']).optional(),

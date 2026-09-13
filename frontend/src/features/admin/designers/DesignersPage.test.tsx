@@ -9,12 +9,16 @@ const {
   setDesignerStatusMock,
   listSolicitacoesAdminMock,
   reassignSolicitacaoMock,
+  deleteDesignerMock,
+  updateDesignerPasswordMock,
 } = vi.hoisted(() => ({
   listDesignersMock: vi.fn(),
   createDesignerMock: vi.fn(),
   setDesignerStatusMock: vi.fn(),
   listSolicitacoesAdminMock: vi.fn(),
   reassignSolicitacaoMock: vi.fn(),
+  deleteDesignerMock: vi.fn(),
+  updateDesignerPasswordMock: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
@@ -24,6 +28,8 @@ vi.mock('./api', () => ({
   setDesignerStatus: setDesignerStatusMock,
   listSolicitacoesAdmin: listSolicitacoesAdminMock,
   reassignSolicitacao: reassignSolicitacaoMock,
+  deleteDesigner: deleteDesignerMock,
+  updateDesignerPassword: updateDesignerPasswordMock,
 }));
 
 vi.mock('../../auth/useAuth', () => ({
@@ -71,6 +77,8 @@ describe('DesignersPage (RF001/RF015)', () => {
     setDesignerStatusMock.mockReset();
     listSolicitacoesAdminMock.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
     reassignSolicitacaoMock.mockReset();
+    deleteDesignerMock.mockReset();
+    updateDesignerPasswordMock.mockReset();
   });
 
   it('lista os designers retornados pela API', async () => {
@@ -90,7 +98,7 @@ describe('DesignersPage (RF001/RF015)', () => {
     expect(await screen.findByText('Nenhum designer encontrado.')).toBeInTheDocument();
   });
 
-  it('ajuste do orientador: não existe ação de excluir para designer ativo (só Editar/Inativar)', async () => {
+  it('item 2.4 (correções 13/09/2026): Excluir é oferecido ADITIVAMENTE ao lado de Editar/Inativar', async () => {
     listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
 
     renderPage();
@@ -98,24 +106,59 @@ describe('DesignersPage (RF001/RF015)', () => {
 
     expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Inativar' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Confirmar exclusão' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Excluir' })).toBeInTheDocument();
   });
 
-  it('ajuste do orientador: não existe ação de excluir para designer inativo (só Editar/Ativar)', async () => {
-    listDesignersMock.mockResolvedValue({
-      items: [{ ...sampleDesigner, status: 'inativo' }],
-      total: 1,
-      page: 1,
-      pageSize: 20,
-    });
+  it('item 2.4: Excluir exige confirmação inline antes de chamar a API', async () => {
+    listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
+    deleteDesignerMock.mockResolvedValue(undefined);
 
     renderPage();
     await screen.findByRole('cell', { name: 'Dora Designer' });
 
-    expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Ativar' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
+    expect(deleteDesignerMock).not.toHaveBeenCalled();
+    expect(screen.getByText('Excluir permanentemente Dora Designer?')).toBeInTheDocument();
+
+    listDesignersMock.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
+
+    await waitFor(() => expect(deleteDesignerMock).toHaveBeenCalledWith('designer-1'));
+  });
+
+  it('item 2.4: exclusão bloqueada (409) mostra a mensagem do backend orientando reatribuição', async () => {
+    listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
+    const { ApiError } = await import('../../../lib/apiClient');
+    deleteDesignerMock.mockRejectedValue(
+      new ApiError(409, 'CONFLICT', 'Não é possível excluir: designer possui clientes ou solicitações vinculados. Reatribua-os antes de excluir.'),
+    );
+
+    renderPage();
+    await screen.findByRole('cell', { name: 'Dora Designer' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
+
+    expect(
+      await screen.findByText(/Reatribua-os antes de excluir/),
+    ).toBeInTheDocument();
+  });
+
+  it('item 2.1: admin altera a senha do designer a partir do formulário de edição', async () => {
+    listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
+    updateDesignerPasswordMock.mockResolvedValue(undefined);
+
+    renderPage();
+    await screen.findByRole('cell', { name: 'Dora Designer' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
+    fireEvent.change(screen.getByLabelText('Nova senha'), { target: { value: 'nova-senha-123' } });
+    fireEvent.change(screen.getByLabelText('Confirmar nova senha'), { target: { value: 'nova-senha-123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() =>
+      expect(updateDesignerPasswordMock).toHaveBeenCalledWith('designer-1', 'nova-senha-123', 'nova-senha-123'),
+    );
   });
 
   it('cria um novo designer a partir do formulário', async () => {

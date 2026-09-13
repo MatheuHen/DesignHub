@@ -151,6 +151,39 @@ p {
   outline-offset: 1px;
 }
 
+.password-field {
+  position: relative;
+  display: flex;
+  margin-top: 4px;
+}
+
+.password-field input.password-field-input {
+  margin-top: 0;
+  flex: 1;
+  padding-right: 40px;
+}
+
+.password-field .password-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 40px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #6b6478;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.password-field .password-toggle:hover {
+  color: #423a53;
+}
+
 .auth-card button {
   margin-top: 20px;
   padding: 11px 16px;
@@ -306,6 +339,31 @@ p {
 .designer-blocked {
   color: #a3762f;
   font-size: 0.82rem;
+}
+
+/** RF001/item 2.4: Excluir precisa ser visualmente distinto de Editar/Ativar/Inativar. */
+.designer-actions .designer-action-danger {
+  border-color: #d94f4f;
+  color: #a33636;
+  background: #fff5f5;
+}
+
+.designer-actions .designer-action-danger:hover {
+  background: #fde8e8;
+}
+
+.designer-form-senha {
+  margin-top: 16px;
+  padding: 12px 14px 4px;
+  border: 1px dashed #d9d5e3;
+  border-radius: 10px;
+}
+
+.designer-form-senha legend {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #6b6478;
+  padding: 0 4px;
 }
 
 .atendimento-success {

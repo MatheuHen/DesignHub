@@ -71,6 +71,26 @@ export function setDesignerStatus(id: string, status: 'ativo' | 'inativo'): Prom
   });
 }
 
+/** RF001/item 2.1: Admin define uma nova senha para o designer. */
+export function updateDesignerPassword(
+  id: string,
+  novaSenha: string,
+  confirmarSenha: string,
+): Promise<void> {
+  return apiRequest<void>(`/api/designers/${id}/senha`, {
+    method: 'PATCH',
+    body: JSON.stringify({ novaSenha, confirmarSenha }),
+  });
+}
+
+/**
+ * RF001/item 2.4: exclusão física, ADITIVA ao Ativo/Inativo. O backend
+ * rejeita (409) quando há cliente/solicitação vinculados — reatribua antes.
+ */
+export function deleteDesigner(id: string): Promise<void> {
+  return apiRequest<void>(`/api/designers/${id}`, { method: 'DELETE' });
+}
+
 /**
  * RF016/RN47/RN49: leitura admin-only de todas as solicitações (qualquer
  * designer) para localizar o que reatribuir — FIGURA 2/27 "Solicitações

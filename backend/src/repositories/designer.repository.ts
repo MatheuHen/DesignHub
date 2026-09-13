@@ -183,7 +183,43 @@ export async function setDesignerStatus(
   }
 }
 
-// Ajuste do orientador (2026-08-27): exclusão física de designer removida do
-// fluxo operacional (frontend, rota, service e este repository) — inativar
-// via `setDesignerStatus` é o único caminho para retirar um designer de
-// circulação, preservando usuário/histórico/rastreabilidade (RNF009).
+const FOREIGN_KEY_VIOLATION = '23503';
+
+/**
+ * RF001/item 2.4 (correções 13/09/2026): exclusão física reintroduzida de
+ * forma ADITIVA — Ativo/Inativo continua sendo o caminho normal para
+ * retirar um designer de circulação; Excluir só é oferecido além disso. As
+ * FKs de `cliente` e `solicitacao` para `designer` são `on delete
+ * restrict`, então o próprio banco rejeita a exclusão quando há histórico —
+ * aqui apenas traduzimos esse erro em uma mensagem acionável (reatribuir
+ * antes de excluir), preservando RNF009.
+ */
+export async function deleteDesigner(adminClient: SupabaseClient, id: string): Promise<void> {
+  const authResult: unknown = await adminClient.auth.admin.deleteUser(id);
+  const { error } = authResult as { error: { message: string; code?: string } | null };
+
+  if (error) {
+    if (error.code === FOREIGN_KEY_VIOLATION || /foreign key/i.test(error.message)) {
+      throw new ConflictError(
+        'Não é possível excluir: designer possui clientes ou solicitações vinculados. Reatribua-os antes de excluir.',
+      );
+    }
+    throw new Error(`Falha ao excluir designer: ${error.message}`);
+  }
+}
+
+/**
+ * RF001/item 2.1: Admin define nova senha para um designer existente via
+ * Supabase Auth Admin API — nunca duplicada em tabela própria (seção 10).
+ */
+export async function updateDesignerPassword(
+  adminClient: SupabaseClient,
+  id: string,
+  novaSenha: string,
+): Promise<void> {
+  const result: unknown = await adminClient.auth.admin.updateUserById(id, { password: novaSenha });
+  const { error } = result as { error: { message: string } | null };
+  if (error) {
+    throw new Error(`Falha ao atualizar senha do designer: ${error.message}`);
+  }
+}

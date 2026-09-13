@@ -18,12 +18,19 @@ vi.mock('../config/supabase.js', () => ({
   }),
 }));
 
+const { removeDesignerMock, changeDesignerPasswordMock } = vi.hoisted(() => ({
+  removeDesignerMock: vi.fn(),
+  changeDesignerPasswordMock: vi.fn(),
+}));
+
 vi.mock('../services/designer.service.js', () => ({
   listDesigners: listDesignersMock,
   getDesigner: vi.fn(),
   createDesigner: vi.fn(),
   updateDesigner: vi.fn(),
   changeDesignerStatus: vi.fn(),
+  removeDesigner: removeDesignerMock,
+  changeDesignerPassword: changeDesignerPasswordMock,
 }));
 
 const { createApp } = await import('../app.js');
@@ -77,14 +84,92 @@ describe('GET /api/designers — autorização por perfil (RF001/RF015)', () => 
   });
 });
 
-describe('DELETE /api/designers/:id — ajuste do orientador (exclusão removida do fluxo operacional)', () => {
-  it('não existe rota de exclusão de designer (404, mesmo autenticado como administrador)', async () => {
+describe('DELETE /api/designers/:id — item 2.4 (correções 13/09/2026): exclusão ADITIVA ao Ativo/Inativo', () => {
+  const VALID_ID = '11111111-1111-4111-8111-111111111111';
+
+  beforeEach(() => {
+    removeDesignerMock.mockReset();
+  });
+
+  it('rejeita com 403 quando o perfil autenticado não é administrador', async () => {
+    mockAuthenticatedUser({ perfil: 'designer', status: 'ativo' });
+
+    const response = await request(createApp())
+      .delete(`/api/designers/${VALID_ID}`)
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(403);
+    expect(removeDesignerMock).not.toHaveBeenCalled();
+  });
+
+  it('exclui e retorna 204 quando o admin confirma e não há impedimento histórico', async () => {
+    mockAuthenticatedUser({ perfil: 'administrador', status: 'ativo' });
+    removeDesignerMock.mockResolvedValue(undefined);
+
+    const response = await request(createApp())
+      .delete(`/api/designers/${VALID_ID}`)
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(204);
+    expect(removeDesignerMock).toHaveBeenCalledWith('user-1', VALID_ID);
+  });
+
+  it('retorna 409 quando o designer tem cliente/solicitação vinculados (impedimento histórico)', async () => {
+    mockAuthenticatedUser({ perfil: 'administrador', status: 'ativo' });
+    const { ConflictError } = await import('../lib/errors.js');
+    removeDesignerMock.mockRejectedValue(
+      new ConflictError('Não é possível excluir: designer possui clientes ou solicitações vinculados. Reatribua-os antes de excluir.'),
+    );
+
+    const response = await request(createApp())
+      .delete(`/api/designers/${VALID_ID}`)
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(409);
+  });
+});
+
+describe('PATCH /api/designers/:id/senha — item 2.1 (correções 13/09/2026): admin altera senha do designer', () => {
+  const VALID_ID = '22222222-2222-4222-8222-222222222222';
+
+  beforeEach(() => {
+    changeDesignerPasswordMock.mockReset();
+  });
+
+  it('rejeita com 403 quando o perfil autenticado não é administrador', async () => {
+    mockAuthenticatedUser({ perfil: 'designer', status: 'ativo' });
+
+    const response = await request(createApp())
+      .patch(`/api/designers/${VALID_ID}/senha`)
+      .set('Authorization', 'Bearer token-designer')
+      .send({ novaSenha: 'senha1234', confirmarSenha: 'senha1234' });
+
+    expect(response.status).toBe(403);
+    expect(changeDesignerPasswordMock).not.toHaveBeenCalled();
+  });
+
+  it('rejeita com 400 quando as senhas não coincidem', async () => {
     mockAuthenticatedUser({ perfil: 'administrador', status: 'ativo' });
 
     const response = await request(createApp())
-      .delete('/api/designers/designer-1')
-      .set('Authorization', 'Bearer token-admin');
+      .patch(`/api/designers/${VALID_ID}/senha`)
+      .set('Authorization', 'Bearer token-admin')
+      .send({ novaSenha: 'senha1234', confirmarSenha: 'outrasenha' });
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(400);
+    expect(changeDesignerPasswordMock).not.toHaveBeenCalled();
+  });
+
+  it('altera a senha e retorna 204 quando o admin confirma com senhas coincidentes', async () => {
+    mockAuthenticatedUser({ perfil: 'administrador', status: 'ativo' });
+    changeDesignerPasswordMock.mockResolvedValue(undefined);
+
+    const response = await request(createApp())
+      .patch(`/api/designers/${VALID_ID}/senha`)
+      .set('Authorization', 'Bearer token-admin')
+      .send({ novaSenha: 'senha1234', confirmarSenha: 'senha1234' });
+
+    expect(response.status).toBe(204);
+    expect(changeDesignerPasswordMock).toHaveBeenCalledWith('user-1', VALID_ID, 'senha1234');
   });
 });

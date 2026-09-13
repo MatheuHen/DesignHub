@@ -8,10 +8,12 @@ import {
 } from '../lib/errors.js';
 import {
   assertDesignerIsActive,
+  deleteDesigner as deleteDesignerRow,
   getDesignerById,
   insertDesignerProfile,
   listDesigners as listDesignersRepo,
   setDesignerStatus,
+  updateDesignerPassword as updateDesignerPasswordRow,
   updateDesignerProfile,
   type DesignerSummary,
 } from '../repositories/designer.repository.js';
@@ -112,6 +114,47 @@ export async function updateDesigner(id: string, changes: UpdateDesignerInput): 
 export async function changeDesignerStatus(id: string, status: 'ativo' | 'inativo'): Promise<void> {
   const adminClient = getSupabaseAdminClient();
   await setDesignerStatus(adminClient, id, status);
+}
+
+/**
+ * RF001/item 2.4: exclusão física, ADITIVA ao Ativo/Inativo. Impedimentos
+ * históricos (cliente/solicitação vinculados) são traduzidos em
+ * ConflictError pelo repository — o admin deve reatribuir antes de excluir.
+ * Auditoria (seção 12.8): registra ator/ação/entidade/data-hora, sem PII
+ * sensível além do e-mail já visível ao próprio admin na listagem.
+ */
+export async function removeDesigner(atorId: string, id: string): Promise<void> {
+  const adminClient = getSupabaseAdminClient();
+  const designer = await getDesignerById(adminClient, id);
+  if (!designer) throw new NotFoundError('Designer não encontrado.');
+
+  await deleteDesignerRow(adminClient, id);
+
+  console.info('[designhub:auditoria] designer.excluir', {
+    atorId,
+    designerId: id,
+    email: designer.email,
+    dataHora: new Date().toISOString(),
+  });
+}
+
+/** RF001/item 2.1: Admin define nova senha para o designer via Supabase Auth. */
+export async function changeDesignerPassword(
+  atorId: string,
+  id: string,
+  novaSenha: string,
+): Promise<void> {
+  const adminClient = getSupabaseAdminClient();
+  const designer = await getDesignerById(adminClient, id);
+  if (!designer) throw new NotFoundError('Designer não encontrado.');
+
+  await updateDesignerPasswordRow(adminClient, id, novaSenha);
+
+  console.info('[designhub:auditoria] designer.alterar_senha', {
+    atorId,
+    designerId: id,
+    dataHora: new Date().toISOString(),
+  });
 }
 
 /**

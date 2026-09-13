@@ -48,6 +48,9 @@ desktop.ini
 
 # Tests
 playwright-report/
+
+# Local round checkpoint (not part of TFC source of truth)
+DESIGNHUB_CORRECOES_MELHORIAS_PROGRESS.md
 test-results/
 blob-report/
 
