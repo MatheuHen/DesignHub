@@ -1,6 +1,7 @@
 # Matriz de Rastreabilidade — DesignHub (TFC II)
 
-Atualizado em: 2026-08-22. Fonte: código real do repositório (não é
+Atualizado em: 2026-08-22 (base) / 2026-09-13 (correções + melhorias
+aditivas, seção dedicada abaixo). Fonte: código real do repositório (não é
 planejamento — cada linha aponta para arquivo/rota/tabela/teste existente).
 
 Legenda de status: `OK` = implementado, testado e (quando aplicável) validado
@@ -16,7 +17,7 @@ credencial/aprovação externa (Meta) para o teste real acontecer.
 | Serviço/Repo | `backend/src/services/designer.service.ts`, `repositories/designer.repository.ts` |
 | Banco | `usuario`, `designer` (`20260816120100_usuario_designer_administrador.sql`); RPC `create_designer_profile` (`20260816130100_...sql`) |
 | Teste | `designer.routes.test.ts`, `designer.service.test.ts`, `designer.repository.test.ts` |
-| Status | **OK** — CRUD completo, exclusão respeita impedimento histórico. Criação define a senha diretamente na tela (FIGURA 28, `auth.admin.createUser` com `email_confirm=true`) — não depende mais de e-mail de convite; designer pode logar imediatamente após o cadastro. |
+| Status | **OK** — CRUD completo. Criação define a senha diretamente na tela (FIGURA 28, `auth.admin.createUser` com `email_confirm=true`) — não depende mais de e-mail de convite; designer pode logar imediatamente após o cadastro. Exclusão física reintroduzida de forma ADITIVA em 13/09/2026 (ao lado de Ativo/Inativo), respeitando impedimento histórico (FK restrict → 409); admin também pode alterar a senha de um designer existente (`PATCH /:id/senha`). |
 
 ## RF002 — Autenticar Usuário
 
@@ -113,7 +114,7 @@ credencial/aprovação externa (Meta) para o teste real acontecer.
 | Serviço/Repo | `agendamento.service.ts`, `agendamento.repository.ts` |
 | Banco | `agendamento_publicacao` (`20260816120600_...`), RPCs em `20260816180000_agendamento_publicacao_functions.sql` |
 | Teste | `agendamento.routes.test.ts`, `.service.test.ts`, `.repository.test.ts`, `AgendamentosPage.test.tsx` |
-| Status | **OK** — só `Aprovado` agenda; cancelamento com janela de 3h testada (permitido e bloqueado). |
+| Status | **OK** — só `Aprovado` agenda; legenda opcional (item 8.1, 13/09/2026); cancelamento com janela de 3h testada (permitido e bloqueado), agora disponível também para o Cliente pelo próprio link de acompanhamento (`POST /api/avaliacao/:token/cancelar-agendamento`, item 8.4); alerta ao designer via `historico_solicitacao` (in-app). |
 
 ## RF014 — Realizar Publicação da Arte
 
@@ -123,7 +124,7 @@ credencial/aprovação externa (Meta) para o teste real acontecer.
 | Serviço/Repo | `publicacao.service.ts`, `integrations/instagram/instagramClient.ts` |
 | Banco | `publicacao` (`20260816120600_...`), RPCs em `20260816190000_publicacao_functions.sql`, job `pg_cron` (`20260819110000_publicacao_cron_job.sql`) |
 | Teste | `publicacao.service.test.ts`, `instagramClient.test.ts` |
-| Status | **OK — validado em produção real em 2026-08-19** (post real publicado, `publicacao.status='sucesso'` confirmado no banco). Fallback manual disponível quando token ausente/inválido. |
+| Status | **OK — validado em produção real em 2026-08-19** (post real publicado, `publicacao.status='sucesso'` confirmado no banco). Fallback manual disponível quando token ausente/inválido. Desde 13/09/2026: badge com data/versão/tipo/permalink (melhor esforço via Graph API), comprovante/print opcional (`publicacao.comprovante_url`) e aviso "ARTE PUBLICADA!" ao cliente via WhatsApp (automática e manual, melhor esforço, idempotente). |
 
 ## RF015/RF016 — Gerenciar Designers e Reatribuir Solicitações
 
@@ -156,9 +157,66 @@ credencial/aprovação externa (Meta) para o teste real acontecer.
 - `docs/decisions/0002-whatsapp-cloud-api.md`
 - `docs/decisions/0003-instagram-oficial-fallback-manual.md`
 
+## Correções + melhorias aditivas — 13/09/2026
+
+Rodada aprovada pelo orientador (fonte:
+`DESIGNHUB_ESCOPO_TRAVADO_CORRECOES_MELHORIAS_13-09-2026.txt`, checkpoint
+local `DESIGNHUB_CORRECOES_MELHORIAS_PROGRESS.md`). Todas preservam os 16 RFs
+existentes; nenhum estado/ator/fluxo oficial foi criado, removido ou
+renomeado — apenas comportamento aditivo dentro dos RFs abaixo.
+
+| Melhoria | RF relacionada | Documento atualizado | Impacto | Teste |
+|---|---|---|---|---|
+| Link de recuperação/redirect_uri falha explicitamente em produção se ainda for localhost/HTTP | RF002/RF014 | `backend/src/config/env.ts` | Não funcional (config) | `env.test.ts` |
+| Olhinho (mostrar/ocultar senha) | RNF002 | `frontend/src/components/PasswordInput.tsx` | UX, sem mudança de fluxo | `PasswordInput.test.tsx` |
+| Admin altera senha de designer existente | RF001 | `designer.routes.ts`/`.service.ts`/`.schemas.ts` | Aditivo | `designer.*.test.ts` |
+| Exclusão física de designer (aditiva ao Ativo/Inativo) | RF001 | `designer.repository.ts`/`.service.ts`/`.routes.ts` | Aditivo, com impedimento histórico | `designer.*.test.ts` |
+| WhatsApp: "Não" não avança fluxo; resposta ambígua orienta sem inventar dado; cancelamento explícito com confirmação | RF004/RN08 | `atendimento.service.ts`, migration `20260913120000` | Aditivo (novos status internos de atendimento) | `atendimento.service.test.ts` |
+| Mensagem do link de avaliação identifica tema/versão (sem ID) | RF004/RF009 | `avaliacao.service.ts` | UX/segurança (minimização) | `avaliacao.service.test.ts` |
+| Admin visualiza/baixa qualquer versão | RF008/RF016 | `versaoArte.service.ts`, `solicitacao.routes.ts` | Aditivo (leitura) | `versaoArte.service.test.ts` |
+| Status de notificação separado do status de negócio (link enviado) | RF005 | `SolicitacaoDetailPage.tsx` | UX | `SolicitacaoDetailPage.test.tsx` |
+| Orientação para conectar Instagram / publicar manualmente | RF014 | `SolicitacaoDetailPage.tsx` | UX | `SolicitacaoDetailPage.test.tsx` |
+| Legenda do agendamento volta a ser opcional | RF012/RN28 | `agendamento.schemas.ts`, migration `20260913130000` | Reversão aditiva (instrução mais recente do orientador) | `solicitacao.routes.test.ts` |
+| Cancelamento de agendamento pelo Cliente | RF012/RF013 | `avaliacao.service.ts`/`.routes.ts`, migration `20260913140000` | Aditivo | `avaliacao.*.test.ts` |
+| Badge de publicação (data/versão/tipo/permalink) + comprovante opcional + WhatsApp "ARTE PUBLICADA!" | RF014 | `publicacao.service.ts`, migration `20260913150000` | Aditivo | `publicacao.*.test.ts` |
+| Filtro de data da listagem de solicitações corrigido para America/Sao_Paulo | RF005 | `backend/src/lib/timezone.ts`, `solicitacao.repository.ts` | Correção de bug | `timezone.test.ts`, `solicitacao.repository.test.ts` |
+
+### Migrations desta rodada (ordem de aplicação)
+`20260913120000_atendimento_recusa_cancelamento.sql`,
+`20260913130000_agendamento_legenda_opcional.sql`,
+`20260913140000_cancel_agendamento_cliente.sql`,
+`20260913150000_publicacao_permalink_comprovante.sql`.
+
+### ACHADO FORA DO ESCOPO / FUTURO
+- Quadro de custos: não existe em nenhum documento editável do repositório
+  (só nos PDFs binários de `docs/tfc-oficial/`, não indexados em texto) —
+  revisão de valores/contatos fica fora do alcance desta sessão (não é
+  código); registrar para revisão manual do texto do TFC II pelos autores.
+- FUTURO_IA: IA generativa/Gemini no WhatsApp deliberadamente NÃO
+  implementada nesta rodada (fora de escopo explícito) — arquitetura atual
+  (perguntas fixas em `atendimentoQuestions.ts`) permanece 100%
+  determinística, pronta para uma fase futura avaliar classificação de
+  intenção/fallback determinístico sem impacto retroativo.
+
 ## Bloqueios externos reais (não são falhas de implementação)
 
-Nenhum bloqueio externo pendente nesta data (2026-08-22). RF004 (template
+Nenhum bloqueio externo pendente em 2026-08-22. RF004 (template
 Meta) e RF014 (token Instagram) foram validados com sucesso real em
 produção; RF001 deixou de depender de e-mail de convite (fluxo trocado para
 definição de senha pelo admin na criação, FIGURA 28).
+
+Em 13/09/2026, dois itens ficam `BLOCKED_EXTERNAL` (não são falha de
+implementação, dependem de ação externa antes do próximo deploy):
+
+- **Migrations da rodada não aplicadas remotamente.** Sem acesso ao projeto
+  Supabase real do DesignHub nesta sessão (o MCP Supabase disponível está
+  conectado a outros projetos, fora do isolamento exigido pela seção 2 do
+  `CLAUDE.md`) — as 4 migrations listadas acima precisam ser aplicadas via
+  `supabase db push`/dashboard, na ordem, antes do próximo deploy.
+- **Alerta ao designer por WhatsApp quando o cliente cancela um agendamento
+  (item 8.6).** Implementado apenas o alerta in-app (`historico_solicitacao`,
+  já visível no detalhe da solicitação); o canal WhatsApp exigiria um
+  template de mensagem business-initiated aprovado pela Meta especificamente
+  para esse aviso ao designer, que não existe hoje (o único template
+  aprovado, `inicio_atendimento_designhub`, é para abrir a conversa do
+  questionário RF004) — registrar como pendência para o Business Manager.
