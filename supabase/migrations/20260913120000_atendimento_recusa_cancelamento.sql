@@ -12,7 +12,7 @@
 -- controle interno do atendimento WhatsApp, não um dos 7 estados oficiais
 -- de `solicitacao` (RN39).
 
-alter table public.atendimento drop constraint atendimento_status_check;
+alter table public.atendimento drop constraint if exists atendimento_status_check;
 
 alter table public.atendimento add constraint atendimento_status_check check (
   status in ('em_andamento', 'concluido', 'expirado', 'recusado', 'aguardando_cancelamento', 'cancelado')
@@ -22,7 +22,7 @@ alter table public.atendimento add constraint atendimento_status_check check (
 -- RN04 (não duplicar questionário) — o índice único parcial precisa cobrir
 -- os dois status para continuar impedindo dois atendimentos simultâneos
 -- para o mesmo cliente.
-drop index public.atendimento_ativo_unico_idx;
+drop index if exists public.atendimento_ativo_unico_idx;
 
 create unique index atendimento_ativo_unico_idx on public.atendimento (id_cliente)
   where status in ('em_andamento', 'aguardando_cancelamento');
