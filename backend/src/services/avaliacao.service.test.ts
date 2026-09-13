@@ -17,6 +17,7 @@ const {
   listTrackingVersoesMock,
   listTrackingHistoricoMock,
   getTrackingAgendamentoMock,
+  listVersoesArteMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   sendTextMessageMock: vi.fn(),
@@ -33,6 +34,7 @@ const {
   listTrackingVersoesMock: vi.fn(),
   listTrackingHistoricoMock: vi.fn(),
   getTrackingAgendamentoMock: vi.fn(),
+  listVersoesArteMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
@@ -41,6 +43,7 @@ vi.mock('../integrations/whatsapp/whatsappClient.js', () => ({ sendTextMessage: 
 vi.mock('../repositories/atendimento.repository.js', () => ({ findClienteById: findClienteByIdMock }));
 vi.mock('../repositories/solicitacao.repository.js', () => ({
   getSolicitacaoDetail: getSolicitacaoDetailRepoMock,
+  listVersoesArte: listVersoesArteMock,
 }));
 vi.mock('../repositories/avaliacao.repository.js', () => ({
   generateAvaliacaoLinkToken: generateAvaliacaoLinkTokenMock,
@@ -70,6 +73,7 @@ describe('gerarLinkAvaliacao (RF009/RN19)', () => {
     findClienteByIdMock.mockReset();
     generateAvaliacaoLinkTokenMock.mockReset().mockResolvedValue({ idVersao: 1, numeroVersao: 1 });
     sendTextMessageMock.mockReset();
+    listVersoesArteMock.mockReset().mockResolvedValue([{ numero_versao: 2 }]);
   });
 
   it('rejeita quando o callerId não é o dono da solicitação', async () => {
@@ -107,6 +111,43 @@ describe('gerarLinkAvaliacao (RF009/RN19)', () => {
     expect(result.whatsappNotified).toBe(true);
     expect(result.whatsappError).toBeUndefined();
     expect(result.url).toMatch(/^https:\/\/app\.exemplo\.com\/avaliacao\/[0-9a-f]{64}$/);
+  });
+
+  it('item 3.4: identifica a arte por tema/versão na mensagem, sem expor o id interno da solicitação', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Enviado para avaliação',
+      idCliente: 1,
+      tema: 'Post de aniversário',
+    });
+    findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'abc' });
+    listVersoesArteMock.mockResolvedValue([{ numero_versao: 1 }, { numero_versao: 2 }]);
+
+    await gerarLinkAvaliacao({} as never, 10, 'designer-1');
+
+    const [, sentMessage] = sendTextMessageMock.mock.calls[0] as [string, string];
+    const textoAntesDoLink = sentMessage.split('http')[0] ?? '';
+    expect(sentMessage).toContain('Post de aniversário');
+    expect(sentMessage).toContain('versão 2');
+    expect(textoAntesDoLink).not.toContain('10'); // id_solicitacao=10 não pode aparecer fora da URL/token
+  });
+
+  it('item 3.4: usa texto genérico quando a solicitação não tem tema registrado', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Enviado para avaliação',
+      idCliente: 1,
+      tema: null,
+    });
+    findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'abc' });
+    listVersoesArteMock.mockResolvedValue([]);
+
+    await gerarLinkAvaliacao({} as never, 10, 'designer-1');
+
+    const [, sentMessage] = sendTextMessageMock.mock.calls[0] as [string, string];
+    expect(sentMessage).toContain('Sua arte está pronta para avaliação');
   });
 
   it('reporta explicitamente quando o envio via WhatsApp falha (não mascara erro)', async () => {

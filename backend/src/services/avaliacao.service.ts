@@ -22,7 +22,10 @@ import {
   type AvaliacaoLinkState,
 } from '../repositories/avaliacao.repository.js';
 import { findClienteById } from '../repositories/atendimento.repository.js';
-import { getSolicitacaoDetail as getSolicitacaoDetailRepo } from '../repositories/solicitacao.repository.js';
+import {
+  getSolicitacaoDetail as getSolicitacaoDetailRepo,
+  listVersoesArte,
+} from '../repositories/solicitacao.repository.js';
 import {
   createVersaoArteDownloadUrl,
   removeArquivoFromStorageBestEffort,
@@ -84,7 +87,15 @@ export async function gerarLinkAvaliacao(
   });
 
   const url = `${env.FRONTEND_URL}/avaliacao/${raw}`;
-  const message = `Olá! Sua arte está pronta para avaliação. Acesse o link para aprovar, pedir ajustes ou cancelar: ${url}`;
+
+  // Item 3.4 (correções 13/09/2026): a mensagem identifica a arte pelo
+  // tema/versão para o cliente reconhecer o contexto, sem expor nenhum ID
+  // interno (id_solicitacao/id_versao nunca aparecem no texto).
+  const versoes = await listVersoesArte(userClient, idSolicitacao);
+  const ultimaVersao = versoes.at(-1)?.numero_versao;
+  const message = solicitacao.tema
+    ? `Olá! A arte "${solicitacao.tema}"${ultimaVersao ? ` (versão ${ultimaVersao})` : ''} está pronta para avaliação. Acesse o link para aprovar, pedir ajustes ou cancelar: ${url}`
+    : `Olá! Sua arte está pronta para avaliação. Acesse o link para aprovar, pedir ajustes ou cancelar: ${url}`;
 
   let whatsappNotified = true;
   let whatsappError: string | undefined;

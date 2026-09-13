@@ -15,6 +15,10 @@ const {
   registerWebhookEventOnceMock,
   listActiveAtendimentosMock,
   markAtendimentoExpiredMock,
+  markAtendimentoRecusadoMock,
+  markAtendimentoAguardandoCancelamentoMock,
+  markAtendimentoCanceladoMock,
+  revertAtendimentoParaAndamentoMock,
   countRespostasMock,
   insertRespostaMock,
   listRespostasOrdenadasMock,
@@ -34,6 +38,10 @@ const {
   registerWebhookEventOnceMock: vi.fn(),
   listActiveAtendimentosMock: vi.fn(),
   markAtendimentoExpiredMock: vi.fn(),
+  markAtendimentoRecusadoMock: vi.fn(),
+  markAtendimentoAguardandoCancelamentoMock: vi.fn(),
+  markAtendimentoCanceladoMock: vi.fn(),
+  revertAtendimentoParaAndamentoMock: vi.fn(),
   countRespostasMock: vi.fn(),
   insertRespostaMock: vi.fn(),
   listRespostasOrdenadasMock: vi.fn(),
@@ -64,6 +72,10 @@ vi.mock('../repositories/atendimento.repository.js', () => ({
   registerWebhookEventOnce: registerWebhookEventOnceMock,
   listActiveAtendimentos: listActiveAtendimentosMock,
   markAtendimentoExpired: markAtendimentoExpiredMock,
+  markAtendimentoRecusado: markAtendimentoRecusadoMock,
+  markAtendimentoAguardandoCancelamento: markAtendimentoAguardandoCancelamentoMock,
+  markAtendimentoCancelado: markAtendimentoCanceladoMock,
+  revertAtendimentoParaAndamento: revertAtendimentoParaAndamentoMock,
   countRespostas: countRespostasMock,
   insertResposta: insertRespostaMock,
   listRespostasOrdenadas: listRespostasOrdenadasMock,
@@ -207,6 +219,10 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     registerWebhookEventOnceMock.mockReset().mockResolvedValue(true);
     listActiveAtendimentosMock.mockReset().mockResolvedValue([]);
     markAtendimentoExpiredMock.mockReset();
+    markAtendimentoRecusadoMock.mockReset();
+    markAtendimentoAguardandoCancelamentoMock.mockReset();
+    markAtendimentoCanceladoMock.mockReset();
+    revertAtendimentoParaAndamentoMock.mockReset();
     countRespostasMock.mockReset();
     insertRespostaMock.mockReset().mockResolvedValue(true);
     listRespostasOrdenadasMock.mockReset();
@@ -377,5 +393,100 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       '[referência enviada, mas não foi possível processar o arquivo]',
     );
     expect(completeAtendimentoAndCreateSolicitacaoMock).toHaveBeenCalledOnce();
+  });
+
+  it('item 3.1: resposta "Não" à confirmação encerra sem perguntar tema nem criar solicitação', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
+    ]);
+    countRespostasMock.mockResolvedValue(0); // pergunta de confirmação
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'Não' } })));
+
+    expect(insertRespostaMock).toHaveBeenCalledOnce();
+    expect(markAtendimentoRecusadoMock).toHaveBeenCalledWith(expect.anything(), 1);
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('não vamos continuar'));
+    expect(completeAtendimentoAndCreateSolicitacaoMock).not.toHaveBeenCalled();
+  });
+
+  it('item 3.1: aceita variações seguras de "sim" e avança normalmente para a próxima pergunta', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
+    ]);
+    countRespostasMock.mockResolvedValue(0);
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'Sim, pode continuar' } })));
+
+    expect(insertRespostaMock).toHaveBeenCalledOnce();
+    expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledOnce();
+  });
+
+  it('item 3.2: resposta ambígua à confirmação não avança nem inventa dado — orienta e repete a pergunta', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
+    ]);
+    countRespostasMock.mockResolvedValue(0);
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'talvez' } })));
+
+    expect(insertRespostaMock).not.toHaveBeenCalled();
+    expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Não entendi'));
+  });
+
+  it('item 3.3: pedido de cancelamento em qualquer pergunta pede confirmação sem registrar como resposta', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
+    ]);
+    countRespostasMock.mockResolvedValue(1); // pergunta de tema
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'quero cancelar' } })));
+
+    expect(insertRespostaMock).not.toHaveBeenCalled();
+    expect(markAtendimentoAguardandoCancelamentoMock).toHaveBeenCalledWith(expect.anything(), 1);
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('cancelar este atendimento'));
+  });
+
+  it('item 3.3: confirmação do cancelamento efetiva sem criar solicitação', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      {
+        id: 1,
+        idCliente: 1,
+        dataInicio: new Date().toISOString(),
+        clienteWhatsapp: '5511999999999',
+        status: 'aguardando_cancelamento',
+      },
+    ]);
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'Cancelar' } })));
+
+    expect(markAtendimentoCanceladoMock).toHaveBeenCalledWith(expect.anything(), 1);
+    expect(revertAtendimentoParaAndamentoMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Atendimento cancelado'));
+    expect(insertRespostaMock).not.toHaveBeenCalled();
+    expect(completeAtendimentoAndCreateSolicitacaoMock).not.toHaveBeenCalled();
+  });
+
+  it('item 3.3: qualquer resposta que não confirme o cancelamento retoma o atendimento normalmente', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      {
+        id: 1,
+        idCliente: 1,
+        dataInicio: new Date().toISOString(),
+        clienteWhatsapp: '5511999999999',
+        status: 'aguardando_cancelamento',
+      },
+    ]);
+    countRespostasMock.mockResolvedValue(1); // pergunta de tema pendente
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'Continuar' } })));
+
+    expect(revertAtendimentoParaAndamentoMock).toHaveBeenCalledWith(expect.anything(), 1);
+    expect(markAtendimentoCanceladoMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledWith(
+      '5511999999999',
+      expect.stringContaining('Qual é o tema da arte'),
+    );
   });
 });

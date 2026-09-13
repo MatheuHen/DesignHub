@@ -42,6 +42,7 @@ vi.mock('../repositories/solicitacao.repository.js', () => ({
   getSolicitacaoCore: getSolicitacaoCoreMock,
   getSolicitacaoDetail: getSolicitacaoDetailRepoMock,
   syncDesignerBloqueio: syncDesignerBloqueioMock,
+  listVersoesArte: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../repositories/versaoArte.repository.js', () => ({
   uploadArquivoToStorage: vi.fn(),

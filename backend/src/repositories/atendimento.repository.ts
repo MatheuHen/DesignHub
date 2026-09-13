@@ -40,6 +40,9 @@ export async function findClienteById(
   return { id: row.id_cliente, whatsapp: row.whatsapp };
 }
 
+/** RN04: 'aguardando_cancelamento' também conta como ativo — evita um segundo questionário para o mesmo cliente. */
+const ATENDIMENTO_ATIVO_STATUSES = ['em_andamento', 'aguardando_cancelamento'] as const;
+
 export async function findActiveAtendimentoByClienteId(
   adminClient: SupabaseClient,
   idCliente: number,
@@ -48,7 +51,7 @@ export async function findActiveAtendimentoByClienteId(
     .from('atendimento')
     .select('id_atendimento')
     .eq('id_cliente', idCliente)
-    .eq('status', 'em_andamento')
+    .in('status', ATENDIMENTO_ATIVO_STATUSES)
     .maybeSingle();
   const { data, error } = result as { data: unknown; error: { message: string } | null };
   if (error) throw new Error(`Falha ao verificar atendimento ativo: ${error.message}`);
@@ -84,6 +87,7 @@ const activeAtendimentoRowSchema = z.object({
   id_atendimento: z.number(),
   id_cliente: z.number(),
   data_inicio: z.string(),
+  status: z.enum(['em_andamento', 'aguardando_cancelamento']),
   cliente: z.union([
     z.object({ whatsapp: z.string() }),
     z.array(z.object({ whatsapp: z.string() })),
@@ -96,6 +100,8 @@ export interface ActiveAtendimento {
   idCliente: number;
   dataInicio: string;
   clienteWhatsapp: string;
+  /** Item 3.3: distingue o fluxo normal do fluxo de confirmação de cancelamento. */
+  status: 'em_andamento' | 'aguardando_cancelamento';
 }
 
 /**
@@ -107,8 +113,8 @@ export interface ActiveAtendimento {
 export async function listActiveAtendimentos(adminClient: SupabaseClient): Promise<ActiveAtendimento[]> {
   const result: unknown = await adminClient
     .from('atendimento')
-    .select('id_atendimento, id_cliente, data_inicio, cliente(whatsapp)')
-    .eq('status', 'em_andamento')
+    .select('id_atendimento, id_cliente, data_inicio, status, cliente(whatsapp)')
+    .in('status', ATENDIMENTO_ATIVO_STATUSES)
     .order('data_inicio', { ascending: false });
 
   const { data, error } = result as { data: unknown; error: { message: string } | null };
@@ -124,6 +130,7 @@ export async function listActiveAtendimentos(adminClient: SupabaseClient): Promi
         idCliente: row.id_cliente,
         dataInicio: row.data_inicio,
         clienteWhatsapp: cliente.whatsapp,
+        status: row.status,
       };
     })
     .filter((value): value is ActiveAtendimento => value !== null);
@@ -224,6 +231,56 @@ export async function markAtendimentoExpired(adminClient: SupabaseClient, idAten
     .eq('status', 'em_andamento');
   const { error } = result as { error: { message: string } | null };
   if (error) throw new Error(`Falha ao expirar atendimento: ${error.message}`);
+}
+
+/** Item 3.1: cliente respondeu "não" à confirmação inicial — encerra sem criar solicitação. */
+export async function markAtendimentoRecusado(adminClient: SupabaseClient, idAtendimento: number): Promise<void> {
+  const result: unknown = await adminClient
+    .from('atendimento')
+    .update({ status: 'recusado', data_fim: new Date().toISOString() })
+    .eq('id_atendimento', idAtendimento)
+    .eq('status', 'em_andamento');
+  const { error } = result as { error: { message: string } | null };
+  if (error) throw new Error(`Falha ao registrar recusa do atendimento: ${error.message}`);
+}
+
+/** Item 3.3: cliente pediu cancelamento explícito — aguarda confirmação antes de efetivar. */
+export async function markAtendimentoAguardandoCancelamento(
+  adminClient: SupabaseClient,
+  idAtendimento: number,
+): Promise<void> {
+  const result: unknown = await adminClient
+    .from('atendimento')
+    .update({ status: 'aguardando_cancelamento' })
+    .eq('id_atendimento', idAtendimento)
+    .eq('status', 'em_andamento');
+  const { error } = result as { error: { message: string } | null };
+  if (error) throw new Error(`Falha ao registrar pedido de cancelamento: ${error.message}`);
+}
+
+/** Item 3.3: cliente confirmou o cancelamento — efetiva, sem criar solicitação. */
+export async function markAtendimentoCancelado(adminClient: SupabaseClient, idAtendimento: number): Promise<void> {
+  const result: unknown = await adminClient
+    .from('atendimento')
+    .update({ status: 'cancelado', data_fim: new Date().toISOString() })
+    .eq('id_atendimento', idAtendimento)
+    .eq('status', 'aguardando_cancelamento');
+  const { error } = result as { error: { message: string } | null };
+  if (error) throw new Error(`Falha ao cancelar atendimento: ${error.message}`);
+}
+
+/** Item 3.3: cliente não confirmou o cancelamento — volta ao andamento normal. */
+export async function revertAtendimentoParaAndamento(
+  adminClient: SupabaseClient,
+  idAtendimento: number,
+): Promise<void> {
+  const result: unknown = await adminClient
+    .from('atendimento')
+    .update({ status: 'em_andamento' })
+    .eq('id_atendimento', idAtendimento)
+    .eq('status', 'aguardando_cancelamento');
+  const { error } = result as { error: { message: string } | null };
+  if (error) throw new Error(`Falha ao retomar atendimento: ${error.message}`);
 }
 
 /**

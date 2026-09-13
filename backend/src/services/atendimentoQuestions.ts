@@ -44,3 +44,24 @@ export const ATENDIMENTO_QUESTIONS: readonly QuestionDefinition[] = [
  */
 export const CLOSING_MESSAGE =
   'Obrigado! Seu atendimento automatizado desta solicitação foi concluído. As informações foram registradas e o processo continuará no DesignHub. Para solicitar uma nova arte, um novo atendimento deverá ser iniciado pelo designer.';
+
+/**
+ * Item 3.1 (correções 13/09/2026): resposta "Não" à pergunta de
+ * confirmação inicial não pode continuar o fluxo (nem perguntar tema, nem
+ * criar solicitação) — encerra o atendimento de forma amigável.
+ */
+export const RECUSA_MESSAGE =
+  'Entendido, não vamos continuar com esta solicitação agora. Se quiser iniciar novamente, peça ao seu designer para abrir um novo atendimento.';
+
+/** Item 3.2: resposta à confirmação não reconhecida como "sim" nem "não". */
+export const CONFIRMACAO_INVALIDA_MESSAGE =
+  'Não entendi sua resposta. Por favor, responda "Sim" para continuar ou "Não" para não continuar.';
+
+/** Item 3.3: cancelamento explícito exige confirmação antes de efetivar. */
+export const CANCELAMENTO_CONFIRMACAO_PROMPT =
+  'Você quer cancelar este atendimento e não continuar com esta solicitação agora? Responda "Cancelar" para confirmar ou "Continuar" para seguir de onde paramos.';
+
+export const CANCELAMENTO_CONFIRMADO_MESSAGE =
+  'Atendimento cancelado a seu pedido. Nenhuma solicitação de arte foi criada a partir dele. Para começar de novo, peça ao seu designer para abrir um novo atendimento.';
+
+export const CANCELAMENTO_ABORTADO_MESSAGE = 'Certo, vamos continuar de onde paramos.';
