@@ -11,13 +11,17 @@ import {
   getAjusteReferenciaUrl,
   getAtendimentoReferenciaUrl,
   getClienteInstagramStatus,
+  getComprovanteDownloadUrl,
+  getPublicacaoDetalhe,
   getSolicitacaoDetail,
   getVersaoArteDownloadUrl,
   registrarPublicacaoManual,
   updateAgendamento,
+  uploadComprovantePublicacao,
   uploadVersaoArte,
   type ClienteInstagramStatus,
   type GerarLinkAvaliacaoResult,
+  type PublicacaoDetalhe,
   type SolicitacaoDetailResult,
 } from './api';
 
@@ -78,6 +82,14 @@ export function SolicitacaoDetailPage() {
 
   const [instagramStatus, setInstagramStatus] = useState<ClienteInstagramStatus | null>(null);
 
+  const [publicacaoDetalhe, setPublicacaoDetalhe] = useState<PublicacaoDetalhe | null>(null);
+  const [comprovanteFile, setComprovanteFile] = useState<File | null>(null);
+  const [uploadingComprovante, setUploadingComprovante] = useState(false);
+  const [comprovanteError, setComprovanteError] = useState<string | null>(null);
+  const [comprovanteSuccess, setComprovanteSuccess] = useState(false);
+  const [downloadingComprovante, setDownloadingComprovante] = useState(false);
+  const [comprovanteDownloadError, setComprovanteDownloadError] = useState<string | null>(null);
+
   const reload = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -102,6 +114,14 @@ export function SolicitacaoDetailPage() {
             .catch(() => setInstagramStatus(null));
         } else {
           setInstagramStatus(null);
+        }
+
+        if (result.solicitacao.status === 'Publicado') {
+          getPublicacaoDetalhe(id)
+            .then(setPublicacaoDetalhe)
+            .catch(() => setPublicacaoDetalhe(null));
+        } else {
+          setPublicacaoDetalhe(null);
         }
       })
       .catch((loadError: unknown) => {
@@ -262,6 +282,46 @@ export function SolicitacaoDetailPage() {
         );
       })
       .finally(() => setRegisteringPublicacao(false));
+  }
+
+  /** Item 9.3 (correções 13/09/2026): comprovante/print opcional da publicação já concluída. */
+  function handleUploadComprovante(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!comprovanteFile) {
+      setComprovanteError('Selecione um arquivo PDF, JPG ou PNG.');
+      return;
+    }
+    setUploadingComprovante(true);
+    setComprovanteError(null);
+
+    uploadComprovantePublicacao(id, comprovanteFile)
+      .then(() => {
+        setComprovanteSuccess(true);
+        setComprovanteFile(null);
+        reload();
+      })
+      .catch((uploadErr: unknown) => {
+        setComprovanteError(
+          uploadErr instanceof ApiError ? uploadErr.message : 'Não foi possível enviar o comprovante.',
+        );
+      })
+      .finally(() => setUploadingComprovante(false));
+  }
+
+  function handleDownloadComprovante() {
+    setDownloadingComprovante(true);
+    setComprovanteDownloadError(null);
+
+    getComprovanteDownloadUrl(id)
+      .then(({ url }) => {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      })
+      .catch((downloadErr: unknown) => {
+        setComprovanteDownloadError(
+          downloadErr instanceof ApiError ? downloadErr.message : 'Não foi possível gerar o link de download.',
+        );
+      })
+      .finally(() => setDownloadingComprovante(false));
   }
 
   return (
@@ -650,6 +710,66 @@ export function SolicitacaoDetailPage() {
                 Use quando a publicação automática no Instagram não estiver disponível: publique a
                 arte manualmente fora do sistema e registre aqui para concluir o fluxo.
               </p>
+            </section>
+          )}
+
+          {/* Item 9.1/9.3 (correções 13/09/2026): badge nítido da publicação concluída + comprovante opcional. */}
+          {data.solicitacao.status === 'Publicado' && (
+            <section aria-labelledby="publicacao-title">
+              <h2 id="publicacao-title">Publicação concluída</h2>
+              {publicacaoDetalhe ? (
+                <>
+                  <p>
+                    <span className="status-badge status-badge--publicado">Publicado</span>{' '}
+                    {formatDateTime(publicacaoDetalhe.dataPublicada)} —{' '}
+                    {publicacaoDetalhe.tipo === 'automatica' ? 'automática (Instagram)' : 'manual'}
+                    {publicacaoDetalhe.numeroVersao !== null && <> — V{publicacaoDetalhe.numeroVersao}</>}
+                  </p>
+                  {publicacaoDetalhe.permalink && (
+                    <p>
+                      <a href={publicacaoDetalhe.permalink} target="_blank" rel="noopener noreferrer">
+                        Ver publicação no Instagram
+                      </a>
+                    </p>
+                  )}
+
+                  {publicacaoDetalhe.temComprovante ? (
+                    <div className="designer-form-actions">
+                      <button type="button" onClick={handleDownloadComprovante} disabled={downloadingComprovante}>
+                        {downloadingComprovante ? 'Gerando link…' : 'Ver comprovante'}
+                      </button>
+                    </div>
+                  ) : (
+                    <form className="designer-form" onSubmit={handleUploadComprovante} aria-label="Enviar comprovante">
+                      <FilePreviewPicker
+                        id="comprovante-arquivo"
+                        label="Comprovante/print (opcional — PDF, JPG ou PNG)"
+                        accept="application/pdf,image/jpeg,image/png"
+                        file={comprovanteFile}
+                        onChange={setComprovanteFile}
+                      />
+                      <div className="designer-form-actions">
+                        <button type="submit" disabled={uploadingComprovante || !comprovanteFile}>
+                          {uploadingComprovante ? 'Enviando…' : 'Enviar comprovante'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                  {comprovanteError && (
+                    <p role="alert" className="auth-error">
+                      {comprovanteError}
+                    </p>
+                  )}
+                  {comprovanteSuccess && <p className="atendimento-success">Comprovante enviado com sucesso.</p>}
+                  {comprovanteDownloadError && (
+                    <p role="alert" className="auth-error">
+                      {comprovanteDownloadError}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p role="status">Carregando dados da publicação…</p>
+              )}
             </section>
           )}
 

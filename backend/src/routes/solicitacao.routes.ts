@@ -3,7 +3,10 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { getSupabaseUserClient } from '../config/supabase.js';
 import { toAppError, ValidationError } from '../lib/errors.js';
 import { attachProfile, requireAuth, requireProfile } from '../middleware/auth.js';
-import { uploadVersaoArte as uploadVersaoArteMiddleware } from '../middleware/upload.js';
+import {
+  uploadPublicacaoComprovante as uploadPublicacaoComprovanteMiddleware,
+  uploadVersaoArte as uploadVersaoArteMiddleware,
+} from '../middleware/upload.js';
 import { agendamentoBodySchema } from '../schemas/agendamento.schemas.js';
 import { reassignSolicitacaoSchema } from '../schemas/designer.schemas.js';
 import {
@@ -21,7 +24,12 @@ import {
 } from '../services/agendamento.service.js';
 import { gerarLinkAvaliacao } from '../services/avaliacao.service.js';
 import { reassignSolicitacao } from '../services/designer.service.js';
-import { registrarPublicacaoManual } from '../services/publicacao.service.js';
+import {
+  getComprovanteDownloadUrl,
+  getPublicacaoDetalhe,
+  registrarPublicacaoManual,
+  uploadComprovantePublicacao,
+} from '../services/publicacao.service.js';
 import {
   getAjusteReferenciaUrl,
   getAtendimentoReferenciaUrl,
@@ -306,6 +314,73 @@ solicitacaoRouter.post(
       const client = getSupabaseUserClient(request.auth!.accessToken);
       await registrarPublicacaoManual(client, id, request.auth!.userId);
       response.status(204).end();
+    } catch (error) {
+      next(toAppError(error));
+    }
+  },
+);
+
+/** RF014/item 9.1: dados da publicação concluída (badge) — designer dono ou administrador. */
+solicitacaoRouter.get(
+  '/:id/publicacao',
+  requireProfile('designer', 'administrador'),
+  async (request, response, next) => {
+    try {
+      const { id } = solicitacaoIdParamSchema.parse(request.params);
+      const client = getSupabaseUserClient(request.auth!.accessToken);
+      const result = await getPublicacaoDetalhe(client, id);
+      response.status(200).json(result);
+    } catch (error) {
+      next(toAppError(error));
+    }
+  },
+);
+
+/**
+ * Item 9.3: comprovante/print opcional da publicação — só o designer dono,
+ * só depois de já estar "Publicado" (validado no service).
+ */
+solicitacaoRouter.post(
+  '/:id/publicacao/comprovante',
+  requireProfile('designer'),
+  uploadVersaoArteRateLimit,
+  (request, response, next) => {
+    uploadPublicacaoComprovanteMiddleware(request, response, (error: unknown) => {
+      if (error) {
+        next(toAppError(error));
+        return;
+      }
+      next();
+    });
+  },
+  async (request, response, next) => {
+    try {
+      const { id } = solicitacaoIdParamSchema.parse(request.params);
+      if (!request.file) {
+        throw new ValidationError('Arquivo obrigatório (campo "comprovante").');
+      }
+      const client = getSupabaseUserClient(request.auth!.accessToken);
+      await uploadComprovantePublicacao(client, id, request.auth!.userId, request.file.buffer);
+      response.status(204).end();
+    } catch (error) {
+      next(toAppError(error));
+    }
+  },
+);
+
+/** Item 9.3: URL assinada de curta duração do comprovante — designer dono ou administrador. */
+solicitacaoRouter.get(
+  '/:id/publicacao/comprovante-url',
+  requireProfile('designer', 'administrador'),
+  async (request, response, next) => {
+    try {
+      const { id } = solicitacaoIdParamSchema.parse(request.params);
+      const client = getSupabaseUserClient(request.auth!.accessToken);
+      const isAdmin = request.profile!.perfil === 'administrador';
+      const result = await getComprovanteDownloadUrl(client, id, request.auth!.userId, {
+        allowAnyDesigner: isAdmin,
+      });
+      response.status(200).json(result);
     } catch (error) {
       next(toAppError(error));
     }

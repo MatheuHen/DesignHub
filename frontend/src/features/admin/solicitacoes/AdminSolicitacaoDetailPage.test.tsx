@@ -3,9 +3,11 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { SolicitacaoDetailResult } from '../../designer/solicitacoes/api';
 
-const { getSolicitacaoDetailMock, getVersaoArteDownloadUrlMock } = vi.hoisted(() => ({
+const { getSolicitacaoDetailMock, getVersaoArteDownloadUrlMock, getPublicacaoDetalheMock, getComprovanteDownloadUrlMock } = vi.hoisted(() => ({
   getSolicitacaoDetailMock: vi.fn(),
   getVersaoArteDownloadUrlMock: vi.fn(),
+  getPublicacaoDetalheMock: vi.fn(),
+  getComprovanteDownloadUrlMock: vi.fn(),
 }));
 
 vi.mock('../../designer/solicitacoes/api', async (importOriginal) => {
@@ -14,6 +16,8 @@ vi.mock('../../designer/solicitacoes/api', async (importOriginal) => {
     ...actual,
     getSolicitacaoDetail: getSolicitacaoDetailMock,
     getVersaoArteDownloadUrl: getVersaoArteDownloadUrlMock,
+    getPublicacaoDetalhe: getPublicacaoDetalheMock,
+    getComprovanteDownloadUrl: getComprovanteDownloadUrlMock,
   };
 });
 
@@ -113,6 +117,46 @@ describe('AdminSolicitacaoDetailPage (RF016/QUADRO 61: Consultar solicitação d
     await waitFor(() => {
       expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(10, 1, false);
       expect(openSpy).toHaveBeenCalledWith('https://exemplo.supabase.co/signed-url', '_blank', 'noopener,noreferrer');
+    });
+
+    openSpy.mockRestore();
+  });
+
+  it('item 9.1/9.3 (correções 13/09/2026): mostra badge de publicação e permite ver o comprovante, somente leitura', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
+    });
+    getPublicacaoDetalheMock.mockReset().mockResolvedValue({
+      dataPublicada: '2026-09-01T14:00:00Z',
+      tipo: 'automatica',
+      permalink: 'https://www.instagram.com/p/abc123/',
+      numeroVersao: 2,
+      temComprovante: true,
+    });
+    getComprovanteDownloadUrlMock.mockReset().mockResolvedValue({
+      url: 'https://exemplo.supabase.co/signed-comprovante',
+      expiresInSeconds: 300,
+    });
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    renderPage();
+
+    expect(await screen.findByText(/automática \(Instagram\)/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Ver publicação no Instagram' })).toHaveAttribute(
+      'href',
+      'https://www.instagram.com/p/abc123/',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver comprovante' }));
+
+    await waitFor(() => {
+      expect(getComprovanteDownloadUrlMock).toHaveBeenCalledWith(10);
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://exemplo.supabase.co/signed-comprovante',
+        '_blank',
+        'noopener,noreferrer',
+      );
     });
 
     openSpy.mockRestore();

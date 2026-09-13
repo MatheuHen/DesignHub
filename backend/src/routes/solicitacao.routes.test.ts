@@ -59,12 +59,18 @@ vi.mock('../services/agendamento.service.js', () => ({
   cancelAgendamento: cancelAgendamentoMock,
 }));
 
-const { registrarPublicacaoManualMock } = vi.hoisted(() => ({
+const { registrarPublicacaoManualMock, getPublicacaoDetalheMock, uploadComprovantePublicacaoMock, getComprovanteDownloadUrlMock } = vi.hoisted(() => ({
   registrarPublicacaoManualMock: vi.fn(),
+  getPublicacaoDetalheMock: vi.fn(),
+  uploadComprovantePublicacaoMock: vi.fn(),
+  getComprovanteDownloadUrlMock: vi.fn(),
 }));
 
 vi.mock('../services/publicacao.service.js', () => ({
   registrarPublicacaoManual: registrarPublicacaoManualMock,
+  getPublicacaoDetalhe: getPublicacaoDetalheMock,
+  uploadComprovantePublicacao: uploadComprovantePublicacaoMock,
+  getComprovanteDownloadUrl: getComprovanteDownloadUrlMock,
 }));
 
 const { createApp } = await import('../app.js');
@@ -90,6 +96,9 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
     updateAgendamentoMock.mockReset();
     cancelAgendamentoMock.mockReset();
     registrarPublicacaoManualMock.mockReset();
+    getPublicacaoDetalheMock.mockReset();
+    uploadComprovantePublicacaoMock.mockReset();
+    getComprovanteDownloadUrlMock.mockReset();
   });
 
   it('GET / é exclusivo do designer — administrador recebe 403', async () => {
@@ -476,6 +485,75 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
 
     expect(response.status).toBe(204);
     expect(registrarPublicacaoManualMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1');
+  });
+
+  it('item 9.1 (correções 13/09/2026): GET /:id/publicacao permite designer e administrador, retorna 200', async () => {
+    mockAuthenticatedUser('administrador');
+    getPublicacaoDetalheMock.mockResolvedValue({
+      dataPublicada: '2026-09-01T12:00:00Z',
+      tipo: 'automatica',
+      permalink: 'https://www.instagram.com/p/abc123/',
+      numeroVersao: 2,
+      temComprovante: false,
+    });
+
+    const response = await request(createApp())
+      .get('/api/solicitacoes/10/publicacao')
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      dataPublicada: '2026-09-01T12:00:00Z',
+      tipo: 'automatica',
+      permalink: 'https://www.instagram.com/p/abc123/',
+      numeroVersao: 2,
+      temComprovante: false,
+    });
+  });
+
+  it('item 9.3: POST /:id/publicacao/comprovante é exclusivo do designer — administrador recebe 403', async () => {
+    mockAuthenticatedUser('administrador');
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/publicacao/comprovante')
+      .set('Authorization', 'Bearer token-admin')
+      .attach('comprovante', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff]), {
+        filename: 'print.png',
+        contentType: 'image/png',
+      });
+
+    expect(response.status).toBe(403);
+    expect(uploadComprovantePublicacaoMock).not.toHaveBeenCalled();
+  });
+
+  it('item 9.3: POST /:id/publicacao/comprovante permite designer e delega ao service', async () => {
+    mockAuthenticatedUser('designer');
+    uploadComprovantePublicacaoMock.mockResolvedValue(undefined);
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/publicacao/comprovante')
+      .set('Authorization', 'Bearer token-designer')
+      .attach('comprovante', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff]), {
+        filename: 'print.png',
+        contentType: 'image/png',
+      });
+
+    expect(response.status).toBe(204);
+    expect(uploadComprovantePublicacaoMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1', expect.anything());
+  });
+
+  it('item 9.3: GET /:id/publicacao/comprovante-url também permite administrador (allowAnyDesigner)', async () => {
+    mockAuthenticatedUser('administrador');
+    getComprovanteDownloadUrlMock.mockResolvedValue({ url: 'https://exemplo.supabase.co/signed', expiresInSeconds: 600 });
+
+    const response = await request(createApp())
+      .get('/api/solicitacoes/10/publicacao/comprovante-url')
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(200);
+    expect(getComprovanteDownloadUrlMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1', {
+      allowAnyDesigner: true,
+    });
   });
 
   it('PATCH /:id/reatribuir é exclusivo do administrador — designer recebe 403', async () => {

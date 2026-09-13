@@ -31,3 +31,6 @@ export const uploadVersaoArte = createSingleFileUpload('arquivo');
 
 /** RF010/RN21: referência opcional anexada a um pedido de ajuste. */
 export const uploadAvaliacaoReferencia = createSingleFileUpload('referencia');
+
+/** Item 9.3: comprovante/print opcional da publicação já concluída. */
+export const uploadPublicacaoComprovante = createSingleFileUpload('comprovante');

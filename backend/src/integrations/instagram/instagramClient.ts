@@ -22,6 +22,8 @@ export interface InstagramCredentials {
 
 export interface PublishImageResult {
   mediaId: string;
+  /** Item 9.1 (correções 13/09/2026): link público do post, quando a Meta o retorna ("permalink quando seguro"). */
+  permalink: string | null;
 }
 
 interface CreateContainerResponse {
@@ -30,6 +32,10 @@ interface CreateContainerResponse {
 
 interface PublishContainerResponse {
   id?: string;
+}
+
+interface MediaPermalinkResponse {
+  permalink?: string;
 }
 
 interface GraphErrorResponse {
@@ -155,5 +161,20 @@ export async function publishImage(
     throw new Error('Resposta inesperada da Instagram API: sem id de mídia publicada.');
   }
 
-  return { mediaId };
+  const permalink = await getMediaPermalinkBestEffort(accessToken, mediaId);
+  return { mediaId, permalink };
+}
+
+/**
+ * Item 9.1: melhor esforço — a publicação já está feita nesse ponto; uma
+ * falha ao buscar o permalink não pode desfazer/marcar erro na publicação
+ * (RN34/RN35 continuam satisfeitas sem ele, o link é só um complemento).
+ */
+async function getMediaPermalinkBestEffort(accessToken: string, mediaId: string): Promise<string | null> {
+  try {
+    const result = (await graphRequest(accessToken, 'GET', `${mediaId}?fields=permalink`)) as MediaPermalinkResponse;
+    return result.permalink ?? null;
+  } catch {
+    return null;
+  }
 }

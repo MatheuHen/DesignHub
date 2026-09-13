@@ -43,12 +43,14 @@ export async function listAgendamentosVencidos(adminClient: SupabaseClient): Pro
 
 const versaoAtualRowSchema = z.object({
   id_versao: z.number(),
+  numero_versao: z.number(),
   formato: z.string(),
   arquivo_url: z.string(),
 });
 
 export interface VersaoArteAtual {
   idVersao: number;
+  numeroVersao: number;
   formato: string;
   arquivoUrl: string;
 }
@@ -60,7 +62,7 @@ export async function getVersaoArteAtualDaSolicitacao(
 ): Promise<VersaoArteAtual | null> {
   const result: unknown = await adminClient
     .from('versao_arte')
-    .select('id_versao, formato, arquivo_url')
+    .select('id_versao, numero_versao, formato, arquivo_url')
     .eq('id_solicitacao', idSolicitacao)
     .order('numero_versao', { ascending: false })
     .limit(1)
@@ -70,7 +72,7 @@ export async function getVersaoArteAtualDaSolicitacao(
   if (!data) return null;
 
   const row = versaoAtualRowSchema.parse(data);
-  return { idVersao: row.id_versao, formato: row.formato, arquivoUrl: row.arquivo_url };
+  return { idVersao: row.id_versao, numeroVersao: row.numero_versao, formato: row.formato, arquivoUrl: row.arquivo_url };
 }
 
 const solicitacaoClienteRowSchema = z.object({ id_cliente: z.number() });
@@ -110,18 +112,94 @@ export async function claimAgendamentoParaPublicacao(
   return data === true;
 }
 
-/** RF014/RN32-RN35: registra publicação bem-sucedida (RPC atômica). `atorId` é `null` para automática. */
+/**
+ * RF014/RN32-RN35: registra publicação bem-sucedida (RPC atômica). `atorId`
+ * é `null` para automática. Item 9.1: `permalink` é melhor esforço, sempre
+ * `null` em manual (a Meta não é chamada nesse caminho).
+ */
 export async function registerPublicacaoSucesso(
   adminClient: SupabaseClient,
-  params: { idAgendamento: number; tipo: 'automatica' | 'manual'; atorId: string | null },
+  params: { idAgendamento: number; tipo: 'automatica' | 'manual'; atorId: string | null; permalink?: string | null },
 ): Promise<void> {
   const result: unknown = await adminClient.rpc('register_publicacao_sucesso', {
     p_id_agendamento: params.idAgendamento,
     p_tipo: params.tipo,
     p_ator_id: params.atorId,
+    p_permalink: params.permalink ?? null,
   });
   const { error } = result as { error: { message: string; code?: string } | null };
   if (error) mapPublicacaoRpcError(error);
+}
+
+const publicacaoRowSchema = z.object({
+  id_publicacao: z.number(),
+  data_publicada: z.string(),
+  tipo: z.enum(['automatica', 'manual']),
+  permalink: z.string().nullable(),
+  comprovante_url: z.string().nullable(),
+  versao_arte: z.union([
+    z.object({ numero_versao: z.number() }),
+    z.array(z.object({ numero_versao: z.number() })),
+    z.null(),
+  ]),
+});
+
+export interface PublicacaoInfo {
+  idPublicacao: number;
+  dataPublicada: string;
+  tipo: 'automatica' | 'manual';
+  permalink: string | null;
+  comprovanteUrl: string | null;
+  numeroVersao: number | null;
+}
+
+/**
+ * RF014/item 9.1/9.3: dados da publicação concluída da solicitação (RF005
+ * "detalhes com... status") — sempre a mais recente, para cobrir o caso raro
+ * de reagendamento após um `agendamento_publicacao` cancelado/expirado ter
+ * ficado com `publicacao` de uma tentativa anterior.
+ */
+export async function getPublicacaoBySolicitacao(
+  client: SupabaseClient,
+  idSolicitacao: number,
+): Promise<PublicacaoInfo | null> {
+  const result: unknown = await client
+    .from('publicacao')
+    .select(
+      'id_publicacao, data_publicada, tipo, permalink, comprovante_url, versao_arte(numero_versao), agendamento_publicacao!inner(id_solicitacao)',
+    )
+    .eq('agendamento_publicacao.id_solicitacao', idSolicitacao)
+    .order('data_publicada', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao buscar publicação: ${error.message}`);
+  if (!data) return null;
+
+  const row = publicacaoRowSchema.parse(data);
+  const versaoArte = Array.isArray(row.versao_arte) ? (row.versao_arte[0] ?? null) : row.versao_arte;
+  return {
+    idPublicacao: row.id_publicacao,
+    dataPublicada: row.data_publicada,
+    tipo: row.tipo,
+    permalink: row.permalink,
+    comprovanteUrl: row.comprovante_url,
+    numeroVersao: versaoArte?.numero_versao ?? null,
+  };
+}
+
+/** Item 9.3: vincula o comprovante/print (path privado no Storage) à publicação já concluída. */
+export async function setPublicacaoComprovante(
+  adminClient: SupabaseClient,
+  idPublicacao: number,
+  comprovanteUrl: string,
+): Promise<void> {
+  const result: unknown = await adminClient
+    .from('publicacao')
+    .update({ comprovante_url: comprovanteUrl })
+    .eq('id_publicacao', idPublicacao);
+  const { error } = result as { error: { message: string } | null };
+  if (error) throw new Error(`Falha ao vincular comprovante à publicação: ${error.message}`);
 }
 
 /** RF014: registra tentativa de publicação automática falhada (RPC atômica) — nunca marca como publicado. */

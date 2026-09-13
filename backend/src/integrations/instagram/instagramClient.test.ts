@@ -22,14 +22,17 @@ describe('instagramClient (RF014/ADR 0005 — Instagram API with Instagram Login
       fetchMock
         .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'container-1' }), { status: 200 }))
         .mockResolvedValueOnce(new Response(JSON.stringify({ status_code: 'FINISHED' }), { status: 200 }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'media-1' }), { status: 200 }));
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'media-1' }), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ permalink: 'https://www.instagram.com/p/abc123/' }), { status: 200 }),
+        );
 
       const resultPromise = publishImage(CREDENTIALS, 'https://example.com/img.png', 'legenda de teste');
       await vi.advanceTimersByTimeAsync(1_500);
       const result = await resultPromise;
 
-      expect(result).toEqual({ mediaId: 'media-1' });
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(result).toEqual({ mediaId: 'media-1', permalink: 'https://www.instagram.com/p/abc123/' });
+      expect(fetchMock).toHaveBeenCalledTimes(4);
 
       const [containerUrl, containerInit] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(containerUrl).toBe('https://graph.instagram.com/v21.0/27882228474720270/media');
@@ -56,7 +59,8 @@ describe('instagramClient (RF014/ADR 0005 — Instagram API with Instagram Login
       fetchMock
         .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'container-2' }), { status: 200 }))
         .mockResolvedValueOnce(new Response(JSON.stringify({ status_code: 'FINISHED' }), { status: 200 }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'media-2' }), { status: 200 }));
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'media-2' }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
 
       const resultPromise = publishImage(
         { accessToken: 'token-cliente-b', accountId: 'conta-cliente-b' },
@@ -106,6 +110,25 @@ describe('instagramClient (RF014/ADR 0005 — Instagram API with Instagram Login
       await assertion;
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('item 9.1 (correções 13/09/2026): falha ao buscar o permalink não desfaz a publicação já concluída (melhor esforço)', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'container-1' }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ status_code: 'FINISHED' }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'media-1' }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'boom' } }), { status: 500 }));
+
+      const resultPromise = publishImage(CREDENTIALS, 'https://example.com/img.png', 'legenda de teste');
+      await vi.advanceTimersByTimeAsync(1_500);
+      const result = await resultPromise;
+
+      expect(result).toEqual({ mediaId: 'media-1', permalink: null });
     } finally {
       vi.useRealTimers();
     }

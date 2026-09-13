@@ -227,6 +227,34 @@ export function registrarPublicacaoManual(id: number): Promise<void> {
   return apiRequest<void>(`/api/solicitacoes/${id}/publicacao-manual`, { method: 'POST' });
 }
 
+export interface PublicacaoDetalhe {
+  dataPublicada: string;
+  tipo: 'automatica' | 'manual';
+  permalink: string | null;
+  numeroVersao: number | null;
+  temComprovante: boolean;
+}
+
+/** RF014/item 9.1: dados da publicação concluída (badge) — null quando ainda não há publicação. */
+export function getPublicacaoDetalhe(id: number): Promise<PublicacaoDetalhe | null> {
+  return apiRequest<PublicacaoDetalhe | null>(`/api/solicitacoes/${id}/publicacao`);
+}
+
+/** Item 9.3: comprovante/print opcional (PDF/JPG/PNG) da publicação já concluída. */
+export function uploadComprovantePublicacao(id: number, arquivo: File): Promise<void> {
+  const formData = new FormData();
+  formData.append('comprovante', arquivo);
+  return apiRequest<void>(`/api/solicitacoes/${id}/publicacao/comprovante`, {
+    method: 'POST',
+    body: formData,
+  });
+}
+
+/** Item 9.3 + seção 12.5: URL assinada de curta duração do comprovante. */
+export function getComprovanteDownloadUrl(id: number): Promise<VersaoArteDownloadUrl> {
+  return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/publicacao/comprovante-url`);
+}
+
 export interface ClienteInstagramStatus {
   conectado: boolean;
   conectadoEm: string | null;

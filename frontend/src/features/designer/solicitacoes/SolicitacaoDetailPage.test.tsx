@@ -16,6 +16,9 @@ const {
   cancelAgendamentoMock,
   registrarPublicacaoManualMock,
   getClienteInstagramStatusMock,
+  getPublicacaoDetalheMock,
+  uploadComprovantePublicacaoMock,
+  getComprovanteDownloadUrlMock,
 } = vi.hoisted(() => ({
   getSolicitacaoDetailMock: vi.fn(),
   updateSolicitacaoMock: vi.fn(),
@@ -28,6 +31,9 @@ const {
   cancelAgendamentoMock: vi.fn(),
   registrarPublicacaoManualMock: vi.fn(),
   getClienteInstagramStatusMock: vi.fn(),
+  getPublicacaoDetalheMock: vi.fn(),
+  uploadComprovantePublicacaoMock: vi.fn(),
+  getComprovanteDownloadUrlMock: vi.fn(),
 }));
 
 vi.mock('./api', async (importOriginal) => {
@@ -45,6 +51,9 @@ vi.mock('./api', async (importOriginal) => {
     cancelAgendamento: cancelAgendamentoMock,
     registrarPublicacaoManual: registrarPublicacaoManualMock,
     getClienteInstagramStatus: getClienteInstagramStatusMock,
+    getPublicacaoDetalhe: getPublicacaoDetalheMock,
+    uploadComprovantePublicacao: uploadComprovantePublicacaoMock,
+    getComprovanteDownloadUrl: getComprovanteDownloadUrlMock,
   };
 });
 
@@ -114,6 +123,9 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     updateAgendamentoMock.mockReset();
     cancelAgendamentoMock.mockReset();
     registrarPublicacaoManualMock.mockReset();
+    getPublicacaoDetalheMock.mockReset();
+    uploadComprovantePublicacaoMock.mockReset();
+    getComprovanteDownloadUrlMock.mockReset();
     getClienteInstagramStatusMock
       .mockReset()
       .mockResolvedValue({ conectado: true, conectadoEm: '2026-08-20T10:00:00Z', expiraEm: '2026-10-19T10:00:00Z' });
@@ -511,5 +523,89 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Registrar publicação manual' }));
 
     expect(await screen.findByText(/não está aguardando publicação/)).toBeInTheDocument();
+  });
+
+  it('item 9.1 (correções 13/09/2026): mostra badge com data/hora, tipo e permalink quando publicado automaticamente', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
+    });
+    getPublicacaoDetalheMock.mockResolvedValue({
+      dataPublicada: '2026-09-01T14:00:00Z',
+      tipo: 'automatica',
+      permalink: 'https://www.instagram.com/p/abc123/',
+      numeroVersao: 2,
+      temComprovante: false,
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/automática \(Instagram\)/)).toBeInTheDocument();
+    expect(screen.getByText(/V2/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Ver publicação no Instagram' })).toHaveAttribute(
+      'href',
+      'https://www.instagram.com/p/abc123/',
+    );
+  });
+
+  it('item 9.3: permite enviar o comprovante quando ainda não há um anexado', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
+    });
+    getPublicacaoDetalheMock.mockResolvedValue({
+      dataPublicada: '2026-09-01T14:00:00Z',
+      tipo: 'manual',
+      permalink: null,
+      numeroVersao: 1,
+      temComprovante: false,
+    });
+    uploadComprovantePublicacaoMock.mockResolvedValue(undefined);
+
+    renderPage();
+    await screen.findByText(/manual/);
+
+    const file = new File(['conteudo'], 'print.png', { type: 'image/png' });
+    fireEvent.change(screen.getByLabelText(/Comprovante\/print/), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar comprovante' }));
+
+    await waitFor(() => {
+      expect(uploadComprovantePublicacaoMock).toHaveBeenCalledWith(10, file);
+    });
+    expect(await screen.findByText('Comprovante enviado com sucesso.')).toBeInTheDocument();
+  });
+
+  it('item 9.3: mostra "Ver comprovante" em vez do formulário de envio quando já existe um anexado', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
+    });
+    getPublicacaoDetalheMock.mockResolvedValue({
+      dataPublicada: '2026-09-01T14:00:00Z',
+      tipo: 'manual',
+      permalink: null,
+      numeroVersao: 1,
+      temComprovante: true,
+    });
+    getComprovanteDownloadUrlMock.mockResolvedValue({
+      url: 'https://exemplo.supabase.co/signed-comprovante',
+      expiresInSeconds: 300,
+    });
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver comprovante' }));
+
+    await waitFor(() => {
+      expect(getComprovanteDownloadUrlMock).toHaveBeenCalledWith(10);
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://exemplo.supabase.co/signed-comprovante',
+        '_blank',
+        'noopener,noreferrer',
+      );
+    });
+    expect(screen.queryByRole('button', { name: 'Enviar comprovante' })).not.toBeInTheDocument();
+
+    openSpy.mockRestore();
   });
 });

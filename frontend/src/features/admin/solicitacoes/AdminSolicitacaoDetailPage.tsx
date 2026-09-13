@@ -4,8 +4,11 @@ import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import { statusSlug } from '../../../lib/statusStyle';
 import {
+  getComprovanteDownloadUrl,
+  getPublicacaoDetalhe,
   getSolicitacaoDetail,
   getVersaoArteDownloadUrl,
+  type PublicacaoDetalhe,
   type SolicitacaoDetailResult,
 } from '../../designer/solicitacoes/api';
 
@@ -29,6 +32,25 @@ export function AdminSolicitacaoDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [downloadingVersaoId, setDownloadingVersaoId] = useState<number | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [publicacaoDetalhe, setPublicacaoDetalhe] = useState<PublicacaoDetalhe | null>(null);
+  const [downloadingComprovante, setDownloadingComprovante] = useState(false);
+  const [comprovanteDownloadError, setComprovanteDownloadError] = useState<string | null>(null);
+
+  function handleDownloadComprovante() {
+    setDownloadingComprovante(true);
+    setComprovanteDownloadError(null);
+
+    getComprovanteDownloadUrl(id)
+      .then(({ url }) => {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      })
+      .catch((downloadErr: unknown) => {
+        setComprovanteDownloadError(
+          downloadErr instanceof ApiError ? downloadErr.message : 'Não foi possível gerar o link de download.',
+        );
+      })
+      .finally(() => setDownloadingComprovante(false));
+  }
 
   function handleDownload(idVersao: number, inline: boolean) {
     setDownloadingVersaoId(idVersao);
@@ -50,7 +72,14 @@ export function AdminSolicitacaoDetailPage() {
     setLoading(true);
     setError(null);
     getSolicitacaoDetail(id)
-      .then(setData)
+      .then((result) => {
+        setData(result);
+        if (result.solicitacao.status === 'Publicado') {
+          getPublicacaoDetalhe(id)
+            .then(setPublicacaoDetalhe)
+            .catch(() => setPublicacaoDetalhe(null));
+        }
+      })
       .catch((loadError: unknown) => {
         setError(
           loadError instanceof ApiError ? loadError.message : 'Não foi possível carregar a solicitação.',
@@ -158,6 +187,35 @@ export function AdminSolicitacaoDetailPage() {
                 {data.agendamento.horario.slice(0, 5)}
                 {data.agendamento.legenda && <> — {data.agendamento.legenda}</>}
               </p>
+            </section>
+          )}
+
+          {/* Item 9.1/9.3 (correções 13/09/2026): mesmo badge/comprovante do designer, sempre somente leitura aqui. */}
+          {data.solicitacao.status === 'Publicado' && publicacaoDetalhe && (
+            <section aria-labelledby="admin-publicacao-title">
+              <h2 id="admin-publicacao-title">Publicação</h2>
+              <p>
+                {formatDateTime(publicacaoDetalhe.dataPublicada)} —{' '}
+                {publicacaoDetalhe.tipo === 'automatica' ? 'automática (Instagram)' : 'manual'}
+                {publicacaoDetalhe.numeroVersao !== null && <> — V{publicacaoDetalhe.numeroVersao}</>}
+              </p>
+              {publicacaoDetalhe.permalink && (
+                <p>
+                  <a href={publicacaoDetalhe.permalink} target="_blank" rel="noopener noreferrer">
+                    Ver publicação no Instagram
+                  </a>
+                </p>
+              )}
+              {publicacaoDetalhe.temComprovante && (
+                <button type="button" onClick={handleDownloadComprovante} disabled={downloadingComprovante}>
+                  {downloadingComprovante ? 'Gerando link…' : 'Ver comprovante'}
+                </button>
+              )}
+              {comprovanteDownloadError && (
+                <p role="alert" className="auth-error">
+                  {comprovanteDownloadError}
+                </p>
+              )}
             </section>
           )}
 

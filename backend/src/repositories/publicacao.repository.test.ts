@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 import {
   claimAgendamentoParaPublicacao,
+  getPublicacaoBySolicitacao,
   getVersaoArteAtualDaSolicitacao,
   listAgendamentosVencidos,
   registerPublicacaoFalha,
   registerPublicacaoSucesso,
+  setPublicacaoComprovante,
 } from './publicacao.repository.js';
 
 function rpcClient(response: { data: unknown; error: { message: string; code?: string } | null }) {
@@ -114,7 +116,7 @@ describe('getVersaoArteAtualDaSolicitacao (RF014)', () => {
               limit: () => ({
                 maybeSingle: () =>
                   Promise.resolve({
-                    data: { id_versao: 2, formato: 'PNG', arquivo_url: 'solicitacoes/10/versoes/x.png' },
+                    data: { id_versao: 2, numero_versao: 3, formato: 'PNG', arquivo_url: 'solicitacoes/10/versoes/x.png' },
                     error: null,
                   }),
               }),
@@ -126,8 +128,81 @@ describe('getVersaoArteAtualDaSolicitacao (RF014)', () => {
 
     await expect(getVersaoArteAtualDaSolicitacao(client, 10)).resolves.toEqual({
       idVersao: 2,
+      numeroVersao: 3,
       formato: 'PNG',
       arquivoUrl: 'solicitacoes/10/versoes/x.png',
     });
+  });
+});
+
+describe('getPublicacaoBySolicitacao (RF014/item 9.1/9.3)', () => {
+  it('retorna null quando não há publicação', async () => {
+    const client = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            order: () => ({
+              limit: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }),
+            }),
+          }),
+        }),
+      }),
+    } as unknown as Parameters<typeof getPublicacaoBySolicitacao>[0];
+
+    await expect(getPublicacaoBySolicitacao(client, 10)).resolves.toBeNull();
+  });
+
+  it('mapeia a publicação mais recente, incluindo permalink/comprovante nulos', async () => {
+    const client = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            order: () => ({
+              limit: () => ({
+                maybeSingle: () =>
+                  Promise.resolve({
+                    data: {
+                      id_publicacao: 1,
+                      data_publicada: '2026-09-01T12:00:00Z',
+                      tipo: 'automatica',
+                      permalink: 'https://www.instagram.com/p/abc123/',
+                      comprovante_url: null,
+                      versao_arte: { numero_versao: 3 },
+                    },
+                    error: null,
+                  }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    } as unknown as Parameters<typeof getPublicacaoBySolicitacao>[0];
+
+    await expect(getPublicacaoBySolicitacao(client, 10)).resolves.toEqual({
+      idPublicacao: 1,
+      dataPublicada: '2026-09-01T12:00:00Z',
+      tipo: 'automatica',
+      permalink: 'https://www.instagram.com/p/abc123/',
+      comprovanteUrl: null,
+      numeroVersao: 3,
+    });
+  });
+});
+
+describe('setPublicacaoComprovante (item 9.3)', () => {
+  it('resolve sem erro quando a atualização é bem-sucedida', async () => {
+    const client = {
+      from: () => ({ update: () => ({ eq: () => Promise.resolve({ error: null }) }) }),
+    } as unknown as Parameters<typeof setPublicacaoComprovante>[0];
+
+    await expect(setPublicacaoComprovante(client, 1, 'solicitacoes/10/publicacao/x.png')).resolves.toBeUndefined();
+  });
+
+  it('lança erro quando a atualização falha', async () => {
+    const client = {
+      from: () => ({ update: () => ({ eq: () => Promise.resolve({ error: { message: 'boom' } }) }) }),
+    } as unknown as Parameters<typeof setPublicacaoComprovante>[0];
+
+    await expect(setPublicacaoComprovante(client, 1, 'solicitacoes/10/publicacao/x.png')).rejects.toThrow('boom');
   });
 });
