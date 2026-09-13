@@ -1,19 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
+import { startOfDaySaoPaulo, startOfNextDaySaoPaulo } from '../lib/timezone.js';
 import { SOLICITACAO_STATUSES } from '../lib/statusTransitions.js';
 import type { ListSolicitacoesQuery, UpdateSolicitacaoInput } from '../schemas/solicitacao.schemas.js';
 
 /** Mesmo padrão de `cliente.repository.ts`/`designer.repository.ts`: escapa caracteres especiais do ILIKE do PostgREST. */
 function escapeIlikeTerm(term: string): string {
   return term.replace(/[%,()]/g, (match) => `\\${match}`);
-}
-
-/** RF005: `dataFim` do filtro é um dia (YYYY-MM-DD) inclusivo; `data_criacao` é datetime, então o limite superior é o início do dia seguinte. */
-function nextDay(isoDate: string): string {
-  const date = new Date(`${isoDate}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + 1);
-  return date.toISOString().slice(0, 10);
 }
 
 const solicitacaoRowSchema = z.object({
@@ -83,8 +77,8 @@ export async function listSolicitacoes(
   if (filters.idCliente) query = query.eq('id_cliente', filters.idCliente);
   if (filters.idDesigner) query = query.eq('id_designer', filters.idDesigner);
   if (filters.clienteNome) query = query.ilike('cliente.nome', `%${escapeIlikeTerm(filters.clienteNome)}%`);
-  if (filters.dataInicio) query = query.gte('data_criacao', filters.dataInicio);
-  if (filters.dataFim) query = query.lt('data_criacao', nextDay(filters.dataFim));
+  if (filters.dataInicio) query = query.gte('data_criacao', startOfDaySaoPaulo(filters.dataInicio));
+  if (filters.dataFim) query = query.lt('data_criacao', startOfNextDaySaoPaulo(filters.dataFim));
 
   const from = (filters.page - 1) * filters.pageSize;
   const to = from + filters.pageSize - 1;

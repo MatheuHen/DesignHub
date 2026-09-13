@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { NotFoundError } from '../lib/errors.js';
-import { listRespostasBySolicitacao, updateSolicitacaoFields } from './solicitacao.repository.js';
+import { listRespostasBySolicitacao, listSolicitacoes, updateSolicitacaoFields } from './solicitacao.repository.js';
 
 function updateClient(returnedRows: unknown[]) {
   return {
@@ -29,6 +29,44 @@ describe('updateSolicitacaoFields (RF005 — defesa em profundidade de ownership
     await expect(
       updateSolicitacaoFields(client, 1, 'designer-x', { tema: 'Novo' }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('listSolicitacoes — filtro de data (item 10, correções 13/09/2026)', () => {
+  function queryClient() {
+    const gte = vi.fn();
+    const lt = vi.fn();
+    const builder: Record<string, (...args: unknown[]) => unknown> = {};
+    builder.select = () => builder;
+    builder.order = () => builder;
+    builder.eq = () => builder;
+    builder.ilike = () => builder;
+    builder.gte = (...args: unknown[]) => {
+      gte(...args);
+      return builder;
+    };
+    builder.lt = (...args: unknown[]) => {
+      lt(...args);
+      return builder;
+    };
+    builder.range = () => Promise.resolve({ data: [], error: null, count: 0 });
+
+    const client = { from: () => builder } as unknown as Parameters<typeof listSolicitacoes>[0];
+    return { client, gte, lt };
+  }
+
+  it('converte dataInicio/dataFim para instantes em America/Sao_Paulo (-03:00), não UTC puro', async () => {
+    const { client, gte, lt } = queryClient();
+
+    await listSolicitacoes(client, {
+      dataInicio: '2026-09-09',
+      dataFim: '2026-09-10',
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(gte).toHaveBeenCalledWith('data_criacao', '2026-09-09T00:00:00-03:00');
+    expect(lt).toHaveBeenCalledWith('data_criacao', '2026-09-11T00:00:00-03:00');
   });
 });
 
