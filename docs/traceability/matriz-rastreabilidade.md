@@ -187,6 +187,14 @@ renomeado — apenas comportamento aditivo dentro dos RFs abaixo.
 `20260913140000_cancel_agendamento_cliente.sql`,
 `20260913150000_publicacao_permalink_comprovante.sql`.
 
+**Aplicadas no Supabase real do DesignHub em 13/09/2026** (via Supabase CLI,
+`supabase db push`, usando a connection string do `.env.local` referenciada
+só pelo nome `SUPABASE_DB_URL`). `supabase migration list` confirmou as 34
+migrations (30 antigas + as 4 desta rodada) com `remote == local` depois da
+aplicação. Nenhum dado real foi apagado/sobrescrito — todas as 4 são
+estruturais (CHECK/índice/coluna/função), sem DELETE/UPDATE de linhas
+existentes.
+
 ### ACHADO FORA DO ESCOPO / FUTURO
 - Quadro de custos: não existe em nenhum documento editável do repositório
   (só nos PDFs binários de `docs/tfc-oficial/`, não indexados em texto) —
@@ -205,14 +213,15 @@ Meta) e RF014 (token Instagram) foram validados com sucesso real em
 produção; RF001 deixou de depender de e-mail de convite (fluxo trocado para
 definição de senha pelo admin na criação, FIGURA 28).
 
-Em 13/09/2026, dois itens ficam `BLOCKED_EXTERNAL` (não são falha de
-implementação, dependem de ação externa antes do próximo deploy):
+Em 13/09/2026: as 4 migrations desta rodada foram aplicadas com sucesso no
+Supabase real do DesignHub (via Supabase CLI + connection string do
+`.env.local`, sem depender do MCP Supabase — este permanece conectado a
+outros projetos, fora do isolamento exigido pela seção 2 do `CLAUDE.md`,
+e não foi usado para nenhuma escrita). Código e banco estão sincronizados.
 
-- **Migrations da rodada não aplicadas remotamente.** Sem acesso ao projeto
-  Supabase real do DesignHub nesta sessão (o MCP Supabase disponível está
-  conectado a outros projetos, fora do isolamento exigido pela seção 2 do
-  `CLAUDE.md`) — as 4 migrations listadas acima precisam ser aplicadas via
-  `supabase db push`/dashboard, na ordem, antes do próximo deploy.
+Resta 1 item `BLOCKED_EXTERNAL` (não é falha de implementação, depende de
+aprovação externa da Meta):
+
 - **Alerta ao designer por WhatsApp quando o cliente cancela um agendamento
   (item 8.6).** Implementado apenas o alerta in-app (`historico_solicitacao`,
   já visível no detalhe da solicitação); o canal WhatsApp exigiria um
