@@ -18,6 +18,7 @@ const {
   listTrackingHistoricoMock,
   getTrackingAgendamentoMock,
   listVersoesArteMock,
+  cancelAgendamentoClienteMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   sendTextMessageMock: vi.fn(),
@@ -35,6 +36,7 @@ const {
   listTrackingHistoricoMock: vi.fn(),
   getTrackingAgendamentoMock: vi.fn(),
   listVersoesArteMock: vi.fn(),
+  cancelAgendamentoClienteMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
@@ -54,6 +56,7 @@ vi.mock('../repositories/avaliacao.repository.js', () => ({
   listTrackingVersoes: listTrackingVersoesMock,
   listTrackingHistorico: listTrackingHistoricoMock,
   getTrackingAgendamento: getTrackingAgendamentoMock,
+  cancelAgendamentoCliente: cancelAgendamentoClienteMock,
 }));
 vi.mock('../repositories/versaoArte.repository.js', () => ({
   uploadArquivoToStorage: uploadArquivoToStorageMock,
@@ -61,7 +64,7 @@ vi.mock('../repositories/versaoArte.repository.js', () => ({
   createVersaoArteDownloadUrl: createVersaoArteDownloadUrlMock,
 }));
 
-const { gerarLinkAvaliacao, getAvaliacaoPreview, submitAvaliacaoDecisao } = await import(
+const { gerarLinkAvaliacao, getAvaliacaoPreview, submitAvaliacaoDecisao, cancelarAgendamentoCliente } = await import(
   './avaliacao.service.js'
 );
 
@@ -394,5 +397,55 @@ describe('submitAvaliacaoDecisao (RF009/RF010)', () => {
     ).rejects.toBeInstanceOf(ConflictError);
 
     expect(removeArquivoFromStorageBestEffortMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe('cancelarAgendamentoCliente (RF012/RF013/item 8.4 — correções 13/09/2026)', () => {
+  beforeEach(() => {
+    getAvaliacaoLinkStateMock.mockReset();
+    getTrackingSolicitacaoByVersaoMock.mockReset();
+    cancelAgendamentoClienteMock.mockReset();
+  });
+
+  it('rejeita quando o link está expirado', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'expired', idVersao: null });
+
+    await expect(cancelarAgendamentoCliente('a'.repeat(64))).rejects.toBeInstanceOf(ExpiredLinkError);
+    expect(cancelAgendamentoClienteMock).not.toHaveBeenCalled();
+  });
+
+  it('rejeita quando o link é inválido', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'invalid', idVersao: null });
+
+    await expect(cancelarAgendamentoCliente('a'.repeat(64))).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('aceita um token já usado (a avaliação foi decidida antes de existir agendamento)', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'used', idVersao: 5 });
+    getTrackingSolicitacaoByVersaoMock.mockResolvedValue({ idSolicitacao: 10, status: 'Agendado', tema: null });
+    cancelAgendamentoClienteMock.mockResolvedValue(undefined);
+
+    const result = await cancelarAgendamentoCliente('a'.repeat(64));
+
+    expect(result).toEqual({ idSolicitacao: 10 });
+    expect(cancelAgendamentoClienteMock).toHaveBeenCalledWith(expect.anything(), 10);
+  });
+
+  it('rejeita quando a solicitação não está mais Agendada (ex.: já publicada ou cancelada por outra via)', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'used', idVersao: 5 });
+    getTrackingSolicitacaoByVersaoMock.mockResolvedValue({ idSolicitacao: 10, status: 'Aprovado', tema: null });
+
+    await expect(cancelarAgendamentoCliente('a'.repeat(64))).rejects.toBeInstanceOf(ConflictError);
+    expect(cancelAgendamentoClienteMock).not.toHaveBeenCalled();
+  });
+
+  it('propaga ConflictError do repository quando faltam menos de 3h (RN31)', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'used', idVersao: 5 });
+    getTrackingSolicitacaoByVersaoMock.mockResolvedValue({ idSolicitacao: 10, status: 'Agendado', tema: null });
+    cancelAgendamentoClienteMock.mockRejectedValue(
+      new ConflictError('Cancelamento não permitido: faltam menos de 3 horas para a publicação.'),
+    );
+
+    await expect(cancelarAgendamentoCliente('a'.repeat(64))).rejects.toBeInstanceOf(ConflictError);
   });
 });

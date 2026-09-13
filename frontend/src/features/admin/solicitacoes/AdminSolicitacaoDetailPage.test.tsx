@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { SolicitacaoDetailResult } from '../../designer/solicitacoes/api';
 
-const { getSolicitacaoDetailMock } = vi.hoisted(() => ({
+const { getSolicitacaoDetailMock, getVersaoArteDownloadUrlMock } = vi.hoisted(() => ({
   getSolicitacaoDetailMock: vi.fn(),
+  getVersaoArteDownloadUrlMock: vi.fn(),
 }));
 
 vi.mock('../../designer/solicitacoes/api', async (importOriginal) => {
@@ -12,6 +13,7 @@ vi.mock('../../designer/solicitacoes/api', async (importOriginal) => {
   return {
     ...actual,
     getSolicitacaoDetail: getSolicitacaoDetailMock,
+    getVersaoArteDownloadUrl: getVersaoArteDownloadUrlMock,
   };
 });
 
@@ -93,5 +95,26 @@ describe('AdminSolicitacaoDetailPage (RF016/QUADRO 61: Consultar solicitação d
     expect(getSolicitacaoDetailMock).toHaveBeenCalledWith(10);
     expect(screen.queryByRole('button', { name: /salvar/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /reatribuir/i })).not.toBeInTheDocument();
+  });
+
+  it('item 5.6 (correções 13/09/2026): admin visualiza e baixa versões de qualquer designer', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue(sampleDetail);
+    getVersaoArteDownloadUrlMock.mockReset().mockResolvedValue({
+      url: 'https://exemplo.supabase.co/signed-url',
+      expiresInSeconds: 300,
+    });
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    renderPage();
+    await screen.findByText('Cliente Teste');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Baixar' }));
+
+    await waitFor(() => {
+      expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(10, 1, false);
+      expect(openSpy).toHaveBeenCalledWith('https://exemplo.supabase.co/signed-url', '_blank', 'noopener,noreferrer');
+    });
+
+    openSpy.mockRestore();
   });
 });

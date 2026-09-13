@@ -188,16 +188,23 @@ solicitacaoRouter.post(
   },
 );
 
-/** RF008 + seção 12.5: URL assinada de curta duração para download/visualização de uma versão. */
+/**
+ * RF008 + seção 12.5: URL assinada de curta duração para download/visualização
+ * de uma versão. Item 5.6: Administrador também autorizado (somente leitura,
+ * qualquer solicitação), Designer continua restrito à própria.
+ */
 solicitacaoRouter.get(
   '/:id/versoes/:versaoId/download-url',
-  requireProfile('designer'),
+  requireProfile('designer', 'administrador'),
   async (request, response, next) => {
     try {
       const { id, versaoId } = versaoArteParamsSchema.parse(request.params);
       const client = getSupabaseUserClient(request.auth!.accessToken);
       const inline = request.query.inline === '1';
-      const result = await getVersaoArteDownloadUrl(client, id, versaoId, request.auth!.userId, inline);
+      const isAdmin = request.profile!.perfil === 'administrador';
+      const result = await getVersaoArteDownloadUrl(client, id, versaoId, request.auth!.userId, inline, {
+        allowAnyDesigner: isAdmin,
+      });
       response.status(200).json(result);
     } catch (error) {
       next(toAppError(error));

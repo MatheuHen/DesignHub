@@ -366,6 +366,14 @@ p {
   padding: 0 4px;
 }
 
+/** Item 6: status de notificação (link enviado ou não) — deliberadamente neutro, para não ser confundido com o status-badge de negócio. */
+.link-avaliacao-status {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6b6478;
+}
+
 .atendimento-success {
   margin: 10px 0 0;
   padding: 10px 12px;

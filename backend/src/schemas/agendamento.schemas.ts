@@ -3,10 +3,13 @@ import { z } from 'zod';
 const AGENDAMENTO_STATUSES = ['Agendado', 'Cancelado', 'Publicado'] as const;
 
 /**
- * RF012/RN28: data, horário e legenda são obrigatórios no agendamento.
- * Regexes já restringem a faixas plausíveis de mês/dia/hora/minuto (não só
- * o formato) para que entrada fora de faixa vire 400 aqui, em vez de um
- * erro genérico de cast do Postgres.
+ * RF012/RN28: data e horário são obrigatórios no agendamento. Item 8.1
+ * (correções 13/09/2026): legenda volta a ser opcional — pode ficar vazia
+ * (reverte a exigência introduzida em 26/08/2026, migration
+ * `20260826100000_agendamento_legenda_obrigatoria.sql`, por instrução mais
+ * recente do orientador). Regexes já restringem a faixas plausíveis de
+ * mês/dia/hora/minuto (não só o formato) para que entrada fora de faixa
+ * vire 400 aqui, em vez de um erro genérico de cast do Postgres.
  */
 export const agendamentoBodySchema = z.object({
   dataPublicacao: z
@@ -15,7 +18,7 @@ export const agendamentoBodySchema = z.object({
   horario: z
     .string()
     .regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, 'Horário inválido (use HH:MM).'),
-  legenda: z.string().trim().min(1, 'Informe a legenda da publicação.').max(2200),
+  legenda: z.string().trim().max(2200).optional().default(''),
 });
 export type AgendamentoBody = z.infer<typeof agendamentoBodySchema>;
 

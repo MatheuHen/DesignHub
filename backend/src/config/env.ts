@@ -85,23 +85,30 @@ if (!parsed.success) {
 export const env = parsed.data;
 
 /**
- * Item 1 (correções 13/09/2026): links de recuperação de senha/avaliação
- * indo para localhost em produção. FRONTEND_URL/PUBLIC_BACKEND_URL têm
- * default de desenvolvimento (seção 8) — em NODE_ENV=production, cair
- * nesse default significaria compor links reais com host localhost, então
- * falha alto e explicitamente em vez de gerar um link inválido silencioso.
+ * Item 1/7.1 (correções 13/09/2026): links de recuperação de senha/avaliação
+ * e o redirect_uri do OAuth do Instagram indo para localhost/HTTP em
+ * produção. FRONTEND_URL/PUBLIC_BACKEND_URL têm default de desenvolvimento
+ * (seção 8) — em NODE_ENV=production, cair nesse default (ou usar HTTP)
+ * significaria compor um link/redirect_uri real inválido (a Meta exige
+ * HTTPS para "Instagram API with Instagram Login" fora de teste local),
+ * então falha alto e explicitamente em vez de gerar um valor inválido
+ * silencioso.
  */
 if (env.NODE_ENV === 'production') {
   const productionIssues: string[] = [];
-  if (!process.env.FRONTEND_URL || /localhost|127\.0\.0\.1/.test(env.FRONTEND_URL)) {
+  if (!process.env.FRONTEND_URL || /localhost|127\.0\.0\.1/.test(env.FRONTEND_URL) || !env.FRONTEND_URL.startsWith('https://')) {
     productionIssues.push('FRONTEND_URL');
   }
-  if (!process.env.PUBLIC_BACKEND_URL || /localhost|127\.0\.0\.1/.test(env.PUBLIC_BACKEND_URL)) {
+  if (
+    !process.env.PUBLIC_BACKEND_URL ||
+    /localhost|127\.0\.0\.1/.test(env.PUBLIC_BACKEND_URL) ||
+    !env.PUBLIC_BACKEND_URL.startsWith('https://')
+  ) {
     productionIssues.push('PUBLIC_BACKEND_URL');
   }
   if (productionIssues.length > 0) {
     throw new Error(
-      `Configuração de produção inválida: ${productionIssues.join(', ')} não pode(m) usar o padrão de desenvolvimento (localhost). Configure a URL pública real no ambiente de deploy.`,
+      `Configuração de produção inválida: ${productionIssues.join(', ')} precisa(m) ser uma URL pública HTTPS real (não localhost). Configure a URL correta no ambiente de deploy.`,
     );
   }
 }

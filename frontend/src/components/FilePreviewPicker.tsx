@@ -50,10 +50,9 @@ export function FilePreviewPicker({ id, label, accept, file, onChange, required 
 
       {file && (
         <div className="file-preview-picker-selected">
-          {IMAGE_TYPES.has(file.type) && previewUrl ? (
+          <p>Arquivo selecionado: {file.name}</p>
+          {IMAGE_TYPES.has(file.type) && previewUrl && (
             <img src={previewUrl} alt={`Pré-visualização de ${file.name}`} className="file-preview-picker-image" />
-          ) : (
-            <p>Arquivo PDF selecionado: {file.name}</p>
           )}
 
           <div className="file-preview-picker-actions">

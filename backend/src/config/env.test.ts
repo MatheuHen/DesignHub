@@ -48,6 +48,16 @@ describe('config/env — guarda de produção', () => {
     ).rejects.toThrow(/PUBLIC_BACKEND_URL/);
   });
 
+  it('item 7.1: lança erro quando PUBLIC_BACKEND_URL em produção usa HTTP em vez de HTTPS (redirect_uri do Instagram)', async () => {
+    await expect(
+      importEnvWith({
+        NODE_ENV: 'production',
+        FRONTEND_URL: 'https://app.exemplo.com',
+        PUBLIC_BACKEND_URL: 'http://api.exemplo.com',
+      }),
+    ).rejects.toThrow(/PUBLIC_BACKEND_URL/);
+  });
+
   it('carrega normalmente em produção quando as URLs públicas reais estão configuradas', async () => {
     const { env } = await importEnvWith({
       NODE_ENV: 'production',

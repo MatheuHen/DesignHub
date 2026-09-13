@@ -218,4 +218,39 @@ describe('getVersaoArteDownloadUrl (RF008, seção 12.5)', () => {
       expiresInSeconds: 300,
     });
   });
+
+  it('item 5.6 (correções 13/09/2026): admin acessa a versão de qualquer designer com allowAnyDesigner', async () => {
+    getSolicitacaoCoreMock.mockResolvedValue({
+      idSolicitacao: 10,
+      idDesigner: 'designer-1',
+      status: 'Enviado para avaliação',
+    });
+    getVersaoArteByIdAndSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      arquivoUrl: 'solicitacoes/10/versoes/arquivo.pdf',
+    });
+    createVersaoArteDownloadUrlMock.mockResolvedValue('https://exemplo.supabase.co/signed-url');
+
+    const result = await getVersaoArteDownloadUrl({} as never, 10, 1, 'admin-1', false, {
+      allowAnyDesigner: true,
+    });
+
+    expect(result).toEqual({
+      url: 'https://exemplo.supabase.co/signed-url',
+      expiresInSeconds: 300,
+    });
+  });
+
+  it('item 5.6: sem allowAnyDesigner, outro designer continua bloqueado (IDOR)', async () => {
+    getSolicitacaoCoreMock.mockResolvedValue({
+      idSolicitacao: 10,
+      idDesigner: 'designer-1',
+      status: 'Enviado para avaliação',
+    });
+
+    await expect(
+      getVersaoArteDownloadUrl({} as never, 10, 1, 'designer-2'),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(getVersaoArteByIdAndSolicitacaoMock).not.toHaveBeenCalled();
+  });
 });

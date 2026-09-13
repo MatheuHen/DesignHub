@@ -481,6 +481,13 @@ export function SolicitacaoDetailPage() {
                 solicitação. O sistema tenta notificar o cliente automaticamente pelo WhatsApp.
               </p>
 
+              {/* Item 6 (correções 13/09/2026): status de notificação (se o link já foi
+                  enviado nesta sessão) é sempre exibido separado do status de negócio da
+                  solicitação (badge acima) — nunca substitui nem altera "Enviado para avaliação". */}
+              <p className="link-avaliacao-status" role="status">
+                {linkResult ? 'Link enviado ao cliente.' : 'Link de avaliação ainda não enviado.'}
+              </p>
+
               <div className="designer-form-actions">
                 <button type="button" onClick={handleGerarLink} disabled={generatingLink}>
                   {generatingLink ? 'Gerando link…' : 'Gerar e enviar link de avaliação'}
@@ -511,8 +518,10 @@ export function SolicitacaoDetailPage() {
 
               {instagramStatus && !instagramStatus.conectado && (
                 <p role="status">
-                  A conta do Instagram deste cliente não está conectada. A publicação deverá ser
-                  realizada manualmente.
+                  A conta do Instagram deste cliente não está conectada — a publicação automática não
+                  será tentada. <Link to="/designer/clientes">Conecte o Instagram do cliente</Link> para
+                  habilitar a publicação automática, ou combine com o cliente e use "Registrar publicação
+                  manual" abaixo quando a arte for publicada.
                 </p>
               )}
 
@@ -560,12 +569,11 @@ export function SolicitacaoDetailPage() {
                   required
                 />
 
-                <label htmlFor="agendamento-legenda">Legenda</label>
+                <label htmlFor="agendamento-legenda">Legenda (opcional)</label>
                 <input
                   id="agendamento-legenda"
                   value={agendLegenda}
                   onChange={(event) => setAgendLegenda(event.target.value)}
-                  required
                 />
 
                 {agendError && (

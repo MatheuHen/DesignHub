@@ -175,6 +175,33 @@ export async function getTrackingSolicitacaoByVersao(
   return { idSolicitacao: row.id_solicitacao, status: row.status, tema: row.tema };
 }
 
+const PG_AGENDAMENTO_NOT_FOUND = 'P0002';
+const PG_CANCEL_WINDOW = 'P0005';
+
+/**
+ * Item 8.4 (correções 13/09/2026): cancelamento de agendamento pelo cliente.
+ * `idSolicitacao` nunca vem direto do cliente — é sempre resolvido no
+ * service a partir do token opaco (via `getTrackingSolicitacaoByVersao`),
+ * o que evita IDOR (seção 12.1).
+ */
+export async function cancelAgendamentoCliente(
+  adminClient: SupabaseClient,
+  idSolicitacao: number,
+): Promise<void> {
+  const result: unknown = await adminClient.rpc('cancel_agendamento_cliente', {
+    p_id_solicitacao: idSolicitacao,
+  });
+  const { error } = result as { error: { message: string; code?: string } | null };
+  if (!error) return;
+  if (error.code === PG_AGENDAMENTO_NOT_FOUND) {
+    throw new NotFoundError('Agendamento não encontrado ou já não está mais ativo.');
+  }
+  if (error.code === PG_CANCEL_WINDOW) {
+    throw new ConflictError('Cancelamento não permitido: faltam menos de 3 horas para a publicação.');
+  }
+  throw new Error(`Falha ao cancelar agendamento: ${error.message}`);
+}
+
 const trackingVersaoRowSchema = z.object({
   id_versao: z.number(),
   numero_versao: z.number(),

@@ -217,12 +217,13 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
     expect(uploadVersaoArteMock).toHaveBeenCalledOnce();
   });
 
-  it('GET /:id/versoes/:versaoId/download-url é exclusivo do designer — administrador recebe 403', async () => {
-    mockAuthenticatedUser('administrador');
+  it('GET /:id/versoes/:versaoId/download-url rejeita perfil cliente/anônimo (não é designer nem admin)', async () => {
+    getUserMock.mockResolvedValue({ data: { user: { id: 'user-1', email: 'user@exemplo.com' } }, error: null });
+    maybeSingleMock.mockResolvedValue({ data: null, error: null }); // sem linha em usuario => perfil não encontrado
 
     const response = await request(createApp())
       .get('/api/solicitacoes/10/versoes/1/download-url')
-      .set('Authorization', 'Bearer token-admin');
+      .set('Authorization', 'Bearer token-sem-perfil');
 
     expect(response.status).toBe(403);
     expect(getVersaoArteDownloadUrlMock).not.toHaveBeenCalled();
@@ -244,7 +245,9 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
       url: 'https://exemplo.supabase.co/signed-url',
       expiresInSeconds: 300,
     });
-    expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(expect.anything(), 10, 1, 'user-1', false);
+    expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(expect.anything(), 10, 1, 'user-1', false, {
+      allowAnyDesigner: false,
+    });
   });
 
   it('GET /:id/versoes/:versaoId/download-url?inline=1 pede URL sem forçar download (botão "Visualizar")', async () => {
@@ -259,7 +262,26 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
       .set('Authorization', 'Bearer token-designer');
 
     expect(response.status).toBe(200);
-    expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(expect.anything(), 10, 1, 'user-1', true);
+    expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(expect.anything(), 10, 1, 'user-1', true, {
+      allowAnyDesigner: false,
+    });
+  });
+
+  it('item 5.6 (correções 13/09/2026): GET /:id/versoes/:versaoId/download-url também permite administrador (somente leitura)', async () => {
+    mockAuthenticatedUser('administrador');
+    getVersaoArteDownloadUrlMock.mockResolvedValue({
+      url: 'https://exemplo.supabase.co/signed-url',
+      expiresInSeconds: 300,
+    });
+
+    const response = await request(createApp())
+      .get('/api/solicitacoes/10/versoes/1/download-url')
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(200);
+    expect(getVersaoArteDownloadUrlMock).toHaveBeenCalledWith(expect.anything(), 10, 1, 'user-1', false, {
+      allowAnyDesigner: true,
+    });
   });
 
   it('POST /:id/link-avaliacao é exclusivo do designer — administrador recebe 403', async () => {
@@ -318,28 +340,35 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
     expect(createAgendamentoMock).not.toHaveBeenCalled();
   });
 
-  it('POST /:id/agendamento rejeita corpo sem legenda (400)', async () => {
+  it('item 8.1 (correções 13/09/2026): POST /:id/agendamento aceita corpo sem legenda (opcional)', async () => {
     mockAuthenticatedUser('designer');
+    createAgendamentoMock.mockResolvedValue({ idAgendamento: 8 });
 
     const response = await request(createApp())
       .post('/api/solicitacoes/10/agendamento')
       .set('Authorization', 'Bearer token-designer')
       .send({ dataPublicacao: '2026-09-01', horario: '10:00' });
 
-    expect(response.status).toBe(400);
-    expect(createAgendamentoMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(201);
+    expect(createAgendamentoMock).toHaveBeenCalledWith(
+      expect.anything(),
+      10,
+      'user-1',
+      expect.objectContaining({ dataPublicacao: '2026-09-01', horario: '10:00', legenda: '' }),
+    );
   });
 
-  it('POST /:id/agendamento rejeita legenda em branco (400)', async () => {
+  it('item 8.1: POST /:id/agendamento aceita legenda em branco (opcional, permite vazia)', async () => {
     mockAuthenticatedUser('designer');
+    createAgendamentoMock.mockResolvedValue({ idAgendamento: 9 });
 
     const response = await request(createApp())
       .post('/api/solicitacoes/10/agendamento')
       .set('Authorization', 'Bearer token-designer')
       .send({ dataPublicacao: '2026-09-01', horario: '10:00', legenda: '   ' });
 
-    expect(response.status).toBe(400);
-    expect(createAgendamentoMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(201);
+    expect(createAgendamentoMock).not.toBeNull();
   });
 
   it('POST /:id/agendamento rejeita data/horário fora de faixa mesmo com formato sintaticamente correto (400)', async () => {

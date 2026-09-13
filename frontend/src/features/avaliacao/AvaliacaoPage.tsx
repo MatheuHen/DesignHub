@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { FilePreviewPicker } from '../../components/FilePreviewPicker';
-import { PublicApiError, getAvaliacaoPreview, submitAvaliacao, type AvaliacaoPreview } from './api';
+import {
+  PublicApiError,
+  cancelarAgendamentoCliente,
+  getAvaliacaoPreview,
+  submitAvaliacao,
+  type AvaliacaoPreview,
+} from './api';
 
 type ViewState = 'loading' | 'error' | 'preview' | 'ajustes-form' | 'confirm-cancelar' | 'aprovar-agendamento' | 'submitted';
 
@@ -36,6 +42,11 @@ export function AvaliacaoPage() {
   const [desejaAgendamento, setDesejaAgendamento] = useState<boolean | null>(null);
   const [dataDesejada, setDataDesejada] = useState('');
   const [horarioDesejado, setHorarioDesejado] = useState('');
+
+  const [confirmandoCancelAgendamento, setConfirmandoCancelAgendamento] = useState(false);
+  const [cancelandoAgendamento, setCancelandoAgendamento] = useState(false);
+  const [cancelAgendamentoError, setCancelAgendamentoError] = useState<string | null>(null);
+  const [cancelAgendamentoSucesso, setCancelAgendamentoSucesso] = useState(false);
 
   const load = useCallback(() => {
     setView('loading');
@@ -97,6 +108,24 @@ export function AvaliacaoPage() {
         );
       })
       .finally(() => setSubmitting(false));
+  }
+
+  /** Item 8.4 (correções 13/09/2026): cliente cancela o agendamento da própria solicitação (RN31, regra de 3h). */
+  function handleConfirmarCancelamentoAgendamento() {
+    setCancelandoAgendamento(true);
+    setCancelAgendamentoError(null);
+    cancelarAgendamentoCliente(token)
+      .then(() => {
+        setConfirmandoCancelAgendamento(false);
+        setCancelAgendamentoSucesso(true);
+        load();
+      })
+      .catch((error: unknown) => {
+        setCancelAgendamentoError(
+          error instanceof PublicApiError ? error.message : 'Não foi possível cancelar o agendamento.',
+        );
+      })
+      .finally(() => setCancelandoAgendamento(false));
   }
 
   function handleSubmitAjuste(event: FormEvent<HTMLFormElement>) {
@@ -167,7 +196,44 @@ export function AvaliacaoPage() {
                   {new Date(`${preview.tracking.agendamento.dataPublicacao}T00:00:00`).toLocaleDateString('pt-BR')}{' '}
                   às {preview.tracking.agendamento.horario.slice(0, 5)} — {preview.tracking.agendamento.status}
                 </p>
+
+                {/* Item 8.4 (correções 13/09/2026): cliente cancela o próprio agendamento (RN31, regra de 3h) — nunca a solicitação inteira (item 8.5). */}
+                {preview.tracking.agendamento.status === 'Agendado' && !cancelAgendamentoSucesso && (
+                  <>
+                    {confirmandoCancelAgendamento ? (
+                      <div className="avaliacao-actions">
+                        <button
+                          type="button"
+                          className="avaliacao-cancel"
+                          onClick={handleConfirmarCancelamentoAgendamento}
+                          disabled={cancelandoAgendamento}
+                        >
+                          {cancelandoAgendamento ? 'Cancelando…' : 'Confirmar cancelamento do agendamento'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmandoCancelAgendamento(false)}
+                          disabled={cancelandoAgendamento}
+                        >
+                          Voltar
+                        </button>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => setConfirmandoCancelAgendamento(true)}>
+                        Cancelar agendamento
+                      </button>
+                    )}
+                    {cancelAgendamentoError && (
+                      <p role="alert" className="auth-error">
+                        {cancelAgendamentoError}
+                      </p>
+                    )}
+                  </>
+                )}
               </>
+            )}
+            {cancelAgendamentoSucesso && (
+              <p className="atendimento-success">Agendamento cancelado com sucesso.</p>
             )}
 
             <h2>Histórico</h2>

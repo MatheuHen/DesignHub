@@ -3,7 +3,11 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { toAppError } from '../lib/errors.js';
 import { uploadAvaliacaoReferencia } from '../middleware/upload.js';
 import { avaliacaoTokenParamSchema, submitAvaliacaoBodySchema } from '../schemas/avaliacao.schemas.js';
-import { getAvaliacaoPreview, submitAvaliacaoDecisao } from '../services/avaliacao.service.js';
+import {
+  cancelarAgendamentoCliente,
+  getAvaliacaoPreview,
+  submitAvaliacaoDecisao,
+} from '../services/avaliacao.service.js';
 
 export const avaliacaoRouter = Router();
 
@@ -66,3 +70,20 @@ avaliacaoRouter.post(
     }
   },
 );
+
+/**
+ * RF012/RF013/item 8.4: cliente cancela o agendamento da própria
+ * solicitação (regra de 3h, RN31) pelo mesmo link de acompanhamento — o
+ * token pode já estar "usado" (a avaliação já foi decidida antes de existir
+ * agendamento); o service resolve `idSolicitacao` sempre a partir do token,
+ * nunca de um parâmetro aberto.
+ */
+avaliacaoRouter.post('/:token/cancelar-agendamento', async (request, response, next) => {
+  try {
+    const { token } = avaliacaoTokenParamSchema.parse(request.params);
+    const result = await cancelarAgendamentoCliente(token);
+    response.status(200).json(result);
+  } catch (error) {
+    next(toAppError(error));
+  }
+});

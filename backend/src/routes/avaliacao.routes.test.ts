@@ -2,14 +2,16 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictError, ExpiredLinkError, NotFoundError, ValidationError } from '../lib/errors.js';
 
-const { getAvaliacaoPreviewMock, submitAvaliacaoDecisaoMock } = vi.hoisted(() => ({
+const { getAvaliacaoPreviewMock, submitAvaliacaoDecisaoMock, cancelarAgendamentoClienteMock } = vi.hoisted(() => ({
   getAvaliacaoPreviewMock: vi.fn(),
   submitAvaliacaoDecisaoMock: vi.fn(),
+  cancelarAgendamentoClienteMock: vi.fn(),
 }));
 
 vi.mock('../services/avaliacao.service.js', () => ({
   getAvaliacaoPreview: getAvaliacaoPreviewMock,
   submitAvaliacaoDecisao: submitAvaliacaoDecisaoMock,
+  cancelarAgendamentoCliente: cancelarAgendamentoClienteMock,
 }));
 
 const { createApp } = await import('../app.js');
@@ -20,6 +22,7 @@ describe('rotas públicas /api/avaliacao (RF009/RF010)', () => {
   beforeEach(() => {
     getAvaliacaoPreviewMock.mockReset();
     submitAvaliacaoDecisaoMock.mockReset();
+    cancelarAgendamentoClienteMock.mockReset();
   });
 
   it('GET /:token rejeita token malformado antes de chamar o service', async () => {
@@ -134,7 +137,7 @@ describe('rotas públicas /api/avaliacao (RF009/RF010)', () => {
 
   it('POST /:token retorna 400 quando a referência não é um PDF/JPG/PNG real', async () => {
     submitAvaliacaoDecisaoMock.mockRejectedValue(
-      new ValidationError('Formato de arquivo de referência não suportado. Envie PDF, JPG ou PNG.'),
+      new ValidationError('Formato não suportado. Envie PDF, JPG ou PNG.'),
     );
 
     const response = await request(createApp())
@@ -147,5 +150,32 @@ describe('rotas públicas /api/avaliacao (RF009/RF010)', () => {
       });
 
     expect(response.status).toBe(400);
+  });
+
+  it('item 8.4 (correções 13/09/2026): POST /:token/cancelar-agendamento delega ao service e retorna 200', async () => {
+    cancelarAgendamentoClienteMock.mockResolvedValue({ idSolicitacao: 10 });
+
+    const response = await request(createApp()).post(`/api/avaliacao/${VALID_TOKEN}/cancelar-agendamento`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ idSolicitacao: 10 });
+    expect(cancelarAgendamentoClienteMock).toHaveBeenCalledWith(VALID_TOKEN);
+  });
+
+  it('POST /:token/cancelar-agendamento retorna 409 quando faltam menos de 3h (RN31)', async () => {
+    cancelarAgendamentoClienteMock.mockRejectedValue(
+      new ConflictError('Cancelamento não permitido: faltam menos de 3 horas para a publicação.'),
+    );
+
+    const response = await request(createApp()).post(`/api/avaliacao/${VALID_TOKEN}/cancelar-agendamento`);
+
+    expect(response.status).toBe(409);
+  });
+
+  it('POST /:token/cancelar-agendamento rejeita token malformado antes de chamar o service', async () => {
+    const response = await request(createApp()).post('/api/avaliacao/token-invalido/cancelar-agendamento');
+
+    expect(response.status).toBe(400);
+    expect(cancelarAgendamentoClienteMock).not.toHaveBeenCalled();
   });
 });

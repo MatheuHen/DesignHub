@@ -3,9 +3,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AvaliacaoPreview } from './api';
 
-const { getAvaliacaoPreviewMock, submitAvaliacaoMock } = vi.hoisted(() => ({
+const { getAvaliacaoPreviewMock, submitAvaliacaoMock, cancelarAgendamentoClienteMock } = vi.hoisted(() => ({
   getAvaliacaoPreviewMock: vi.fn(),
   submitAvaliacaoMock: vi.fn(),
+  cancelarAgendamentoClienteMock: vi.fn(),
 }));
 
 vi.mock('./api', async (importOriginal) => {
@@ -14,6 +15,7 @@ vi.mock('./api', async (importOriginal) => {
     ...actual,
     getAvaliacaoPreview: getAvaliacaoPreviewMock,
     submitAvaliacao: submitAvaliacaoMock,
+    cancelarAgendamentoCliente: cancelarAgendamentoClienteMock,
   };
 });
 
@@ -45,6 +47,7 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
   beforeEach(() => {
     getAvaliacaoPreviewMock.mockReset();
     submitAvaliacaoMock.mockReset();
+    cancelarAgendamentoClienteMock.mockReset();
   });
 
   it('mostra a arte e as três ações quando o link é válido', async () => {
@@ -95,6 +98,64 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
     expect(screen.getByRole('link', { name: 'Ver arte' })).toHaveAttribute('href', 'https://exemplo.supabase.co/v1');
     expect(screen.getByText(/Solicitação criada a partir do atendimento pelo WhatsApp/)).toBeInTheDocument();
     expect(screen.queryByText('Este link de avaliação já foi utilizado.')).not.toBeInTheDocument();
+  });
+
+  const usedPreviewComAgendamento: AvaliacaoPreview = {
+    state: 'used',
+    tracking: {
+      status: 'Agendado',
+      tema: 'Post promocional',
+      versoes: [],
+      historico: [],
+      agendamento: { dataPublicacao: '2026-09-01', horario: '14:00:00', status: 'Agendado' },
+    },
+  };
+
+  it('item 8.4 (correções 13/09/2026): exige confirmação antes de cancelar o agendamento', async () => {
+    getAvaliacaoPreviewMock.mockResolvedValue(usedPreviewComAgendamento);
+    cancelarAgendamentoClienteMock.mockResolvedValue({ idSolicitacao: 10 });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancelar agendamento' }));
+
+    expect(cancelarAgendamentoClienteMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar cancelamento do agendamento' }));
+
+    await waitFor(() => expect(cancelarAgendamentoClienteMock).toHaveBeenCalledWith(TOKEN));
+  });
+
+  it('item 8.4: mostra sucesso e recarrega o acompanhamento após cancelar o agendamento', async () => {
+    getAvaliacaoPreviewMock.mockResolvedValueOnce(usedPreviewComAgendamento).mockResolvedValue({
+      ...usedPreviewComAgendamento,
+      tracking: { ...usedPreviewComAgendamento.tracking!, status: 'Aprovado', agendamento: null },
+    });
+    cancelarAgendamentoClienteMock.mockResolvedValue({ idSolicitacao: 10 });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancelar agendamento' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar cancelamento do agendamento' }));
+
+    expect(await screen.findByText('Agendamento cancelado com sucesso.')).toBeInTheDocument();
+  });
+
+  it('item 8.4: mostra o erro do backend quando faltam menos de 3h (RN31), sem cancelar', async () => {
+    getAvaliacaoPreviewMock.mockResolvedValue(usedPreviewComAgendamento);
+    cancelarAgendamentoClienteMock.mockRejectedValue(
+      new (await import('./api')).PublicApiError(
+        409,
+        'CONFLICT',
+        'Cancelamento não permitido: faltam menos de 3 horas para a publicação.',
+      ),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancelar agendamento' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar cancelamento do agendamento' }));
+
+    expect(
+      await screen.findByText('Cancelamento não permitido: faltam menos de 3 horas para a publicação.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Agendamento cancelado com sucesso.')).not.toBeInTheDocument();
   });
 
   it('aprova a arte sem desejar agendamento (RN22)', async () => {

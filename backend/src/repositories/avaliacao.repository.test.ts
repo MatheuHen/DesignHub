@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ConflictError, ExpiredLinkError, NotFoundError } from '../lib/errors.js';
 import {
+  cancelAgendamentoCliente,
   generateAvaliacaoLinkToken,
   getAvaliacaoLinkState,
   getVersaoArtePreview,
@@ -230,5 +231,22 @@ describe('submitAvaliacao (RF009/RF010 — RPC atômica)', () => {
         imagemReferenciaPath: undefined,
       }),
     ).resolves.toEqual({ idSolicitacao: 10, statusNovo: 'Aprovado', numeroVersao: 2 });
+  });
+});
+
+describe('cancelAgendamentoCliente (RF012/RF013/item 8.4 — correções 13/09/2026)', () => {
+  it('mapeia P0002 (agendamento não encontrado/não mais ativo) para NotFoundError', async () => {
+    const client = rpcClient({ data: null, error: { message: 'não encontrado', code: 'P0002' } });
+    await expect(cancelAgendamentoCliente(client, 10)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('mapeia P0005 (janela de 3h) para ConflictError', async () => {
+    const client = rpcClient({ data: null, error: { message: 'janela de 3h', code: 'P0005' } });
+    await expect(cancelAgendamentoCliente(client, 10)).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('resolve sem erro quando a RPC confirma o cancelamento', async () => {
+    const client = rpcClient({ data: null, error: null });
+    await expect(cancelAgendamentoCliente(client, 10)).resolves.toBeUndefined();
   });
 });

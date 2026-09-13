@@ -18,7 +18,7 @@ function createSingleFileUpload(fieldName: string) {
     limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
     fileFilter: (_request, file, callback) => {
       if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-        callback(new ValidationError('Formato de arquivo não suportado. Envie PDF, JPG ou PNG.'));
+        callback(new ValidationError('Formato não suportado. Envie PDF, JPG ou PNG.'));
         return;
       }
       callback(null, true);

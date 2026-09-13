@@ -270,12 +270,17 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     });
 
     renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: 'Gerar e enviar link de avaliação' }));
+    // item 6 (correções 13/09/2026): status de notificação, separado do status de negócio.
+    expect(await screen.findByText('Link de avaliação ainda não enviado.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gerar e enviar link de avaliação' }));
 
     await waitFor(() => {
       expect(gerarLinkAvaliacaoMock).toHaveBeenCalledWith(10);
     });
     expect(await screen.findByText(/Cliente notificado via WhatsApp com sucesso/)).toBeInTheDocument();
+    expect(screen.getByText('Link enviado ao cliente.')).toBeInTheDocument();
+    expect(screen.queryByText('Link de avaliação ainda não enviado.')).not.toBeInTheDocument();
   });
 
   it('não mascara falha de notificação WhatsApp ao gerar o link', async () => {
@@ -338,6 +343,11 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       await screen.findByText(/conta do Instagram deste cliente não está conectada/),
     ).toBeInTheDocument();
     expect(getClienteInstagramStatusMock).toHaveBeenCalledWith(sampleDetail.solicitacao.idCliente);
+    // item 7.3 (correções 13/09/2026): orienta a conectar OU registrar manualmente, nunca finge automação.
+    expect(screen.getByRole('link', { name: 'Conecte o Instagram do cliente' })).toHaveAttribute(
+      'href',
+      '/designer/clientes',
+    );
   });
 
   it('não avisa sobre Instagram quando o cliente já está conectado', async () => {
@@ -369,7 +379,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
 
     fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2026-09-01' } });
     fireEvent.change(screen.getByLabelText('Horário'), { target: { value: '10:00' } });
-    fireEvent.change(screen.getByLabelText('Legenda'), { target: { value: 'Nova arte no ar!' } });
+    fireEvent.change(screen.getByLabelText('Legenda (opcional)'), { target: { value: 'Nova arte no ar!' } });
     fireEvent.click(screen.getByRole('button', { name: 'Agendar publicação' }));
 
     await waitFor(() => {
@@ -380,6 +390,32 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       });
     });
     expect(await screen.findByText('Publicação agendada com sucesso.')).toBeInTheDocument();
+  });
+
+  it('item 8.1 (correções 13/09/2026): cria o agendamento sem preencher a legenda (opcional)', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Aprovado' },
+    });
+    createAgendamentoMock.mockResolvedValue({ idAgendamento: 1 });
+
+    renderPage();
+    await screen.findByRole('form', { name: 'Agendar publicação' });
+
+    const legendaInput = screen.getByLabelText('Legenda (opcional)');
+    expect(legendaInput).not.toBeRequired();
+
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('Horário'), { target: { value: '10:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Agendar publicação' }));
+
+    await waitFor(() => {
+      expect(createAgendamentoMock).toHaveBeenCalledWith(10, {
+        dataPublicacao: '2026-09-01',
+        horario: '10:00',
+        legenda: '',
+      });
+    });
   });
 
   it('mostra os dados do agendamento ativo e permite editar quando o status é "Agendado"', async () => {

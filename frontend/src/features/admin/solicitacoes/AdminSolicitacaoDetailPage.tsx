@@ -3,7 +3,11 @@ import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import { statusSlug } from '../../../lib/statusStyle';
-import { getSolicitacaoDetail, type SolicitacaoDetailResult } from '../../designer/solicitacoes/api';
+import {
+  getSolicitacaoDetail,
+  getVersaoArteDownloadUrl,
+  type SolicitacaoDetailResult,
+} from '../../designer/solicitacoes/api';
 
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString('pt-BR');
@@ -23,6 +27,24 @@ export function AdminSolicitacaoDetailPage() {
   const [data, setData] = useState<SolicitacaoDetailResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingVersaoId, setDownloadingVersaoId] = useState<number | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  function handleDownload(idVersao: number, inline: boolean) {
+    setDownloadingVersaoId(idVersao);
+    setDownloadError(null);
+
+    getVersaoArteDownloadUrl(id, idVersao, inline)
+      .then(({ url }) => {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      })
+      .catch((downloadErr: unknown) => {
+        setDownloadError(
+          downloadErr instanceof ApiError ? downloadErr.message : 'Não foi possível gerar o link de download.',
+        );
+      })
+      .finally(() => setDownloadingVersaoId(null));
+  }
 
   useEffect(() => {
     setLoading(true);
@@ -89,10 +111,31 @@ export function AdminSolicitacaoDetailPage() {
               <ul>
                 {data.versoes.map((versao) => (
                   <li key={versao.id_versao}>
-                    V{versao.numero_versao} — {versao.formato} — {formatDateTime(versao.data_envio)}
+                    V{versao.numero_versao} — {versao.formato} — {formatDateTime(versao.data_envio)}{' '}
+                    <span className="designer-actions">
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(versao.id_versao, true)}
+                        disabled={downloadingVersaoId === versao.id_versao}
+                      >
+                        {downloadingVersaoId === versao.id_versao ? 'Gerando link…' : 'Visualizar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(versao.id_versao, false)}
+                        disabled={downloadingVersaoId === versao.id_versao}
+                      >
+                        {downloadingVersaoId === versao.id_versao ? 'Gerando link…' : 'Baixar'}
+                      </button>
+                    </span>
                   </li>
                 ))}
               </ul>
+            )}
+            {downloadError && (
+              <p role="alert" className="auth-error">
+                {downloadError}
+              </p>
             )}
           </section>
 

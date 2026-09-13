@@ -11,6 +11,7 @@ import {
 } from '../lib/fileSignature.js';
 import { generateOpaqueToken, hashOpaqueToken } from '../lib/tokens.js';
 import {
+  cancelAgendamentoCliente,
   generateAvaliacaoLinkToken,
   getAvaliacaoLinkState,
   getTrackingAgendamento,
@@ -285,7 +286,7 @@ export async function submitAvaliacaoDecisao(
 
     const formato = detectVersaoArteFormato(input.referenciaBuffer);
     if (!formato) {
-      throw new ValidationError('Formato de arquivo de referência não suportado. Envie PDF, JPG ou PNG.');
+      throw new ValidationError('Formato não suportado. Envie PDF, JPG ou PNG.');
     }
 
     imagemReferenciaPath = `solicitacoes/${versao.idSolicitacao}/referencias/${randomUUID()}.${EXTENSION_BY_FORMATO[formato]}`;
@@ -315,4 +316,35 @@ export async function submitAvaliacaoDecisao(
     }
     throw error;
   }
+}
+
+/**
+ * RF012/RF013/item 8.4 (correções 13/09/2026): cliente cancela o
+ * agendamento da própria solicitação pelo mesmo link de acompanhamento
+ * (RN13/RN14) usado após a avaliação — o token já pode estar "usado" (a
+ * decisão de aprovar já foi tomada antes de existir agendamento), então
+ * aqui aceitamos `valid` e `used`, rejeitando apenas `invalid`/`expired`.
+ * `idSolicitacao` é sempre resolvido a partir do próprio token, nunca
+ * recebido do cliente (seção 12.1 — impede IDOR).
+ */
+export async function cancelarAgendamentoCliente(rawToken: string): Promise<{ idSolicitacao: number }> {
+  const adminClient = getSupabaseAdminClient();
+  const hash = hashOpaqueToken(rawToken);
+
+  const linkState = await getAvaliacaoLinkState(adminClient, hash);
+  if (linkState.state === 'expired') throw new ExpiredLinkError('Link de avaliação expirado.');
+  if (linkState.state === 'invalid' || linkState.idVersao === null) {
+    throw new NotFoundError('Link de avaliação inválido.');
+  }
+
+  const solicitacao = await getTrackingSolicitacaoByVersao(adminClient, linkState.idVersao);
+  if (!solicitacao) throw new NotFoundError('Solicitação não encontrada.');
+  if (solicitacao.status !== 'Agendado') {
+    throw new ConflictError(
+      `Não há agendamento ativo para cancelar (status atual: ${solicitacao.status}).`,
+    );
+  }
+
+  await cancelAgendamentoCliente(adminClient, solicitacao.idSolicitacao);
+  return { idSolicitacao: solicitacao.idSolicitacao };
 }

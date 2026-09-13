@@ -114,3 +114,9 @@ export async function submitAvaliacao(
   const response = await fetch(`${apiUrl}/api/avaliacao/${token}`, { method: 'POST', body: formData });
   return parseOrThrow<SubmitAvaliacaoResult>(response);
 }
+
+/** RF012/RF013/item 8.4: cliente cancela o agendamento da própria solicitação pelo mesmo link. */
+export async function cancelarAgendamentoCliente(token: string): Promise<{ idSolicitacao: number }> {
+  const response = await fetch(`${apiUrl}/api/avaliacao/${token}/cancelar-agendamento`, { method: 'POST' });
+  return parseOrThrow<{ idSolicitacao: number }>(response);
+}

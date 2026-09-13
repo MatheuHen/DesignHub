@@ -48,7 +48,7 @@ export async function uploadVersaoArte(
 ): Promise<VersaoArteUploadResult> {
   const formato = detectVersaoArteFormato(input.buffer);
   if (!formato) {
-    throw new ValidationError('Formato de arquivo não suportado. Envie PDF, JPG ou PNG.');
+    throw new ValidationError('Formato não suportado. Envie PDF, JPG ou PNG.');
   }
 
   const solicitacao = await getSolicitacaoCore(userClient, idSolicitacao);
@@ -106,10 +106,16 @@ export interface VersaoArteDownloadUrl {
 }
 
 /**
- * RF008 + seção 12.5: URL assinada de curta duração, só para o designer dono
- * da solicitação. `inline=true` gera `Content-Disposition: inline` (botão
+ * RF008 + seção 12.5: URL assinada de curta duração para o designer dono da
+ * solicitação. `inline=true` gera `Content-Disposition: inline` (botão
  * "Visualizar" — RF008 exige "visualização e download" da versão), mantendo
  * `forceDownload: true` como padrão para o botão "Baixar".
+ *
+ * Item 5.6 (correções 13/09/2026): o Administrador também pode visualizar e
+ * baixar versões de qualquer solicitação (mesmo padrão `allowAnyDesigner` já
+ * usado em `getSolicitacaoDetail`/RF016) — a RLS já autoriza a leitura via
+ * `is_admin()`; aqui só evitamos que outro designer (não dono, não admin)
+ * acesse o arquivo.
  */
 export async function getVersaoArteDownloadUrl(
   userClient: SupabaseClient,
@@ -117,9 +123,10 @@ export async function getVersaoArteDownloadUrl(
   idVersao: number,
   callerId: string,
   inline = false,
+  options?: { allowAnyDesigner?: boolean },
 ): Promise<VersaoArteDownloadUrl> {
   const solicitacao = await getSolicitacaoCore(userClient, idSolicitacao);
-  if (solicitacao.idDesigner !== callerId) {
+  if (!options?.allowAnyDesigner && solicitacao.idDesigner !== callerId) {
     throw new NotFoundError('Solicitação não encontrada.');
   }
 

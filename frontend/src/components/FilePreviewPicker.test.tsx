@@ -18,6 +18,8 @@ describe('FilePreviewPicker (item 1 — preview antes do envio)', () => {
     const preview = screen.getByAltText('Pré-visualização de arte.png');
     expect(preview).toBeInTheDocument();
     expect(preview.tagName).toBe('IMG');
+    // item 5.2 (correções 13/09/2026): texto de confirmação padronizado.
+    expect(screen.getByText('Arquivo selecionado: arte.png')).toBeInTheDocument();
   });
 
   it('identifica claramente um PDF selecionado, sem mostrar só o nome cru como imagem', () => {
@@ -26,7 +28,7 @@ describe('FilePreviewPicker (item 1 — preview antes do envio)', () => {
     const pdf = new File(['%PDF-1.4'], 'referencia.pdf', { type: 'application/pdf' });
     fireEvent.change(screen.getByLabelText('Arquivo'), { target: { files: [pdf] } });
 
-    expect(screen.getByText('Arquivo PDF selecionado: referencia.pdf')).toBeInTheDocument();
+    expect(screen.getByText('Arquivo selecionado: referencia.pdf')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Visualizar' })).toBeInTheDocument();
   });
 
