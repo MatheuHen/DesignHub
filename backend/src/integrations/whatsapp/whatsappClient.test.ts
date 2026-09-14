@@ -7,11 +7,13 @@ const { envMock, whatsappConfigStatusMock } = vi.hoisted(() => ({
     WHATSAPP_PHONE_NUMBER_ID: 'phone-teste',
     WHATSAPP_TEMPLATE_NAME: 'inicio_atendimento',
     WHATSAPP_TEMPLATE_LANGUAGE: 'pt_BR',
+    WHATSAPP_TEMPLATE_NAME_PUBLICACAO: 'arte_publicada',
   },
   whatsappConfigStatusMock: {
     hasSendingClient: true,
     hasWebhookSecurity: true,
     hasTemplateConfigured: true,
+    hasPublicacaoTemplateConfigured: true,
   },
 }));
 
@@ -23,7 +25,9 @@ vi.mock('../../config/env.js', () => ({
 const {
   sendTextMessage,
   sendTemplateMessage,
+  sendPublicacaoTemplateMessage,
   downloadMediaFromWhatsApp,
+  WhatsAppReengagementRequiredError,
 } = await import('./whatsappClient.js');
 
 describe('whatsappClient (RF004/seção 2.1, items 14/20)', () => {
@@ -34,6 +38,7 @@ describe('whatsappClient (RF004/seção 2.1, items 14/20)', () => {
     vi.stubGlobal('fetch', fetchMock);
     whatsappConfigStatusMock.hasSendingClient = true;
     whatsappConfigStatusMock.hasTemplateConfigured = true;
+    whatsappConfigStatusMock.hasPublicacaoTemplateConfigured = true;
   });
 
   afterEach(() => {
@@ -62,6 +67,31 @@ describe('whatsappClient (RF004/seção 2.1, items 14/20)', () => {
       expect(url).toContain('/phone-teste/messages');
       const body = JSON.parse(init.body as string) as { type: string };
       expect(body.type).toBe('text');
+    });
+
+    it('item 8 (revisão aviso publicação): lança WhatsAppReengagementRequiredError quando a Meta rejeita por janela de 24h fechada (código 131047)', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { code: 131047, message: 'Re-engagement message' } }),
+          { status: 400 },
+        ),
+      );
+
+      await expect(sendTextMessage('5511999999999', 'olá')).rejects.toBeInstanceOf(
+        WhatsAppReengagementRequiredError,
+      );
+    });
+
+    it('lança erro genérico (não WhatsAppReengagementRequiredError) para outros erros da Meta', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ error: { code: 131026, message: 'Message undeliverable' } }), {
+          status: 400,
+        }),
+      );
+
+      await expect(sendTextMessage('5511999999999', 'olá')).rejects.not.toBeInstanceOf(
+        WhatsAppReengagementRequiredError,
+      );
     });
   });
 
@@ -93,6 +123,36 @@ describe('whatsappClient (RF004/seção 2.1, items 14/20)', () => {
       expect(body.template.language.code).toBe('pt_BR');
       expect(body.template.components).toEqual([
         { type: 'body', parameters: [{ type: 'text', text: 'Podemos começar?' }] },
+      ]);
+    });
+  });
+
+  describe('sendPublicacaoTemplateMessage (item 8/9.2/9.4 — revisão aviso publicação)', () => {
+    it('lança BlockedExternalCredentialError quando WHATSAPP_TEMPLATE_NAME_PUBLICACAO não está configurado (BLOCKED_EXTERNAL)', async () => {
+      whatsappConfigStatusMock.hasPublicacaoTemplateConfigured = false;
+
+      await expect(sendPublicacaoTemplateMessage('5511999999999', ['a arte X'])).rejects.toBeInstanceOf(
+        BlockedExternalCredentialError,
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('envia type:template com o template dedicado de publicação, distinto do template RF004', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ messages: [{ id: 'wamid.789' }] }), { status: 200 }),
+      );
+
+      const result = await sendPublicacaoTemplateMessage('5511999999999', ['a arte X (versão 2)']);
+
+      expect(result).toEqual({ wamid: 'wamid.789' });
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as {
+        template: { name: string; components?: unknown };
+      };
+      expect(body.template.name).toBe('arte_publicada');
+      expect(body.template.name).not.toBe('inicio_atendimento');
+      expect(body.template.components).toEqual([
+        { type: 'body', parameters: [{ type: 'text', text: 'a arte X (versão 2)' }] },
       ]);
     });
   });

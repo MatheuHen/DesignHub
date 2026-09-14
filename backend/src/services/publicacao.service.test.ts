@@ -16,6 +16,8 @@ const {
   getConexaoAtivaMock,
   findClienteByIdMock,
   sendTextMessageMock,
+  sendPublicacaoTemplateMessageMock,
+  whatsappConfigStatusMock,
   getPublicacaoBySolicitacaoMock,
   setPublicacaoComprovanteMock,
   uploadArquivoToStorageMock,
@@ -35,6 +37,8 @@ const {
   getConexaoAtivaMock: vi.fn(),
   findClienteByIdMock: vi.fn(),
   sendTextMessageMock: vi.fn(),
+  sendPublicacaoTemplateMessageMock: vi.fn(),
+  whatsappConfigStatusMock: { hasPublicacaoTemplateConfigured: true },
   getPublicacaoBySolicitacaoMock: vi.fn(),
   setPublicacaoComprovanteMock: vi.fn(),
   uploadArquivoToStorageMock: vi.fn(),
@@ -42,8 +46,16 @@ const {
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
+vi.mock('../config/env.js', () => ({ whatsappConfigStatus: whatsappConfigStatusMock }));
 vi.mock('../integrations/instagram/instagramClient.js', () => ({ publishImage: publishImageMock }));
-vi.mock('../integrations/whatsapp/whatsappClient.js', () => ({ sendTextMessage: sendTextMessageMock }));
+vi.mock('../integrations/whatsapp/whatsappClient.js', () => {
+  class WhatsAppReengagementRequiredError extends Error {}
+  return {
+    sendTextMessage: sendTextMessageMock,
+    sendPublicacaoTemplateMessage: sendPublicacaoTemplateMessageMock,
+    WhatsAppReengagementRequiredError,
+  };
+});
 vi.mock('../repositories/agendamento.repository.js', () => ({
   getActiveAgendamentoBySolicitacao: getActiveAgendamentoBySolicitacaoMock,
 }));
@@ -80,6 +92,8 @@ const {
   getComprovanteDownloadUrl,
 } = await import('./publicacao.service.js');
 
+const { WhatsAppReengagementRequiredError } = await import('../integrations/whatsapp/whatsappClient.js');
+
 const AGENDAMENTO_VENCIDO = { idAgendamento: 1, idSolicitacao: 10, legenda: 'Legenda' };
 
 const CONEXAO_ATIVA = {
@@ -102,6 +116,9 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
     getSolicitacaoDetailRepoMock.mockReset();
     findClienteByIdMock.mockReset();
     sendTextMessageMock.mockReset();
+    sendPublicacaoTemplateMessageMock.mockReset();
+    getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue(null);
+    whatsappConfigStatusMock.hasPublicacaoTemplateConfigured = true;
   });
 
   it('publica automaticamente quando o CLIENTE tem conexão Instagram válida e o formato é elegível (JPG/PNG)', async () => {
@@ -191,6 +208,110 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
 
     expect(result.publicadosAutomaticamente).toBe(1);
     expect(registerPublicacaoSucessoMock).toHaveBeenCalledOnce();
+  });
+
+  it('item 5/7 (revisão aviso publicação): inclui o permalink na mensagem quando disponível, sem impedir o envio quando ausente', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      numeroVersao: 3,
+      formato: 'PNG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.png',
+    });
+    publishImageMock.mockResolvedValue({ mediaId: 'ig-1', permalink: 'https://www.instagram.com/p/abc123/' });
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idCliente: 5, tema: 'Post promocional' });
+    findClienteByIdMock.mockResolvedValue({ id: 5, whatsapp: '5511999999999' });
+    getPublicacaoBySolicitacaoMock.mockResolvedValue({
+      permalink: 'https://www.instagram.com/p/abc123/',
+    });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid.1' });
+
+    await processarAgendamentosVencidos();
+
+    const [, message] = sendTextMessageMock.mock.calls[0] as [string, string];
+    expect(message).toContain('https://www.instagram.com/p/abc123/');
+  });
+
+  it('item 8 (revisão): cai para o template dedicado quando a Meta rejeita por janela de 24h fechada e o template está configurado', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      numeroVersao: 3,
+      formato: 'PNG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.png',
+    });
+    publishImageMock.mockResolvedValue({ mediaId: 'ig-1', permalink: null });
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idCliente: 5, tema: 'Post promocional' });
+    findClienteByIdMock.mockResolvedValue({ id: 5, whatsapp: '5511999999999' });
+    sendTextMessageMock.mockRejectedValue(new WhatsAppReengagementRequiredError('fora da janela'));
+    sendPublicacaoTemplateMessageMock.mockResolvedValue({ wamid: 'wamid.template.1' });
+    whatsappConfigStatusMock.hasPublicacaoTemplateConfigured = true;
+
+    const result = await processarAgendamentosVencidos();
+
+    expect(result.publicadosAutomaticamente).toBe(1);
+    expect(sendPublicacaoTemplateMessageMock).toHaveBeenCalledOnce();
+    const [toNumber] = sendPublicacaoTemplateMessageMock.mock.calls[0] as [string, string[]];
+    expect(toNumber).toBe('5511999999999');
+  });
+
+  it('item 8 (revisão): marca BLOCKED_EXTERNAL_WHATSAPP_PUBLICACAO sem enviar mensagem quando a janela está fechada e não há template aprovado — publicação permanece válida', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      numeroVersao: 3,
+      formato: 'PNG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.png',
+    });
+    publishImageMock.mockResolvedValue({ mediaId: 'ig-1', permalink: null });
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idCliente: 5, tema: 'Post promocional' });
+    findClienteByIdMock.mockResolvedValue({ id: 5, whatsapp: '5511999999999' });
+    sendTextMessageMock.mockRejectedValue(new WhatsAppReengagementRequiredError('fora da janela'));
+    whatsappConfigStatusMock.hasPublicacaoTemplateConfigured = false;
+
+    const result = await processarAgendamentosVencidos();
+
+    expect(result.publicadosAutomaticamente).toBe(1);
+    expect(registerPublicacaoSucessoMock).toHaveBeenCalledOnce();
+    expect(sendPublicacaoTemplateMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('cliente sem WhatsApp válido/cadastrado: não tenta enviar nem quebra o fluxo de publicação', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      numeroVersao: 3,
+      formato: 'PNG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.png',
+    });
+    publishImageMock.mockResolvedValue({ mediaId: 'ig-1', permalink: null });
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idCliente: 5, tema: 'Post promocional' });
+    findClienteByIdMock.mockResolvedValue(null);
+
+    const result = await processarAgendamentosVencidos();
+
+    expect(result.publicadosAutomaticamente).toBe(1);
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+    expect(sendPublicacaoTemplateMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('Meta indisponível (erro genérico, não janela de 24h): não tenta o template dedicado, só registra falha de notificação', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      numeroVersao: 3,
+      formato: 'PNG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.png',
+    });
+    publishImageMock.mockResolvedValue({ mediaId: 'ig-1', permalink: null });
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idCliente: 5, tema: 'Post promocional' });
+    findClienteByIdMock.mockResolvedValue({ id: 5, whatsapp: '5511999999999' });
+    sendTextMessageMock.mockRejectedValue(new Error('Timeout ao chamar a WhatsApp Cloud API.'));
+
+    const result = await processarAgendamentosVencidos();
+
+    expect(result.publicadosAutomaticamente).toBe(1);
+    expect(sendPublicacaoTemplateMessageMock).not.toHaveBeenCalled();
   });
 
   it('deixa pendente para publicação manual quando o CLIENTE não tem conexão Instagram (nunca tenta outra conta)', async () => {
@@ -297,6 +418,8 @@ describe('registrarPublicacaoManual (RF014 — fallback manual)', () => {
     getVersaoArteAtualDaSolicitacaoMock.mockReset();
     findClienteByIdMock.mockReset();
     sendTextMessageMock.mockReset();
+    sendPublicacaoTemplateMessageMock.mockReset();
+    getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue(null);
   });
 
   it('rejeita quando o callerId não é o dono da solicitação', async () => {
@@ -361,6 +484,17 @@ describe('registrarPublicacaoManual (RF014 — fallback manual)', () => {
     const [, message] = sendTextMessageMock.mock.calls[0] as [string, string];
     expect(message).toContain('Post promocional');
     expect(message).toContain('versão 2');
+  });
+
+  it('publicação já notificada: uma 2ª tentativa de publicação manual da mesma solicitação é rejeitada antes de notificar de novo (idempotência)', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idDesigner: 'designer-1', status: 'Publicado' });
+
+    await expect(
+      registrarPublicacaoManual({} as never, 10, 'designer-1'),
+    ).rejects.toBeInstanceOf(ConflictError);
+    expect(registerPublicacaoSucessoMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+    expect(sendPublicacaoTemplateMessageMock).not.toHaveBeenCalled();
   });
 });
 

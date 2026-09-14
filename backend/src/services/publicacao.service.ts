@@ -1,8 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { whatsappConfigStatus } from '../config/env.js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import { publishImage } from '../integrations/instagram/instagramClient.js';
-import { sendTextMessage } from '../integrations/whatsapp/whatsappClient.js';
+import {
+  sendPublicacaoTemplateMessage,
+  sendTextMessage,
+  WhatsAppReengagementRequiredError,
+} from '../integrations/whatsapp/whatsappClient.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import {
   CONTENT_TYPE_BY_FORMATO,
@@ -81,14 +86,25 @@ export async function processarAgendamentosVencidos(): Promise<ProcessarAgendame
 }
 
 /**
- * Item 9.2/9.4 (correções 13/09/2026): WhatsApp "ARTE PUBLICADA!" só depois
- * da publicação já confirmada (chamado sempre DEPOIS de
+ * Item 9.2/9.4 (revisão — aviso "arte publicada"): WhatsApp só depois da
+ * publicação já confirmada (chamado sempre DEPOIS de
  * `registerPublicacaoSucesso` já ter retornado sem erro) — uma falha aqui
  * nunca desfaz nem reprocessa a publicação (melhor esforço, mesmo padrão de
  * `sendTextMessageBestEffort` do atendimento). Idempotente por construção:
  * `register_publicacao_sucesso` só é executada com sucesso uma vez por
- * agendamento (trava de status), então este envio também só dispara uma
- * vez. Mensagem identifica a arte por tema/versão, nunca por ID técnico.
+ * agendamento (trava de status) e `registrarPublicacaoManual` rejeita
+ * reprocessar uma solicitação que não está mais `Agendado`
+ * (`ConflictError`) — então este envio também só dispara uma vez por
+ * publicação. Mensagem identifica a arte por tema/versão e inclui o
+ * permalink quando disponível, nunca ID técnico.
+ *
+ * A WhatsApp Cloud API só aceita texto livre dentro da janela de 24h desde a
+ * última mensagem do cliente; fora dela, exige um template aprovado
+ * (item 8). Tentamos texto primeiro (cobre o caso comum de janela aberta);
+ * se a Meta rejeitar especificamente por isso, caímos para um template
+ * dedicado quando aprovado/configurado, ou marcamos o canal como
+ * `BLOCKED_EXTERNAL_WHATSAPP_PUBLICACAO` sem nunca inventar um template não
+ * aprovado nem afetar o registro da publicação.
  */
 async function notificarClientePublicacaoBestEffort(
   adminClient: SupabaseClient,
@@ -104,7 +120,25 @@ async function notificarClientePublicacaoBestEffort(
     const versao = await getVersaoArteAtualDaSolicitacao(adminClient, idSolicitacao);
     const versaoLabel = versao ? ` (versão ${versao.numeroVersao})` : '';
     const artLabel = solicitacao.tema ? `a arte "${solicitacao.tema}"${versaoLabel}` : `sua arte${versaoLabel}`;
-    await sendTextMessage(cliente.whatsapp, `ARTE PUBLICADA! Boas notícias: ${artLabel} já está no ar.`);
+
+    const publicacao = await getPublicacaoBySolicitacao(adminClient, idSolicitacao);
+    const permalinkLine = publicacao?.permalink ? `\n\nVeja aqui: ${publicacao.permalink}` : '';
+    const message = `ARTE PUBLICADA! Boas notícias: ${artLabel} já está no ar.${permalinkLine}`;
+
+    try {
+      await sendTextMessage(cliente.whatsapp, message);
+    } catch (sendError) {
+      if (!(sendError instanceof WhatsAppReengagementRequiredError)) throw sendError;
+
+      if (!whatsappConfigStatus.hasPublicacaoTemplateConfigured) {
+        console.warn(
+          '[designhub:publicacao] BLOCKED_EXTERNAL_WHATSAPP_PUBLICACAO: janela de 24h fechada e nenhum template aprovado configurado (WHATSAPP_TEMPLATE_NAME_PUBLICACAO) — publicação permanece válida, aviso não enviado',
+          { idSolicitacao },
+        );
+        return;
+      }
+      await sendPublicacaoTemplateMessage(cliente.whatsapp, [artLabel]);
+    }
   } catch (error) {
     console.error('[designhub:publicacao] falha ao notificar cliente via WhatsApp (publicação)', {
       idSolicitacao,

@@ -14,6 +14,31 @@ interface WhatsAppSendResponse {
   messages?: Array<{ id: string }>;
 }
 
+/**
+ * WhatsApp — aviso "arte publicada" (revisão): a Meta rejeita mensagem de
+ * texto livre fora da janela de 24h desde a última mensagem do cliente com o
+ * código de erro 131047 ("re-engagement message"). Distinguir esse caso do
+ * erro genérico permite ao chamador cair para um template aprovado (quando
+ * existir) em vez de tratar como falha indistinta.
+ */
+export class WhatsAppReengagementRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WhatsAppReengagementRequiredError';
+  }
+}
+
+const META_REENGAGEMENT_ERROR_CODE = 131047;
+
+function extractMetaErrorCode(rawBody: string): number | null {
+  try {
+    const parsed = JSON.parse(rawBody) as { error?: { code?: number } };
+    return typeof parsed.error?.code === 'number' ? parsed.error.code : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -52,6 +77,11 @@ async function postToGraphMessages(body: Record<string, unknown>): Promise<Whats
 
   if (!response.ok) {
     const errorBody = await response.text();
+    if (extractMetaErrorCode(errorBody) === META_REENGAGEMENT_ERROR_CODE) {
+      throw new WhatsAppReengagementRequiredError(
+        'Fora da janela de 24h de atendimento — a Meta exige um template aprovado para reabrir a conversa.',
+      );
+    }
     throw new Error(`Falha ao enviar mensagem WhatsApp (status ${response.status}): ${errorBody}`);
   }
 
@@ -120,6 +150,53 @@ export async function sendTemplateMessage(
     type: 'template',
     template: {
       name: env.WHATSAPP_TEMPLATE_NAME,
+      language: { code: env.WHATSAPP_TEMPLATE_LANGUAGE },
+      ...(bodyParams.length > 0
+        ? { components: [{ type: 'body', parameters: bodyParams.map((text) => ({ type: 'text', text })) }] }
+        : {}),
+    },
+  });
+
+  const wamid = data.messages?.[0]?.id;
+  if (!wamid) {
+    throw new Error('Resposta inesperada da WhatsApp Cloud API: sem id de mensagem.');
+  }
+  logOutboundMessage('template', wamid);
+  return { wamid };
+}
+
+/**
+ * WhatsApp — aviso "arte publicada" (revisão, item 8): mesmo mecanismo de
+ * `sendTemplateMessage`, mas com um template dedicado e distinto
+ * (`WHATSAPP_TEMPLATE_NAME_PUBLICACAO`) do template de abertura do
+ * questionário (RF004/item 20) — conteúdos diferentes exigem aprovação
+ * separada da Meta. Só é chamada quando `sendTextMessage` falha por estar
+ * fora da janela de 24h (`WhatsAppReengagementRequiredError`); nunca é o
+ * caminho padrão. Sem o template aprovado/configurado, o chamador deve
+ * tratar como canal bloqueado (`BLOCKED_EXTERNAL`) em vez de invocar esta
+ * função — nunca inventamos um template não aprovado.
+ */
+export async function sendPublicacaoTemplateMessage(
+  toPhoneNumber: string,
+  bodyParams: readonly string[] = [],
+): Promise<SendMessageResult> {
+  if (!whatsappConfigStatus.hasSendingClient) {
+    throw new BlockedExternalCredentialError(
+      'WHATSAPP_ACCESS_TOKEN/WHATSAPP_PHONE_NUMBER_ID ausentes — envio de mensagem indisponível até a credencial ser configurada.',
+    );
+  }
+  if (!whatsappConfigStatus.hasPublicacaoTemplateConfigured) {
+    throw new BlockedExternalCredentialError(
+      'WHATSAPP_TEMPLATE_NAME_PUBLICACAO ausente — nenhum template aprovado pela Meta configurado para o aviso de publicação fora da janela de 24h.',
+    );
+  }
+
+  const data = await postToGraphMessages({
+    messaging_product: 'whatsapp',
+    to: toPhoneNumber,
+    type: 'template',
+    template: {
+      name: env.WHATSAPP_TEMPLATE_NAME_PUBLICACAO,
       language: { code: env.WHATSAPP_TEMPLATE_LANGUAGE },
       ...(bodyParams.length > 0
         ? { components: [{ type: 'body', parameters: bodyParams.map((text) => ({ type: 'text', text })) }] }

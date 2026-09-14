@@ -46,6 +46,15 @@ const schema = z.object({
   WHATSAPP_TEMPLATE_NAME: z.string().min(1).optional(),
   WHATSAPP_TEMPLATE_LANGUAGE: z.string().min(1).default('pt_BR'),
   /**
+   * RF014/item 9.2/9.4 (revisão "aviso arte publicada"): template dedicado e
+   * distinto de `WHATSAPP_TEMPLATE_NAME` — a mensagem de publicação tem
+   * conteúdo diferente da abertura do questionário e exige aprovação própria
+   * da Meta. Sem ele, o aviso de publicação fora da janela de 24h fica
+   * `BLOCKED_EXTERNAL` (nunca reaproveita o template do RF004, que teria
+   * texto incorreto para este contexto).
+   */
+  WHATSAPP_TEMPLATE_NAME_PUBLICACAO: z.string().min(1).optional(),
+  /**
    * RF014/ADR 0005: credenciais do App Meta usadas só para o handshake OAuth
    * ("Instagram API with Instagram Login") que autoriza a conta de CADA
    * cliente individualmente — nunca para publicar diretamente. O token de
@@ -127,6 +136,8 @@ export const whatsappConfigStatus = {
   hasWebhookSecurity: Boolean(env.META_APP_SECRET && env.WHATSAPP_VERIFY_TOKEN),
   /** RF004/item 20: template aprovado necessário para abrir conversa (business-initiated). */
   hasTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME),
+  /** Item 9.2/9.4 (revisão): template dedicado do aviso "arte publicada", distinto do RF004. */
+  hasPublicacaoTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME_PUBLICACAO),
 } as const;
 
 export const instagramConfigStatus = {
