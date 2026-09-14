@@ -8,12 +8,14 @@ const { envMock, whatsappConfigStatusMock } = vi.hoisted(() => ({
     WHATSAPP_TEMPLATE_NAME: 'inicio_atendimento',
     WHATSAPP_TEMPLATE_LANGUAGE: 'pt_BR',
     WHATSAPP_TEMPLATE_NAME_PUBLICACAO: 'arte_publicada',
+    WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER: 'agendamento_cancelado_cliente',
   },
   whatsappConfigStatusMock: {
     hasSendingClient: true,
     hasWebhookSecurity: true,
     hasTemplateConfigured: true,
     hasPublicacaoTemplateConfigured: true,
+    hasAlertaDesignerTemplateConfigured: true,
   },
 }));
 
@@ -26,6 +28,7 @@ const {
   sendTextMessage,
   sendTemplateMessage,
   sendPublicacaoTemplateMessage,
+  sendAlertaDesignerTemplateMessage,
   downloadMediaFromWhatsApp,
   WhatsAppReengagementRequiredError,
 } = await import('./whatsappClient.js');
@@ -39,6 +42,7 @@ describe('whatsappClient (RF004/seção 2.1, items 14/20)', () => {
     whatsappConfigStatusMock.hasSendingClient = true;
     whatsappConfigStatusMock.hasTemplateConfigured = true;
     whatsappConfigStatusMock.hasPublicacaoTemplateConfigured = true;
+    whatsappConfigStatusMock.hasAlertaDesignerTemplateConfigured = true;
   });
 
   afterEach(() => {
@@ -153,6 +157,36 @@ describe('whatsappClient (RF004/seção 2.1, items 14/20)', () => {
       expect(body.template.name).not.toBe('inicio_atendimento');
       expect(body.template.components).toEqual([
         { type: 'body', parameters: [{ type: 'text', text: 'a arte X (versão 2)' }] },
+      ]);
+    });
+  });
+
+  describe('sendAlertaDesignerTemplateMessage (item 8.6 — alerta designer)', () => {
+    it('lança BlockedExternalCredentialError quando WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER não está configurado (BLOCKED_EXTERNAL)', async () => {
+      whatsappConfigStatusMock.hasAlertaDesignerTemplateConfigured = false;
+
+      await expect(
+        sendAlertaDesignerTemplateMessage('5511999999999', ['Maria Oliveira', 'Promoção']),
+      ).rejects.toBeInstanceOf(BlockedExternalCredentialError);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('envia type:template com o template dedicado do alerta ao designer, distinto dos outros dois', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ messages: [{ id: 'wamid.999' }] }), { status: 200 }),
+      );
+
+      const result = await sendAlertaDesignerTemplateMessage('5511999999999', ['Maria Oliveira', 'Promoção']);
+
+      expect(result).toEqual({ wamid: 'wamid.999' });
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as { template: { name: string; components?: unknown } };
+      expect(body.template.name).toBe('agendamento_cancelado_cliente');
+      expect(body.template.components).toEqual([
+        {
+          type: 'body',
+          parameters: [{ type: 'text', text: 'Maria Oliveira' }, { type: 'text', text: 'Promoção' }],
+        },
       ]);
     });
   });

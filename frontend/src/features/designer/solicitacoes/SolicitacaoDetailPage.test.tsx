@@ -19,6 +19,7 @@ const {
   getPublicacaoDetalheMock,
   uploadComprovantePublicacaoMock,
   getComprovanteDownloadUrlMock,
+  reenviarNotificacaoPublicacaoMock,
 } = vi.hoisted(() => ({
   getSolicitacaoDetailMock: vi.fn(),
   updateSolicitacaoMock: vi.fn(),
@@ -34,6 +35,7 @@ const {
   getPublicacaoDetalheMock: vi.fn(),
   uploadComprovantePublicacaoMock: vi.fn(),
   getComprovanteDownloadUrlMock: vi.fn(),
+  reenviarNotificacaoPublicacaoMock: vi.fn(),
 }));
 
 vi.mock('./api', async (importOriginal) => {
@@ -54,6 +56,7 @@ vi.mock('./api', async (importOriginal) => {
     getPublicacaoDetalhe: getPublicacaoDetalheMock,
     uploadComprovantePublicacao: uploadComprovantePublicacaoMock,
     getComprovanteDownloadUrl: getComprovanteDownloadUrlMock,
+    reenviarNotificacaoPublicacao: reenviarNotificacaoPublicacaoMock,
   };
 });
 
@@ -126,6 +129,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     getPublicacaoDetalheMock.mockReset();
     uploadComprovantePublicacaoMock.mockReset();
     getComprovanteDownloadUrlMock.mockReset();
+    reenviarNotificacaoPublicacaoMock.mockReset();
     getClienteInstagramStatusMock
       .mockReset()
       .mockResolvedValue({ conectado: true, conectadoEm: '2026-08-20T10:00:00Z', expiraEm: '2026-10-19T10:00:00Z' });
@@ -546,6 +550,29 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       'href',
       'https://www.instagram.com/p/abc123/',
     );
+  });
+
+  it('melhoria autorizada (item 10): permite reenviar o aviso ao cliente quando publicado', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
+    });
+    getPublicacaoDetalheMock.mockResolvedValue({
+      dataPublicada: '2026-09-01T14:00:00Z',
+      tipo: 'automatica',
+      permalink: null,
+      numeroVersao: 2,
+      temComprovante: false,
+    });
+    reenviarNotificacaoPublicacaoMock.mockResolvedValue(undefined);
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Reenviar aviso ao cliente' }));
+
+    await waitFor(() => {
+      expect(reenviarNotificacaoPublicacaoMock).toHaveBeenCalledWith(10);
+    });
+    expect(await screen.findByText(/Reenvio solicitado/)).toBeInTheDocument();
   });
 
   it('item 9.3: permite enviar o comprovante quando ainda não há um anexado', async () => {

@@ -212,6 +212,52 @@ export async function sendPublicacaoTemplateMessage(
   return { wamid };
 }
 
+/**
+ * Item 8.6: mesmo mecanismo de `sendPublicacaoTemplateMessage`, para o
+ * alerta ao designer quando o cliente cancela um agendamento pelo link de
+ * avaliação (RF012/RF013) — template dedicado e distinto
+ * (`WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER`), business-initiated. Só é
+ * chamada quando `sendTextMessage` falha por estar fora da janela de 24h;
+ * sem o template aprovado/configurado, o chamador deve tratar como canal
+ * bloqueado (`BLOCKED_EXTERNAL`) — o alerta in-app (histórico) continua
+ * funcionando independentemente disso.
+ */
+export async function sendAlertaDesignerTemplateMessage(
+  toPhoneNumber: string,
+  bodyParams: readonly string[] = [],
+): Promise<SendMessageResult> {
+  if (!whatsappConfigStatus.hasSendingClient) {
+    throw new BlockedExternalCredentialError(
+      'WHATSAPP_ACCESS_TOKEN/WHATSAPP_PHONE_NUMBER_ID ausentes — envio de mensagem indisponível até a credencial ser configurada.',
+    );
+  }
+  if (!whatsappConfigStatus.hasAlertaDesignerTemplateConfigured) {
+    throw new BlockedExternalCredentialError(
+      'WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER ausente — nenhum template aprovado pela Meta configurado para o alerta de cancelamento fora da janela de 24h.',
+    );
+  }
+
+  const data = await postToGraphMessages({
+    messaging_product: 'whatsapp',
+    to: toPhoneNumber,
+    type: 'template',
+    template: {
+      name: env.WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER,
+      language: { code: env.WHATSAPP_TEMPLATE_LANGUAGE },
+      ...(bodyParams.length > 0
+        ? { components: [{ type: 'body', parameters: bodyParams.map((text) => ({ type: 'text', text })) }] }
+        : {}),
+    },
+  });
+
+  const wamid = data.messages?.[0]?.id;
+  if (!wamid) {
+    throw new Error('Resposta inesperada da WhatsApp Cloud API: sem id de mensagem.');
+  }
+  logOutboundMessage('template', wamid);
+  return { wamid };
+}
+
 interface WhatsAppMediaUrlResponse {
   url?: string;
   file_size?: number;

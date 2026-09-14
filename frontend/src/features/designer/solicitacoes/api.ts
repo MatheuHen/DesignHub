@@ -255,6 +255,11 @@ export function getComprovanteDownloadUrl(id: number): Promise<VersaoArteDownloa
   return apiRequest<VersaoArteDownloadUrl>(`/api/solicitacoes/${id}/publicacao/comprovante-url`);
 }
 
+/** Melhoria autorizada (item 10 — retry seguro): reenvia o aviso "arte publicada" ao cliente. */
+export function reenviarNotificacaoPublicacao(id: number): Promise<void> {
+  return apiRequest<void>(`/api/solicitacoes/${id}/publicacao/reenviar-notificacao`, { method: 'POST' });
+}
+
 export interface ClienteInstagramStatus {
   conectado: boolean;
   conectadoEm: string | null;

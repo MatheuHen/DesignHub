@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
-import { env } from '../config/env.js';
-import { sendTextMessage } from '../integrations/whatsapp/whatsappClient.js';
+import { env, whatsappConfigStatus } from '../config/env.js';
+import {
+  sendAlertaDesignerTemplateMessage,
+  sendTextMessage,
+  WhatsAppReengagementRequiredError,
+} from '../integrations/whatsapp/whatsappClient.js';
 import { ConflictError, ExpiredLinkError, NotFoundError, ValidationError } from '../lib/errors.js';
 import {
   CONTENT_TYPE_BY_FORMATO,
@@ -23,6 +27,7 @@ import {
   type AvaliacaoLinkState,
 } from '../repositories/avaliacao.repository.js';
 import { findClienteById } from '../repositories/atendimento.repository.js';
+import { getDesignerById } from '../repositories/designer.repository.js';
 import {
   getSolicitacaoDetail as getSolicitacaoDetailRepo,
   listVersoesArte,
@@ -327,6 +332,50 @@ export async function submitAvaliacaoDecisao(
  * `idSolicitacao` é sempre resolvido a partir do próprio token, nunca
  * recebido do cliente (seção 12.1 — impede IDOR).
  */
+/**
+ * Item 8.6: alerta ao designer quando o cliente cancela o próprio
+ * agendamento — canal in-app (histórico da solicitação, já gravado pela RPC
+ * `cancel_agendamento_cliente`) sempre funciona; o WhatsApp é melhor esforço
+ * e nunca desfaz o cancelamento já confirmado. Mesmo padrão de
+ * `sendTextMessage` → `WhatsAppReengagementRequiredError` →
+ * template dedicado (quando aprovado/configurado) → `BLOCKED_EXTERNAL`
+ * usado no aviso de publicação (item 9.2/9.4).
+ */
+async function notificarDesignerCancelamentoBestEffort(
+  adminClient: SupabaseClient,
+  idSolicitacao: number,
+): Promise<void> {
+  try {
+    const solicitacao = await getSolicitacaoDetailRepo(adminClient, idSolicitacao);
+    if (!solicitacao) return;
+
+    const designer = await getDesignerById(adminClient, solicitacao.idDesigner);
+    if (!designer?.whatsapp) return;
+
+    const message = `AVISO: o cliente ${solicitacao.clienteNome} cancelou o agendamento de publicação da arte "${solicitacao.tema}". Consulte a solicitação no DesignHub.`;
+
+    try {
+      await sendTextMessage(designer.whatsapp, message);
+    } catch (sendError) {
+      if (!(sendError instanceof WhatsAppReengagementRequiredError)) throw sendError;
+
+      if (!whatsappConfigStatus.hasAlertaDesignerTemplateConfigured) {
+        console.warn(
+          '[designhub:avaliacao] BLOCKED_EXTERNAL_WHATSAPP_ALERTA_DESIGNER: janela de 24h fechada e nenhum template aprovado configurado (WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER) — alerta in-app permanece registrado',
+          { idSolicitacao },
+        );
+        return;
+      }
+      await sendAlertaDesignerTemplateMessage(designer.whatsapp, [solicitacao.clienteNome, solicitacao.tema ?? '']);
+    }
+  } catch (error) {
+    console.error('[designhub:avaliacao] falha ao alertar designer via WhatsApp (cancelamento de agendamento)', {
+      idSolicitacao,
+      message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
+    });
+  }
+}
+
 export async function cancelarAgendamentoCliente(rawToken: string): Promise<{ idSolicitacao: number }> {
   const adminClient = getSupabaseAdminClient();
   const hash = hashOpaqueToken(rawToken);
@@ -346,5 +395,6 @@ export async function cancelarAgendamentoCliente(rawToken: string): Promise<{ id
   }
 
   await cancelAgendamentoCliente(adminClient, solicitacao.idSolicitacao);
+  await notificarDesignerCancelamentoBestEffort(adminClient, solicitacao.idSolicitacao);
   return { idSolicitacao: solicitacao.idSolicitacao };
 }

@@ -87,6 +87,7 @@ vi.mock('../repositories/versaoArte.repository.js', () => ({
 const {
   processarAgendamentosVencidos,
   registrarPublicacaoManual,
+  reenviarNotificacaoPublicacao,
   uploadComprovantePublicacao,
   getPublicacaoDetalhe,
   getComprovanteDownloadUrl,
@@ -495,6 +496,80 @@ describe('registrarPublicacaoManual (RF014 — fallback manual)', () => {
     expect(registerPublicacaoSucessoMock).not.toHaveBeenCalled();
     expect(sendTextMessageMock).not.toHaveBeenCalled();
     expect(sendPublicacaoTemplateMessageMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('reenviarNotificacaoPublicacao (melhoria autorizada — retry seguro do aviso, item 10)', () => {
+  beforeEach(() => {
+    getSolicitacaoDetailRepoMock.mockReset();
+    findClienteByIdMock.mockReset();
+    getVersaoArteAtualDaSolicitacaoMock.mockReset();
+    getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue(null);
+    sendTextMessageMock.mockReset();
+    sendPublicacaoTemplateMessageMock.mockReset();
+  });
+
+  it('rejeita quando o callerId não é o dono da solicitação (IDOR)', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idDesigner: 'outro-designer', status: 'Publicado' });
+
+    await expect(
+      reenviarNotificacaoPublicacao({} as never, 10, 'designer-1'),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('rejeita quando a solicitação ainda não está Publicada', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idDesigner: 'designer-1', status: 'Agendado' });
+
+    await expect(
+      reenviarNotificacaoPublicacao({} as never, 10, 'designer-1'),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('permite administrador com allowAnyDesigner mesmo não sendo o designer dono', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-2',
+      status: 'Publicado',
+      idCliente: 5,
+      tema: 'Post promocional',
+    });
+    findClienteByIdMock.mockResolvedValue({ id: 5, whatsapp: '5511999999999' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid.retry.1' });
+
+    await reenviarNotificacaoPublicacao({} as never, 10, 'admin-1', { allowAnyDesigner: true });
+
+    expect(sendTextMessageMock).toHaveBeenCalledOnce();
+  });
+
+  it('reenvia o aviso (chama sendTextMessage de novo) sem alterar status/publicação — pode ser chamado quantas vezes for preciso', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Publicado',
+      idCliente: 5,
+      tema: 'Post promocional',
+    });
+    findClienteByIdMock.mockResolvedValue({ id: 5, whatsapp: '5511999999999' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid.retry.1' });
+
+    await reenviarNotificacaoPublicacao({} as never, 10, 'designer-1');
+    await reenviarNotificacaoPublicacao({} as never, 10, 'designer-1');
+
+    expect(sendTextMessageMock).toHaveBeenCalledTimes(2);
+    const [, message] = sendTextMessageMock.mock.calls[0] as [string, string];
+    expect(message).toContain('Post promocional');
+  });
+
+  it('não lança erro quando o reenvio falha (best-effort) — resolve normalmente', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Publicado',
+      idCliente: 5,
+      tema: 'Post promocional',
+    });
+    findClienteByIdMock.mockResolvedValue({ id: 5, whatsapp: '5511999999999' });
+    sendTextMessageMock.mockRejectedValue(new Error('WhatsApp indisponível'));
+
+    await expect(reenviarNotificacaoPublicacao({} as never, 10, 'designer-1')).resolves.toBeUndefined();
   });
 });
 

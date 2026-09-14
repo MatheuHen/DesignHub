@@ -59,11 +59,18 @@ vi.mock('../services/agendamento.service.js', () => ({
   cancelAgendamento: cancelAgendamentoMock,
 }));
 
-const { registrarPublicacaoManualMock, getPublicacaoDetalheMock, uploadComprovantePublicacaoMock, getComprovanteDownloadUrlMock } = vi.hoisted(() => ({
+const {
+  registrarPublicacaoManualMock,
+  getPublicacaoDetalheMock,
+  uploadComprovantePublicacaoMock,
+  getComprovanteDownloadUrlMock,
+  reenviarNotificacaoPublicacaoMock,
+} = vi.hoisted(() => ({
   registrarPublicacaoManualMock: vi.fn(),
   getPublicacaoDetalheMock: vi.fn(),
   uploadComprovantePublicacaoMock: vi.fn(),
   getComprovanteDownloadUrlMock: vi.fn(),
+  reenviarNotificacaoPublicacaoMock: vi.fn(),
 }));
 
 vi.mock('../services/publicacao.service.js', () => ({
@@ -71,6 +78,7 @@ vi.mock('../services/publicacao.service.js', () => ({
   getPublicacaoDetalhe: getPublicacaoDetalheMock,
   uploadComprovantePublicacao: uploadComprovantePublicacaoMock,
   getComprovanteDownloadUrl: getComprovanteDownloadUrlMock,
+  reenviarNotificacaoPublicacao: reenviarNotificacaoPublicacaoMock,
 }));
 
 const { createApp } = await import('../app.js');
@@ -99,6 +107,7 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
     getPublicacaoDetalheMock.mockReset();
     uploadComprovantePublicacaoMock.mockReset();
     getComprovanteDownloadUrlMock.mockReset();
+    reenviarNotificacaoPublicacaoMock.mockReset();
   });
 
   it('GET / é exclusivo do designer — administrador recebe 403', async () => {
@@ -485,6 +494,29 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
 
     expect(response.status).toBe(204);
     expect(registrarPublicacaoManualMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1');
+  });
+
+  it('melhoria autorizada (item 10): POST /:id/publicacao/reenviar-notificacao é exclusivo do designer — administrador recebe 403', async () => {
+    mockAuthenticatedUser('administrador');
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/publicacao/reenviar-notificacao')
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(403);
+    expect(reenviarNotificacaoPublicacaoMock).not.toHaveBeenCalled();
+  });
+
+  it('melhoria autorizada (item 10): POST /:id/publicacao/reenviar-notificacao permite designer e delega ao service', async () => {
+    mockAuthenticatedUser('designer');
+    reenviarNotificacaoPublicacaoMock.mockResolvedValue(undefined);
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/publicacao/reenviar-notificacao')
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(204);
+    expect(reenviarNotificacaoPublicacaoMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1');
   });
 
   it('item 9.1 (correções 13/09/2026): GET /:id/publicacao permite designer e administrador, retorna 200', async () => {

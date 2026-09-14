@@ -280,6 +280,35 @@ export async function uploadComprovantePublicacao(
   }
 }
 
+/**
+ * Melhoria autorizada (item 10 — retry seguro do aviso "arte publicada"):
+ * permite ao designer reenviar manualmente o aviso ao cliente quando a
+ * notificação automática falhou (ex.: `BLOCKED_EXTERNAL_WHATSAPP_PUBLICACAO`
+ * ou erro transitório) — nunca reprocessa a publicação em si (já concluída),
+ * apenas repete o melhor-esforço de notificação. Seguro chamar quantas vezes
+ * forem necessárias: nunca duplica o registro da publicação nem altera
+ * status (mesmo guard de ownership de `getComprovanteDownloadUrl`).
+ */
+export async function reenviarNotificacaoPublicacao(
+  userClient: SupabaseClient,
+  idSolicitacao: number,
+  callerId: string,
+  options?: { allowAnyDesigner?: boolean },
+): Promise<void> {
+  const solicitacao = await getSolicitacaoDetailRepo(userClient, idSolicitacao);
+  if (!solicitacao || (!options?.allowAnyDesigner && solicitacao.idDesigner !== callerId)) {
+    throw new NotFoundError('Solicitação não encontrada.');
+  }
+  if (solicitacao.status !== 'Publicado') {
+    throw new ConflictError(
+      `Solicitação ainda não foi publicada (status atual: ${solicitacao.status}).`,
+    );
+  }
+
+  const adminClient = getSupabaseAdminClient();
+  await notificarClientePublicacaoBestEffort(adminClient, idSolicitacao);
+}
+
 export interface PublicacaoDetalhe {
   dataPublicada: string;
   tipo: 'automatica' | 'manual';

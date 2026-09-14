@@ -19,6 +19,9 @@ const {
   getTrackingAgendamentoMock,
   listVersoesArteMock,
   cancelAgendamentoClienteMock,
+  sendAlertaDesignerTemplateMessageMock,
+  getDesignerByIdMock,
+  whatsappConfigStatusMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   sendTextMessageMock: vi.fn(),
@@ -37,12 +40,26 @@ const {
   getTrackingAgendamentoMock: vi.fn(),
   listVersoesArteMock: vi.fn(),
   cancelAgendamentoClienteMock: vi.fn(),
+  sendAlertaDesignerTemplateMessageMock: vi.fn(),
+  getDesignerByIdMock: vi.fn(),
+  whatsappConfigStatusMock: { hasAlertaDesignerTemplateConfigured: true },
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
-vi.mock('../config/env.js', () => ({ env: { FRONTEND_URL: 'https://app.exemplo.com' } }));
-vi.mock('../integrations/whatsapp/whatsappClient.js', () => ({ sendTextMessage: sendTextMessageMock }));
+vi.mock('../config/env.js', () => ({
+  env: { FRONTEND_URL: 'https://app.exemplo.com' },
+  whatsappConfigStatus: whatsappConfigStatusMock,
+}));
+vi.mock('../integrations/whatsapp/whatsappClient.js', () => {
+  class WhatsAppReengagementRequiredError extends Error {}
+  return {
+    sendTextMessage: sendTextMessageMock,
+    sendAlertaDesignerTemplateMessage: sendAlertaDesignerTemplateMessageMock,
+    WhatsAppReengagementRequiredError,
+  };
+});
 vi.mock('../repositories/atendimento.repository.js', () => ({ findClienteById: findClienteByIdMock }));
+vi.mock('../repositories/designer.repository.js', () => ({ getDesignerById: getDesignerByIdMock }));
 vi.mock('../repositories/solicitacao.repository.js', () => ({
   getSolicitacaoDetail: getSolicitacaoDetailRepoMock,
   listVersoesArte: listVersoesArteMock,
@@ -67,6 +84,7 @@ vi.mock('../repositories/versaoArte.repository.js', () => ({
 const { gerarLinkAvaliacao, getAvaliacaoPreview, submitAvaliacaoDecisao, cancelarAgendamentoCliente } = await import(
   './avaliacao.service.js'
 );
+const { WhatsAppReengagementRequiredError } = await import('../integrations/whatsapp/whatsappClient.js');
 
 const PDF_BYTES = Buffer.from('%PDF-1.4 conteúdo de teste');
 
@@ -400,11 +418,16 @@ describe('submitAvaliacaoDecisao (RF009/RF010)', () => {
   });
 });
 
-describe('cancelarAgendamentoCliente (RF012/RF013/item 8.4 — correções 13/09/2026)', () => {
+describe('cancelarAgendamentoCliente (RF012/RF013/item 8.4/8.6 — correções 13/09/2026)', () => {
   beforeEach(() => {
     getAvaliacaoLinkStateMock.mockReset();
     getTrackingSolicitacaoByVersaoMock.mockReset();
     cancelAgendamentoClienteMock.mockReset();
+    getSolicitacaoDetailRepoMock.mockReset().mockResolvedValue(null);
+    getDesignerByIdMock.mockReset();
+    sendTextMessageMock.mockReset();
+    sendAlertaDesignerTemplateMessageMock.mockReset();
+    whatsappConfigStatusMock.hasAlertaDesignerTemplateConfigured = true;
   });
 
   it('rejeita quando o link está expirado', async () => {
@@ -447,5 +470,97 @@ describe('cancelarAgendamentoCliente (RF012/RF013/item 8.4 — correções 13/09
     );
 
     await expect(cancelarAgendamentoCliente('a'.repeat(64))).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('item 8.6: alerta o designer via WhatsApp (texto de sessão) depois do cancelamento confirmado', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'used', idVersao: 5 });
+    getTrackingSolicitacaoByVersaoMock.mockResolvedValue({ idSolicitacao: 10, status: 'Agendado', tema: null });
+    cancelAgendamentoClienteMock.mockResolvedValue(undefined);
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      clienteNome: 'Maria Oliveira',
+      tema: 'Promoção de Verão',
+    });
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-1', whatsapp: '5511988887777' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid.1' });
+
+    const result = await cancelarAgendamentoCliente('a'.repeat(64));
+
+    expect(result).toEqual({ idSolicitacao: 10 });
+    expect(sendTextMessageMock).toHaveBeenCalledOnce();
+    const [toNumber, message] = sendTextMessageMock.mock.calls[0] as [string, string];
+    expect(toNumber).toBe('5511988887777');
+    expect(message).toContain('Maria Oliveira');
+    expect(message).toContain('Promoção de Verão');
+  });
+
+  it('item 8.6: cai para o template dedicado quando a Meta rejeita por janela de 24h fechada', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'used', idVersao: 5 });
+    getTrackingSolicitacaoByVersaoMock.mockResolvedValue({ idSolicitacao: 10, status: 'Agendado', tema: null });
+    cancelAgendamentoClienteMock.mockResolvedValue(undefined);
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      clienteNome: 'Maria Oliveira',
+      tema: 'Promoção de Verão',
+    });
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-1', whatsapp: '5511988887777' });
+    sendTextMessageMock.mockRejectedValue(new WhatsAppReengagementRequiredError('fora da janela'));
+    sendAlertaDesignerTemplateMessageMock.mockResolvedValue({ wamid: 'wamid.template.1' });
+
+    const result = await cancelarAgendamentoCliente('a'.repeat(64));
+
+    expect(result).toEqual({ idSolicitacao: 10 });
+    expect(sendAlertaDesignerTemplateMessageMock).toHaveBeenCalledWith('5511988887777', [
+      'Maria Oliveira',
+      'Promoção de Verão',
+    ]);
+  });
+
+  it('item 8.6: marca BLOCKED_EXTERNAL sem template configurado — cancelamento permanece confirmado', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'used', idVersao: 5 });
+    getTrackingSolicitacaoByVersaoMock.mockResolvedValue({ idSolicitacao: 10, status: 'Agendado', tema: null });
+    cancelAgendamentoClienteMock.mockResolvedValue(undefined);
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      clienteNome: 'Maria Oliveira',
+      tema: 'Promoção de Verão',
+    });
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-1', whatsapp: '5511988887777' });
+    sendTextMessageMock.mockRejectedValue(new WhatsAppReengagementRequiredError('fora da janela'));
+    whatsappConfigStatusMock.hasAlertaDesignerTemplateConfigured = false;
+
+    const result = await cancelarAgendamentoCliente('a'.repeat(64));
+
+    expect(result).toEqual({ idSolicitacao: 10 });
+    expect(sendAlertaDesignerTemplateMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('item 8.6: designer sem WhatsApp cadastrado — não tenta enviar nem quebra o cancelamento', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'used', idVersao: 5 });
+    getTrackingSolicitacaoByVersaoMock.mockResolvedValue({ idSolicitacao: 10, status: 'Agendado', tema: null });
+    cancelAgendamentoClienteMock.mockResolvedValue(undefined);
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      clienteNome: 'Maria Oliveira',
+      tema: 'Promoção de Verão',
+    });
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-1', whatsapp: null });
+
+    const result = await cancelarAgendamentoCliente('a'.repeat(64));
+
+    expect(result).toEqual({ idSolicitacao: 10 });
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('item 8.6: falha inesperada ao alertar o designer não desfaz o cancelamento já confirmado', async () => {
+    getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'used', idVersao: 5 });
+    getTrackingSolicitacaoByVersaoMock.mockResolvedValue({ idSolicitacao: 10, status: 'Agendado', tema: null });
+    cancelAgendamentoClienteMock.mockResolvedValue(undefined);
+    getSolicitacaoDetailRepoMock.mockRejectedValue(new Error('erro inesperado de banco'));
+
+    const result = await cancelarAgendamentoCliente('a'.repeat(64));
+
+    expect(result).toEqual({ idSolicitacao: 10 });
+    expect(cancelAgendamentoClienteMock).toHaveBeenCalledOnce();
   });
 });

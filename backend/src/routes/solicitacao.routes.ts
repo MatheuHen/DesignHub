@@ -28,6 +28,7 @@ import {
   getComprovanteDownloadUrl,
   getPublicacaoDetalhe,
   registrarPublicacaoManual,
+  reenviarNotificacaoPublicacao,
   uploadComprovantePublicacao,
 } from '../services/publicacao.service.js';
 import {
@@ -361,6 +362,36 @@ solicitacaoRouter.post(
       }
       const client = getSupabaseUserClient(request.auth!.accessToken);
       await uploadComprovantePublicacao(client, id, request.auth!.userId, request.file.buffer);
+      response.status(204).end();
+    } catch (error) {
+      next(toAppError(error));
+    }
+  },
+);
+
+/**
+ * Melhoria autorizada (item 10 — retry seguro): reenvia o aviso "arte
+ * publicada" ao cliente quando a notificação automática falhou. Limite
+ * dedicado por designer, mesmo padrão de `/link-avaliacao` — dispara envio a
+ * um serviço externo (Meta).
+ */
+const reenviarNotificacaoPublicacaoRateLimit = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (request) => request.auth?.userId ?? ipKeyGenerator(request.ip ?? 'unknown'),
+});
+
+solicitacaoRouter.post(
+  '/:id/publicacao/reenviar-notificacao',
+  requireProfile('designer'),
+  reenviarNotificacaoPublicacaoRateLimit,
+  async (request, response, next) => {
+    try {
+      const { id } = solicitacaoIdParamSchema.parse(request.params);
+      const client = getSupabaseUserClient(request.auth!.accessToken);
+      await reenviarNotificacaoPublicacao(client, id, request.auth!.userId);
       response.status(204).end();
     } catch (error) {
       next(toAppError(error));

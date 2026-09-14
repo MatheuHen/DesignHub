@@ -55,6 +55,14 @@ const schema = z.object({
    */
   WHATSAPP_TEMPLATE_NAME_PUBLICACAO: z.string().min(1).optional(),
   /**
+   * Item 8.6: template dedicado para alertar o designer quando o cliente
+   * cancela um agendamento pelo link de avaliação (RF012/RF013) — mensagem
+   * business-initiated distinta das duas anteriores, exige aprovação própria
+   * da Meta. Sem ele, o alerta por WhatsApp fica `BLOCKED_EXTERNAL`; o alerta
+   * in-app (histórico da solicitação) continua funcionando normalmente.
+   */
+  WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER: z.string().min(1).optional(),
+  /**
    * RF014/ADR 0005: credenciais do App Meta usadas só para o handshake OAuth
    * ("Instagram API with Instagram Login") que autoriza a conta de CADA
    * cliente individualmente — nunca para publicar diretamente. O token de
@@ -138,6 +146,8 @@ export const whatsappConfigStatus = {
   hasTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME),
   /** Item 9.2/9.4 (revisão): template dedicado do aviso "arte publicada", distinto do RF004. */
   hasPublicacaoTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME_PUBLICACAO),
+  /** Item 8.6: template dedicado do alerta ao designer (cancelamento de agendamento pelo cliente). */
+  hasAlertaDesignerTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER),
 } as const;
 
 export const instagramConfigStatus = {

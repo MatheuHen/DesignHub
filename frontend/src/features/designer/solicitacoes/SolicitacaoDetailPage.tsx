@@ -15,6 +15,7 @@ import {
   getPublicacaoDetalhe,
   getSolicitacaoDetail,
   getVersaoArteDownloadUrl,
+  reenviarNotificacaoPublicacao,
   registrarPublicacaoManual,
   updateAgendamento,
   uploadComprovantePublicacao,
@@ -89,6 +90,9 @@ export function SolicitacaoDetailPage() {
   const [comprovanteSuccess, setComprovanteSuccess] = useState(false);
   const [downloadingComprovante, setDownloadingComprovante] = useState(false);
   const [comprovanteDownloadError, setComprovanteDownloadError] = useState<string | null>(null);
+  const [resendingNotificacao, setResendingNotificacao] = useState(false);
+  const [resendNotificacaoError, setResendNotificacaoError] = useState<string | null>(null);
+  const [resendNotificacaoSuccess, setResendNotificacaoSuccess] = useState(false);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -306,6 +310,22 @@ export function SolicitacaoDetailPage() {
         );
       })
       .finally(() => setUploadingComprovante(false));
+  }
+
+  /** Melhoria autorizada (item 10 — retry seguro): reenvia o aviso "arte publicada" ao cliente. */
+  function handleResendNotificacao() {
+    setResendingNotificacao(true);
+    setResendNotificacaoError(null);
+    setResendNotificacaoSuccess(false);
+
+    reenviarNotificacaoPublicacao(id)
+      .then(() => setResendNotificacaoSuccess(true))
+      .catch((resendErr: unknown) => {
+        setResendNotificacaoError(
+          resendErr instanceof ApiError ? resendErr.message : 'Não foi possível reenviar o aviso.',
+        );
+      })
+      .finally(() => setResendingNotificacao(false));
   }
 
   function handleDownloadComprovante() {
@@ -730,6 +750,22 @@ export function SolicitacaoDetailPage() {
                       <a href={publicacaoDetalhe.permalink} target="_blank" rel="noopener noreferrer">
                         Ver publicação no Instagram
                       </a>
+                    </p>
+                  )}
+
+                  <div className="designer-form-actions">
+                    <button type="button" onClick={handleResendNotificacao} disabled={resendingNotificacao}>
+                      {resendingNotificacao ? 'Reenviando…' : 'Reenviar aviso ao cliente'}
+                    </button>
+                  </div>
+                  {resendNotificacaoError && (
+                    <p role="alert" className="auth-error">
+                      {resendNotificacaoError}
+                    </p>
+                  )}
+                  {resendNotificacaoSuccess && (
+                    <p className="atendimento-success">
+                      Reenvio solicitado. Se o cliente não receber, verifique o número de WhatsApp cadastrado.
                     </p>
                   )}
 
