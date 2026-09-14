@@ -11,25 +11,47 @@ aprovados (fallback automático, `WhatsAppReengagementRequiredError`). Basta
 submeter os textos abaixo no Business Manager e configurar o nome aprovado
 nas variáveis de ambiente indicadas — **sem novo deploy de código**.
 
-Nenhum dos dois textos abaixo foi submetido ainda; são propostas para revisão
-humana antes do envio à Meta (a aprovação e o texto final são decisão de
-quem opera o Business Manager, não do agente).
+**Status: submetidos à Meta em 2026-09-14 via Graph API (`POST /{whatsapp_business_account_id}/message_templates`), aguardando revisão automática da Meta.**
+
+| Template (nome final) | ID Meta | Categoria | Status |
+|---|---|---|---|
+| `designhub_arte_publicada` | `1047818271217084` | UTILITY | PENDING |
+| `agendamento_cancelado_cliente` | `1393053336343242` | UTILITY | PENDING |
+
+Histórico: a primeira submissão do aviso de publicação usou o nome
+`arte_publicada` e texto com emoji ("🎨 Sua arte foi publicada!..."), mas a
+Meta reclassificou automaticamente para `MARKETING` (cobrado por mensagem na
+maioria dos países — incompatível com o custo zero exigido pelo TFC). Essa
+versão foi excluída (`DELETE`) e ressubmetida com nome novo
+(`designhub_arte_publicada`, para evitar o lock de exclusão em andamento) e
+texto neutro/factual ("Atualização do DesignHub: {{1}} foi publicada.
+Obrigado por utilizar o DesignHub."), sem emoji nem exclamação — manteve
+`UTILITY` na submissão. **Confirmar categoria final após a aprovação
+efetiva** (a reclassificação da Meta pode ocorrer depois do `PENDING`
+inicial, como aconteceu na primeira tentativa).
+
+A aprovação/rejeição é decisão exclusiva da Meta (normalmente minutos a 24h).
+Assim que aprovado (`status: APPROVED`), configurar
+`WHATSAPP_TEMPLATE_NAME_PUBLICACAO=designhub_arte_publicada` e
+`WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER=agendamento_cancelado_cliente` na
+Vercel — sem novo deploy de código, o fallback já está pronto.
 
 ---
 
 ## 1. Aviso "arte publicada" ao cliente
 
 - **Variável de ambiente**: `WHATSAPP_TEMPLATE_NAME_PUBLICACAO`
-- **Nome sugerido do template**: `arte_publicada`
+- **Nome do template submetido**: `designhub_arte_publicada` (ID `1047818271217084`)
 - **Categoria**: `UTILITY` (atualização de status de um serviço já contratado,
-  não é conteúdo promocional — evita a fila/custo mais alto de `MARKETING`)
+  não é conteúdo promocional — evita a cobrança por mensagem de `MARKETING`).
+  Texto neutro/factual escolhido deliberadamente (sem emoji/exclamação) porque
+  a primeira tentativa (nome `arte_publicada`, com emoji) foi reclassificada
+  pela Meta para `MARKETING` — ver histórico no topo deste arquivo.
 - **Idioma**: Portuguese (BR) — `pt_BR`
-- **Corpo (Body) sugerido**:
+- **Corpo (Body) submetido**:
 
   ```
-  🎨 Sua arte foi publicada!
-
-  {{1}} já está no ar. Obrigado por utilizar o DesignHub!
+  Atualização do DesignHub: {{1}} foi publicada. Obrigado por utilizar o DesignHub.
   ```
 
 - **Exemplo de preenchimento de `{{1}}`** (para o formulário de exemplo da Meta):
@@ -49,7 +71,7 @@ quem opera o Business Manager, não do agente).
 ## 2. Alerta ao designer — cliente cancelou agendamento
 
 - **Variável de ambiente**: `WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER`
-- **Nome sugerido do template**: `agendamento_cancelado_cliente`
+- **Nome do template submetido**: `agendamento_cancelado_cliente` (ID `1393053336343242`)
 - **Categoria**: `UTILITY`
 - **Idioma**: Portuguese (BR) — `pt_BR`
 - **Corpo (Body) sugerido**:
