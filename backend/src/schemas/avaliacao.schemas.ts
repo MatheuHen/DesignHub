@@ -62,4 +62,3 @@ export const submitAvaliacaoBodySchema = z
       });
     }
   });
-export type SubmitAvaliacaoBody = z.infer<typeof submitAvaliacaoBodySchema>;

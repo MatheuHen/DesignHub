@@ -41,7 +41,3 @@ export const whatsappWebhookPayloadSchema = z.object({
 });
 export type WhatsAppWebhookPayload = z.infer<typeof whatsappWebhookPayloadSchema>;
 export type WhatsAppInboundMessage = z.infer<typeof whatsappMessageSchema>;
-
-export const iniciarAtendimentoParamSchema = z.object({
-  id: z.coerce.number().int().positive(),
-});

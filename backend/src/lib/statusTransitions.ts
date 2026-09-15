@@ -114,12 +114,3 @@ export function isValidSolicitacaoTransition(
 ): boolean {
   return SOLICITACAO_STATUS_TRANSITIONS.some((edge) => edge.from === from && edge.to === to);
 }
-
-/** Estados a partir dos quais existe pelo menos uma transição já implementada nesta fase do roadmap. */
-export function implementedOriginStatuses(): Array<SolicitacaoStatus | null> {
-  const origins = new Set<SolicitacaoStatus | null>();
-  for (const edge of SOLICITACAO_STATUS_TRANSITIONS) {
-    if (edge.implemented) origins.add(edge.from);
-  }
-  return [...origins];
-}

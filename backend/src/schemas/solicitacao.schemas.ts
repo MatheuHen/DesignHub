@@ -47,7 +47,6 @@ export const uploadVersaoArteBodySchema = z.object({
     .optional()
     .transform((value) => (value === '' ? undefined : value)),
 });
-export type UploadVersaoArteBody = z.infer<typeof uploadVersaoArteBodySchema>;
 
 export const versaoArteParamsSchema = z.object({
   id: z.coerce.number().int().positive(),

@@ -66,3 +66,7 @@ blob-report/
 
 # Nested repositories
 **/.git/
+
+# Asset local de configuração única (foto de perfil do WhatsApp Business via
+# API) - não é código-fonte nem documentação do TFC, nunca deve ser versionado.
+/logoofc.png
