@@ -30,6 +30,9 @@ import {
   markAtendimentoExpired,
   markAtendimentoRecusado,
   normalizePhone,
+  phoneStorageCandidates,
+  markWebhookEventoConcluido,
+  registerRespostaEAvancar,
   registerWebhookEventOnce,
   revertAtendimentoParaAndamento,
   type ActiveAtendimento,
@@ -245,15 +248,34 @@ async function processCancelamentoPendente(
   await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, retomada);
 }
 
+/**
+ * Auditoria (achado HIGH — perda silenciosa de resposta do cliente): a
+ * reserva do evento (`registerWebhookEventOnce`) só marca conclusão
+ * (`markWebhookEventoConcluido`) DEPOIS que todo o processamento real
+ * termina sem lançar erro. Se qualquer chamada dentro de
+ * `handleInboundMessage` falhar (timeout, erro transitório do Supabase), a
+ * exceção propaga para a rota do webhook, que responde não-2xx — a Meta
+ * reentrega, e `registerWebhookEventOnce` permite uma nova tentativa real
+ * (reserva travada há mais de 30s) em vez de descartar a mensagem em
+ * silêncio.
+ */
 async function processInboundMessage(
   adminClient: SupabaseClient,
   message: WhatsAppInboundMessage,
 ): Promise<void> {
   const isNewEvent = await registerWebhookEventOnce(adminClient, message.id);
-  if (!isNewEvent) return; // seção 12.3: reentrega do webhook — idempotente, ignora silenciosamente
+  if (!isNewEvent) return; // já concluído ou sendo processado por outra requisição concorrente
 
+  await handleInboundMessage(adminClient, message);
+  await markWebhookEventoConcluido(adminClient, message.id);
+}
+
+async function handleInboundMessage(
+  adminClient: SupabaseClient,
+  message: WhatsAppInboundMessage,
+): Promise<void> {
   const senderPhone = normalizePhone(message.from);
-  const activeAtendimentos = await listActiveAtendimentos(adminClient);
+  const activeAtendimentos = await listActiveAtendimentos(adminClient, phoneStorageCandidates(message.from));
   const match = activeAtendimentos.find(
     (atendimento) => normalizePhone(atendimento.clienteWhatsapp) === senderPhone,
   );
@@ -304,12 +326,20 @@ async function processInboundMessage(
     }
   }
 
+  // Item N.5.6: a decisão de qual pergunta esta resposta corresponde e o
+  // INSERT ocorrem atomicamente sob lock do atendimento (fecha a corrida
+  // entre duas mensagens quase simultâneas — a versão anterior lia a
+  // contagem aqui fora de qualquer lock).
   const answerText = await extractAnswerText(match.id, question, message);
-  const inserted = await insertResposta(adminClient, match.id, question.prompt, answerText);
-  if (!inserted) return; // seção 12.4: outra requisição concorrente já respondeu esta pergunta
+  const { inserted, answeredCount: answeredCountAfter } = await registerRespostaEAvancar(
+    adminClient,
+    match.id,
+    ATENDIMENTO_QUESTIONS.map((q) => q.prompt),
+    answerText,
+  );
+  if (!inserted) return; // questionário já concluído (mensagem espontânea) ou nada a fazer
 
-  const nextIndex = answeredCount + 1;
-  const nextQuestion = ATENDIMENTO_QUESTIONS[nextIndex];
+  const nextQuestion = ATENDIMENTO_QUESTIONS[answeredCountAfter];
   if (nextQuestion) {
     await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, nextQuestion.prompt);
     return;

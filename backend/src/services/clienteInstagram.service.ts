@@ -1,8 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { env } from '../config/env.js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import { buildAuthorizeUrl, exchangeCodeForLongLivedToken } from '../integrations/instagram/instagramOAuth.js';
 import { generateOpaqueToken, hashOpaqueToken } from '../lib/tokens.js';
-import { ConflictError, NotFoundError } from '../lib/errors.js';
+import { BlockedExternalCredentialError, ConflictError, NotFoundError } from '../lib/errors.js';
 import { getClienteById } from '../repositories/cliente.repository.js';
 import {
   consumeOAuthState,
@@ -67,6 +68,12 @@ export async function processarCallbackInstagram(
   rawState: string,
   code: string,
 ): Promise<{ idCliente: number }> {
+  // Item N.5.5: nunca grava o access_token sem cifrar — falha explícita
+  // (fail-closed) em vez de persistir em texto puro.
+  if (!env.INSTAGRAM_TOKEN_ENC_KEY) {
+    throw new BlockedExternalCredentialError('INSTAGRAM_TOKEN_ENC_KEY ausente.');
+  }
+
   const adminClient = getSupabaseAdminClient();
   const state = await consumeOAuthState(adminClient, hashOpaqueToken(rawState));
   if (!state) {
@@ -81,6 +88,7 @@ export async function processarCallbackInstagram(
     instagramUserId: token.instagramUserId,
     accessToken: token.accessToken,
     tokenExpiraEm,
+    encKey: env.INSTAGRAM_TOKEN_ENC_KEY,
   });
 
   return { idCliente: state.id_cliente };

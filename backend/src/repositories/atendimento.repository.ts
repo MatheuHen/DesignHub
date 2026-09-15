@@ -18,6 +18,23 @@ export function normalizePhone(value: string): string {
   return digits;
 }
 
+/**
+ * Auditoria (achado HIGH — performance): variantes possíveis de como este
+ * número pode estar armazenado em `cliente.whatsapp` (com/sem o 9º dígito
+ * ambíguo do Brasil), usadas para filtrar no banco (`.in`) em vez de
+ * carregar todos os atendimentos ativos da plataforma e comparar em memória.
+ */
+export function phoneStorageCandidates(value: string): string[] {
+  const digits = value.replace(/\D/g, '');
+  const candidates = new Set([digits]);
+  if (digits.length === 13 && digits.startsWith('55') && digits[4] === '9') {
+    candidates.add(digits.slice(0, 4) + digits.slice(5));
+  } else if (digits.length === 12 && digits.startsWith('55')) {
+    candidates.add(`${digits.slice(0, 4)}9${digits.slice(4)}`);
+  }
+  return [...candidates];
+}
+
 const clienteWhatsappRowSchema = z.object({
   id_cliente: z.number(),
   whatsapp: z.string(),
@@ -109,13 +126,32 @@ export interface ActiveAtendimento {
  * que enviou a mensagem. `cliente.whatsapp` não tem unicidade garantida no
  * DER (nota registrada na Fase 2) — em caso de mais de um candidato,
  * usamos o atendimento iniciado mais recentemente.
+ *
+ * Auditoria (achado HIGH — performance): `whatsappCandidates`, quando
+ * informado, filtra no banco pelas variantes possíveis do número (com/sem o
+ * 9º dígito) via join `!inner` — evita carregar TODOS os atendimentos ativos
+ * da plataforma a cada mensagem inbound do webhook só para filtrar em
+ * memória (`cliente_whatsapp_idx`/`atendimento_status_idx` já existentes
+ * passam a ser realmente usados). Sem o parâmetro, mantém o comportamento
+ * anterior (lista completa) para outros chamadores/testes.
  */
-export async function listActiveAtendimentos(adminClient: SupabaseClient): Promise<ActiveAtendimento[]> {
-  const result: unknown = await adminClient
+export async function listActiveAtendimentos(
+  adminClient: SupabaseClient,
+  whatsappCandidates?: string[],
+): Promise<ActiveAtendimento[]> {
+  let query = adminClient
     .from('atendimento')
-    .select('id_atendimento, id_cliente, data_inicio, status, cliente(whatsapp)')
+    .select(
+      whatsappCandidates
+        ? 'id_atendimento, id_cliente, data_inicio, status, cliente!inner(whatsapp)'
+        : 'id_atendimento, id_cliente, data_inicio, status, cliente(whatsapp)',
+    )
     .in('status', ATENDIMENTO_ATIVO_STATUSES)
     .order('data_inicio', { ascending: false });
+
+  if (whatsappCandidates) query = query.in('cliente.whatsapp', whatsappCandidates);
+
+  const result: unknown = await query;
 
   const { data, error } = result as { data: unknown; error: { message: string } | null };
   if (error) throw new Error(`Falha ao listar atendimentos ativos: ${error.message}`);
@@ -204,6 +240,35 @@ export async function insertResposta(
   if (!error) return true;
   if (error.code === '23505') return false;
   throw new Error(`Falha ao registrar resposta: ${error.message}`);
+}
+
+/**
+ * Item N.5.6: versão atômica de `countRespostas` + `insertResposta` — decide
+ * qual pergunta pendente esta resposta corresponde e insere sob lock do
+ * atendimento (RPC `register_resposta_atendimento_e_avancar`), fechando a
+ * corrida entre duas mensagens quase simultâneas do mesmo cliente. `inserted`
+ * é `false` quando o questionário já estava completo (nada a fazer);
+ * `answeredCount` é a contagem de respostas já registradas após a chamada.
+ */
+const respostaAvancoRowSchema = z.object({ inserted: z.boolean(), answered_count: z.number() });
+
+export async function registerRespostaEAvancar(
+  adminClient: SupabaseClient,
+  idAtendimento: number,
+  perguntas: string[],
+  resposta: string,
+): Promise<{ inserted: boolean; answeredCount: number }> {
+  const result: unknown = await adminClient.rpc('register_resposta_atendimento_e_avancar', {
+    p_id_atendimento: idAtendimento,
+    p_perguntas: perguntas,
+    p_resposta: resposta,
+  });
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao registrar resposta do atendimento: ${error.message}`);
+  const rows = z.array(respostaAvancoRowSchema).parse(data ?? []);
+  const row = rows[0];
+  if (!row) throw new Error('Falha ao registrar resposta do atendimento: nenhuma linha retornada.');
+  return { inserted: row.inserted, answeredCount: row.answered_count };
 }
 
 const respostaRowSchema = z.object({ resposta: z.string() });
@@ -314,16 +379,28 @@ export async function completeAtendimentoAndCreateSolicitacao(
   return z.number().parse(data);
 }
 
-/** RF004/seção 12.3: dedup de reentrega do webhook. Retorna false se já processado. */
+/**
+ * Auditoria (achado HIGH — perda silenciosa de resposta do cliente): dedup
+ * de reentrega do webhook em duas fases (RPC atômica). Retorna `true` quando
+ * o chamador deve processar a mensagem (evento novo OU reserva anterior
+ * travada/expirada — reentrega legítima da Meta após falha transitória);
+ * `false` quando já concluído ou sendo processado por outra requisição
+ * concorrente. O chamador DEVE marcar `markWebhookEventoConcluido` somente
+ * após o processamento terminar com sucesso — nunca antes.
+ */
 export async function registerWebhookEventOnce(
   adminClient: SupabaseClient,
   idEvento: string,
 ): Promise<boolean> {
-  const result: unknown = await adminClient
-    .from('whatsapp_webhook_evento')
-    .insert({ id_evento: idEvento });
-  const { error } = result as { error: { code?: string; message: string } | null };
-  if (!error) return true;
-  if (error.code === '23505') return false; // unique_violation: já processado
-  throw new Error(`Falha ao registrar evento de webhook: ${error.message}`);
+  const result: unknown = await adminClient.rpc('claim_webhook_evento', { p_id_evento: idEvento });
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao reservar evento de webhook: ${error.message}`);
+  return data === true;
+}
+
+/** Marca o evento como concluído — só depois de todo o processamento ter sucesso. */
+export async function markWebhookEventoConcluido(adminClient: SupabaseClient, idEvento: string): Promise<void> {
+  const result: unknown = await adminClient.rpc('mark_webhook_evento_concluido', { p_id_evento: idEvento });
+  const { error } = result as { error: { message: string } | null };
+  if (error) throw new Error(`Falha ao concluir evento de webhook: ${error.message}`);
 }

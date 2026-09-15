@@ -71,22 +71,26 @@ const conexaoRowSchema = z.object({
   token_expira_em: z.string(),
 });
 
-/** Conexão válida (existente e ainda não expirada) do cliente — usada para decidir/ executar publicação automática. */
+/**
+ * Conexão válida (existente e ainda não expirada) do cliente — usada para
+ * decidir/executar publicação automática. `encKey` (item N.5.5) nunca é
+ * persistida no banco: a RPC decifra `access_token_enc` só nesta chamada.
+ */
 export async function getConexaoAtiva(
   adminClient: SupabaseClient,
   idCliente: number,
+  encKey: string,
 ): Promise<ClienteInstagramConexao | null> {
-  const result: unknown = await adminClient
-    .from('cliente_instagram_conexao')
-    .select('instagram_user_id, access_token, token_expira_em')
-    .eq('id_cliente', idCliente)
-    .gt('token_expira_em', new Date().toISOString())
-    .maybeSingle();
+  const result: unknown = await adminClient.rpc('get_instagram_conexao_ativa', {
+    p_id_cliente: idCliente,
+    p_enc_key: encKey,
+  });
   const { data, error } = result as { data: unknown; error: { message: string } | null };
   if (error) throw new Error(`Falha ao buscar conexão do Instagram: ${error.message}`);
-  if (!data) return null;
+  const rows = z.array(conexaoRowSchema).parse(data ?? []);
+  const row = rows[0];
+  if (!row) return null;
 
-  const row = conexaoRowSchema.parse(data);
   return { instagramUserId: row.instagram_user_id, accessToken: row.access_token, tokenExpiraEm: row.token_expira_em };
 }
 
@@ -120,21 +124,23 @@ export async function getStatusConexao(
   return { conectado: !expirado, conectadoEm: row.created_at, expiraEm: row.token_expira_em };
 }
 
-/** Grava/atualiza a conexão do cliente — sempre chamado a partir de um state OAuth já validado (nunca de um id_cliente vindo direto de parâmetro externo não confiável). */
+/**
+ * Grava/atualiza a conexão do cliente — sempre chamado a partir de um state
+ * OAuth já validado (nunca de um id_cliente vindo direto de parâmetro
+ * externo não confiável). `encKey` (item N.5.5) nunca é persistida no
+ * banco: a RPC cifra `access_token` só nesta chamada.
+ */
 export async function upsertConexao(
   adminClient: SupabaseClient,
-  params: { idCliente: number; instagramUserId: string; accessToken: string; tokenExpiraEm: string },
+  params: { idCliente: number; instagramUserId: string; accessToken: string; tokenExpiraEm: string; encKey: string },
 ): Promise<void> {
-  const result: unknown = await adminClient.from('cliente_instagram_conexao').upsert(
-    {
-      id_cliente: params.idCliente,
-      instagram_user_id: params.instagramUserId,
-      access_token: params.accessToken,
-      token_expira_em: params.tokenExpiraEm,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'id_cliente' },
-  );
+  const result: unknown = await adminClient.rpc('upsert_cliente_instagram_conexao', {
+    p_id_cliente: params.idCliente,
+    p_instagram_user_id: params.instagramUserId,
+    p_access_token: params.accessToken,
+    p_token_expira_em: params.tokenExpiraEm,
+    p_enc_key: params.encKey,
+  });
   const { error } = result as { error: { message: string } | null };
   if (error) throw new Error(`Falha ao salvar conexão do Instagram: ${error.message}`);
 }

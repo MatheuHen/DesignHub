@@ -73,43 +73,41 @@ describe('consumeOAuthState (RF014/ADR 0005 — single-use)', () => {
   });
 });
 
-describe('getConexaoAtiva (RF014/ADR 0005)', () => {
-  it('retorna null quando o cliente não tem conexão válida', async () => {
-    const client = {
-      from: () => ({
-        select: () => ({ eq: () => ({ gt: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) }),
-      }),
-    } as unknown as AnyClient;
+describe('getConexaoAtiva (RF014/ADR 0005, item N.5.5 — token cifrado)', () => {
+  it('retorna null quando a RPC não encontra conexão válida', async () => {
+    const client = { rpc: () => Promise.resolve({ data: [], error: null }) } as unknown as AnyClient;
 
-    await expect(getConexaoAtiva(client, 1)).resolves.toBeNull();
+    await expect(getConexaoAtiva(client, 1, 'chave-de-teste-com-32-caracteres')).resolves.toBeNull();
   });
 
-  it('retorna a conexão quando existe e não expirou', async () => {
-    const client = {
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            gt: () => ({
-              maybeSingle: () =>
-                Promise.resolve({
-                  data: {
-                    instagram_user_id: 'conta-1',
-                    access_token: 'token-1',
-                    token_expira_em: '2027-01-01T00:00:00Z',
-                  },
-                  error: null,
-                }),
-            }),
-          }),
-        }),
-      }),
-    } as unknown as AnyClient;
+  it('chama a RPC com o id_cliente e a chave de cifragem, retorna a conexão decifrada', async () => {
+    const rpc = (fn: string, args: unknown) => {
+      expect(fn).toBe('get_instagram_conexao_ativa');
+      expect(args).toEqual({ p_id_cliente: 1, p_enc_key: 'chave-de-teste-com-32-caracteres' });
+      return Promise.resolve({
+        data: [
+          {
+            instagram_user_id: 'conta-1',
+            access_token: 'token-1',
+            token_expira_em: '2027-01-01T00:00:00Z',
+          },
+        ],
+        error: null,
+      });
+    };
+    const client = { rpc } as unknown as AnyClient;
 
-    await expect(getConexaoAtiva(client, 1)).resolves.toEqual({
+    await expect(getConexaoAtiva(client, 1, 'chave-de-teste-com-32-caracteres')).resolves.toEqual({
       instagramUserId: 'conta-1',
       accessToken: 'token-1',
       tokenExpiraEm: '2027-01-01T00:00:00Z',
     });
+  });
+
+  it('propaga erro da RPC', async () => {
+    const client = { rpc: () => Promise.resolve({ data: null, error: { message: 'falhou' } }) } as unknown as AnyClient;
+
+    await expect(getConexaoAtiva(client, 1, 'chave-de-teste-com-32-caracteres')).rejects.toThrow(/falhou/);
   });
 });
 
@@ -161,14 +159,20 @@ describe('getStatusConexao (RF014 — status para exibição, nunca o token)', (
   });
 });
 
-describe('upsertConexao/deleteConexao (RF014/ADR 0005)', () => {
-  it('upsertConexao grava a conexão por id_cliente', async () => {
-    const upsert = (payload: unknown, options: unknown) => {
-      expect(payload).toMatchObject({ id_cliente: 1, instagram_user_id: 'conta-1', access_token: 'token-1' });
-      expect(options).toEqual({ onConflict: 'id_cliente' });
+describe('upsertConexao/deleteConexao (RF014/ADR 0005, item N.5.5 — token cifrado)', () => {
+  it('upsertConexao chama a RPC com o access_token e a chave de cifragem', async () => {
+    const rpc = (fn: string, args: unknown) => {
+      expect(fn).toBe('upsert_cliente_instagram_conexao');
+      expect(args).toEqual({
+        p_id_cliente: 1,
+        p_instagram_user_id: 'conta-1',
+        p_access_token: 'token-1',
+        p_token_expira_em: '2027-01-01T00:00:00Z',
+        p_enc_key: 'chave-de-teste-com-32-caracteres',
+      });
       return Promise.resolve({ error: null });
     };
-    const client = { from: () => ({ upsert }) } as unknown as AnyClient;
+    const client = { rpc } as unknown as AnyClient;
 
     await expect(
       upsertConexao(client, {
@@ -176,6 +180,7 @@ describe('upsertConexao/deleteConexao (RF014/ADR 0005)', () => {
         instagramUserId: 'conta-1',
         accessToken: 'token-1',
         tokenExpiraEm: '2027-01-01T00:00:00Z',
+        encKey: 'chave-de-teste-com-32-caracteres',
       }),
     ).resolves.toBeUndefined();
   });

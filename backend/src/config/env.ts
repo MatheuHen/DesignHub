@@ -71,6 +71,15 @@ const schema = z.object({
    */
   INSTAGRAM_APP_ID: z.string().min(1).optional(),
   INSTAGRAM_APP_SECRET: z.string().min(1).optional(),
+  /**
+   * RF014/ADR 0005 (item N.5.5): chave simétrica usada por `pgcrypto` para
+   * cifrar/decifrar o access_token do Instagram em repouso
+   * (`cliente_instagram_conexao.access_token_enc`). Nunca persistida no
+   * banco — só existe neste processo. Sem ela, a conexão/leitura falha
+   * explicitamente (fail-closed, seção 3 do CLAUDE.md), nunca grava/lê token
+   * sem cifrar.
+   */
+  INSTAGRAM_TOKEN_ENC_KEY: z.string().min(32).optional(),
   /** RF014/ADR 0005: base pública do backend, usada para montar o redirect_uri do OAuth do Instagram. */
   PUBLIC_BACKEND_URL: z.string().url().default('http://localhost:3001'),
   /**
@@ -153,6 +162,8 @@ export const whatsappConfigStatus = {
 export const instagramConfigStatus = {
   /** RF014/ADR 0005: necessário para iniciar o handshake OAuth por cliente (não publica sozinho). */
   hasOAuthClient: Boolean(env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET),
+  /** RF014/ADR 0005 (item N.5.5): necessário para gravar/ler o access_token cifrado. */
+  hasTokenEncryptionKey: Boolean(env.INSTAGRAM_TOKEN_ENC_KEY),
 } as const;
 
 export const internalJobConfigStatus = {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { whatsappConfigStatus } from '../config/env.js';
+import { env, whatsappConfigStatus } from '../config/env.js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import { publishImage } from '../integrations/instagram/instagramClient.js';
 import {
@@ -25,6 +25,7 @@ import {
   listAgendamentosVencidos,
   registerPublicacaoFalha,
   registerPublicacaoSucesso,
+  setInstagramMediaPendente,
   setPublicacaoComprovante,
 } from '../repositories/publicacao.repository.js';
 import { getSolicitacaoDetail as getSolicitacaoDetailRepo } from '../repositories/solicitacao.repository.js';
@@ -149,7 +150,13 @@ async function notificarClientePublicacaoBestEffort(
 
 async function processarUmAgendamento(
   adminClient: SupabaseClient,
-  agendamento: { idAgendamento: number; idSolicitacao: number; legenda: string | null },
+  agendamento: {
+    idAgendamento: number;
+    idSolicitacao: number;
+    legenda: string | null;
+    instagramMediaIdPendente: string | null;
+    instagramPermalinkPendente: string | null;
+  },
 ): Promise<'publicado' | 'falha' | 'pendente'> {
   const versao = await getVersaoArteAtualDaSolicitacao(adminClient, agendamento.idSolicitacao);
   if (!versao) return 'pendente'; // defensivo — não deveria ocorrer dado o invariante de status
@@ -161,7 +168,13 @@ async function processarUmAgendamento(
   // credencial global. Sem conexão válida (ou expirada), cai para manual;
   // nunca tenta publicar na conta de outro cliente.
   const idCliente = await getClienteIdDaSolicitacao(adminClient, agendamento.idSolicitacao);
-  const conexao = idCliente ? await getConexaoAtiva(adminClient, idCliente) : null;
+  // Item N.5.5: sem a chave de cifragem, não há como decifrar o token —
+  // trata como "sem conexão" e cai no caminho manual (mesmo comportamento
+  // já usado para qualquer outra ausência de conexão, nunca um crash do job).
+  const conexao =
+    idCliente && env.INSTAGRAM_TOKEN_ENC_KEY
+      ? await getConexaoAtiva(adminClient, idCliente, env.INSTAGRAM_TOKEN_ENC_KEY)
+      : null;
   if (!conexao) return 'pendente';
 
   // RF014/RN29/Gate G: reserva o agendamento ANTES de chamar a Instagram API.
@@ -170,23 +183,59 @@ async function processarUmAgendamento(
   const reservado = await claimAgendamentoParaPublicacao(adminClient, agendamento.idAgendamento);
   if (!reservado) return 'pendente';
 
+  // Auditoria (achado HIGH — janela de publicação duplicada): a partir do
+  // instante em que a Meta confirma a publicação (mediaId obtido nesta
+  // tentativa OU já pendente de uma tentativa anterior que caiu antes de
+  // registrar), o post é real e definitivo — nenhum erro depois deste ponto
+  // pode acionar `registerPublicacaoFalha` (isso liberaria a reserva e
+  // arriscaria uma segunda publicação real no próximo ciclo do cron).
+  let jaPublicadoNoInstagram = agendamento.instagramMediaIdPendente !== null;
+
   try {
-    const imageUrl = await createVersaoArteDownloadUrl(
-      adminClient,
-      versao.arquivoUrl,
-      DOWNLOAD_URL_EXPIRES_IN_SECONDS,
-      false,
-    );
-    const publishResult = await publishImage(
-      { accessToken: conexao.accessToken, accountId: conexao.instagramUserId },
-      imageUrl,
-      agendamento.legenda ?? '',
-    );
+    let permalink: string | null;
+
+    if (jaPublicadoNoInstagram) {
+      // Recuperação: a chamada à Instagram já teve sucesso antes; só falta
+      // confirmar o registro. Nunca chama a Instagram API de novo.
+      permalink = agendamento.instagramPermalinkPendente;
+    } else {
+      const imageUrl = await createVersaoArteDownloadUrl(
+        adminClient,
+        versao.arquivoUrl,
+        DOWNLOAD_URL_EXPIRES_IN_SECONDS,
+        false,
+      );
+      const publishResult = await publishImage(
+        { accessToken: conexao.accessToken, accountId: conexao.instagramUserId },
+        imageUrl,
+        agendamento.legenda ?? '',
+      );
+      jaPublicadoNoInstagram = true;
+      permalink = publishResult.permalink;
+
+      try {
+        await setInstagramMediaPendente(
+          adminClient,
+          agendamento.idAgendamento,
+          publishResult.mediaId,
+          permalink,
+        );
+      } catch (persistError) {
+        console.error(
+          '[designhub:publicacao] falha ao persistir marca de recuperação pós-publicação (Instagram já publicou; registro segue normalmente)',
+          {
+            idAgendamento: agendamento.idAgendamento,
+            message: persistError instanceof Error ? persistError.message.slice(0, 200) : 'erro desconhecido',
+          },
+        );
+      }
+    }
+
     await registerPublicacaoSucesso(adminClient, {
       idAgendamento: agendamento.idAgendamento,
       tipo: 'automatica',
       atorId: null,
-      permalink: publishResult.permalink,
+      permalink,
     });
     await notificarClientePublicacaoBestEffort(adminClient, agendamento.idSolicitacao);
     return 'publicado';
@@ -195,6 +244,12 @@ async function processarUmAgendamento(
       idAgendamento: agendamento.idAgendamento,
       message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
     });
+    if (jaPublicadoNoInstagram) {
+      // Já publicado de fato — não libera a reserva. A próxima tentativa
+      // (após os 300s de stale) recupera pela marca persistida em vez de
+      // tratar como falha e publicar de novo.
+      return 'falha';
+    }
     await registerPublicacaoFalha(adminClient, { idAgendamento: agendamento.idAgendamento });
     return 'falha';
   }
@@ -317,11 +372,23 @@ export interface PublicacaoDetalhe {
   temComprovante: boolean;
 }
 
-/** RF014/item 9.1: dados para o badge "Publicado" (RF005 "detalhes com... status"). */
+/**
+ * RF014/item 9.1: dados para o badge "Publicado" (RF005 "detalhes com...
+ * status"). Auditoria: checagem explícita de ownership (defesa em
+ * profundidade, mesmo padrão das demais funções deste arquivo) além da RLS —
+ * não depende só da policy do banco para impedir acesso cruzado.
+ */
 export async function getPublicacaoDetalhe(
   userClient: SupabaseClient,
   idSolicitacao: number,
+  callerId: string,
+  options?: { allowAnyDesigner?: boolean },
 ): Promise<PublicacaoDetalhe | null> {
+  const solicitacao = await getSolicitacaoDetailRepo(userClient, idSolicitacao);
+  if (!solicitacao || (!options?.allowAnyDesigner && solicitacao.idDesigner !== callerId)) {
+    throw new NotFoundError('Solicitação não encontrada.');
+  }
+
   const publicacao = await getPublicacaoBySolicitacao(userClient, idSolicitacao);
   if (!publicacao) return null;
   return {

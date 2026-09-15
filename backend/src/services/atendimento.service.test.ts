@@ -13,6 +13,7 @@ const {
   createAtendimentoMock,
   deleteAtendimentoMock,
   registerWebhookEventOnceMock,
+  markWebhookEventoConcluidoMock,
   listActiveAtendimentosMock,
   markAtendimentoExpiredMock,
   markAtendimentoRecusadoMock,
@@ -21,6 +22,7 @@ const {
   revertAtendimentoParaAndamentoMock,
   countRespostasMock,
   insertRespostaMock,
+  registerRespostaEAvancarMock,
   listRespostasOrdenadasMock,
   completeAtendimentoAndCreateSolicitacaoMock,
   syncDesignerBloqueioMock,
@@ -36,6 +38,7 @@ const {
   createAtendimentoMock: vi.fn(),
   deleteAtendimentoMock: vi.fn(),
   registerWebhookEventOnceMock: vi.fn(),
+  markWebhookEventoConcluidoMock: vi.fn(),
   listActiveAtendimentosMock: vi.fn(),
   markAtendimentoExpiredMock: vi.fn(),
   markAtendimentoRecusadoMock: vi.fn(),
@@ -44,6 +47,7 @@ const {
   revertAtendimentoParaAndamentoMock: vi.fn(),
   countRespostasMock: vi.fn(),
   insertRespostaMock: vi.fn(),
+  registerRespostaEAvancarMock: vi.fn(),
   listRespostasOrdenadasMock: vi.fn(),
   completeAtendimentoAndCreateSolicitacaoMock: vi.fn(),
   syncDesignerBloqueioMock: vi.fn(),
@@ -70,6 +74,7 @@ vi.mock('../repositories/atendimento.repository.js', () => ({
   createAtendimento: createAtendimentoMock,
   deleteAtendimento: deleteAtendimentoMock,
   registerWebhookEventOnce: registerWebhookEventOnceMock,
+  markWebhookEventoConcluido: markWebhookEventoConcluidoMock,
   listActiveAtendimentos: listActiveAtendimentosMock,
   markAtendimentoExpired: markAtendimentoExpiredMock,
   markAtendimentoRecusado: markAtendimentoRecusadoMock,
@@ -78,9 +83,11 @@ vi.mock('../repositories/atendimento.repository.js', () => ({
   revertAtendimentoParaAndamento: revertAtendimentoParaAndamentoMock,
   countRespostas: countRespostasMock,
   insertResposta: insertRespostaMock,
+  registerRespostaEAvancar: registerRespostaEAvancarMock,
   listRespostasOrdenadas: listRespostasOrdenadasMock,
   completeAtendimentoAndCreateSolicitacao: completeAtendimentoAndCreateSolicitacaoMock,
   normalizePhone: (value: string) => value.replace(/\D/g, ''),
+  phoneStorageCandidates: (value: string) => [value.replace(/\D/g, '')],
 }));
 
 vi.mock('../repositories/solicitacao.repository.js', () => ({
@@ -217,6 +224,7 @@ describe('iniciarAtendimento (RF004/RN02/RN03, RF006)', () => {
 describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
   beforeEach(() => {
     registerWebhookEventOnceMock.mockReset().mockResolvedValue(true);
+    markWebhookEventoConcluidoMock.mockReset().mockResolvedValue(undefined);
     listActiveAtendimentosMock.mockReset().mockResolvedValue([]);
     markAtendimentoExpiredMock.mockReset();
     markAtendimentoRecusadoMock.mockReset();
@@ -225,6 +233,7 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     revertAtendimentoParaAndamentoMock.mockReset();
     countRespostasMock.mockReset();
     insertRespostaMock.mockReset().mockResolvedValue(true);
+    registerRespostaEAvancarMock.mockReset();
     listRespostasOrdenadasMock.mockReset();
     completeAtendimentoAndCreateSolicitacaoMock.mockReset();
     sendTextMessageMock.mockReset().mockResolvedValue({ wamid: 'wamid.out' });
@@ -238,6 +247,27 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     await processInboundWebhook(webhookPayload(inboundMessage()));
 
     expect(listActiveAtendimentosMock).not.toHaveBeenCalled();
+  });
+
+  it('auditoria (achado HIGH): marca o evento como concluído somente depois do processamento terminar com sucesso', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(0);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 1 });
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ from: '5511999999999' })));
+
+    expect(markWebhookEventoConcluidoMock).toHaveBeenCalledOnce();
+  });
+
+  it('auditoria (achado HIGH): NÃO marca como concluído e propaga o erro quando o processamento falha (permite reentrega real da Meta reprocessar)', async () => {
+    listActiveAtendimentosMock.mockRejectedValue(new Error('falha transitória do Supabase'));
+
+    await expect(
+      processInboundWebhook(webhookPayload(inboundMessage({ from: '5511999999999' }))),
+    ).rejects.toThrow('falha transitória do Supabase');
+    expect(markWebhookEventoConcluidoMock).not.toHaveBeenCalled();
   });
 
   it('ignora mensagem sem atendimento ativo correspondente ao número (RN04)', async () => {
@@ -272,10 +302,11 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       },
     ]);
     countRespostasMock.mockResolvedValue(1); // já respondeu a 1ª (confirmação); esta é a 2ª (tema)
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 2 });
 
     await processInboundWebhook(webhookPayload(inboundMessage({ from: '5511999999999' })));
 
-    expect(insertRespostaMock).toHaveBeenCalledOnce();
+    expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
     expect(sendTextMessageMock).toHaveBeenCalledOnce();
     expect(completeAtendimentoAndCreateSolicitacaoMock).not.toHaveBeenCalled();
   });
@@ -290,6 +321,7 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       },
     ]);
     countRespostasMock.mockResolvedValue(4); // faltava só a última (referência)
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 5 });
     listRespostasOrdenadasMock.mockResolvedValue(['sim', 'Tema X', 'Azul', 'Sem observações', 'não tenho']);
     completeAtendimentoAndCreateSolicitacaoMock.mockResolvedValue(999);
 
@@ -320,12 +352,12 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     expect(sendTextMessageMock).not.toHaveBeenCalled();
   });
 
-  it('não avança o fluxo quando outra requisição concorrente já respondeu a mesma pergunta (seção 12.4)', async () => {
+  it('não avança o fluxo quando a RPC atômica indica questionário já concluído (item N.5.6)', async () => {
     listActiveAtendimentosMock.mockResolvedValue([
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
     ]);
     countRespostasMock.mockResolvedValue(1);
-    insertRespostaMock.mockResolvedValue(false); // perdeu a corrida (unique violation)
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: false, answeredCount: 5 });
 
     await processInboundWebhook(webhookPayload(inboundMessage({ from: '5511999999999' })));
 
@@ -333,17 +365,35 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     expect(completeAtendimentoAndCreateSolicitacaoMock).not.toHaveBeenCalled();
   });
 
+  it('item N.5.6: usa a contagem retornada pela RPC (não a leitura prévia, potencialmente desatualizada por uma corrida) para decidir a próxima pergunta', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    // Leitura prévia (fora do lock) sugere que só a 2ª pergunta (tema) foi
+    // respondida — mas sob o lock, outra mensagem concorrente já avançou o
+    // atendimento até a 4ª (observações). A RPC atômica é a fonte da
+    // verdade: a próxima pergunta enviada deve refletir `answeredCount`
+    // devolvido por ela, nunca o valor desatualizado de `countRespostasMock`.
+    countRespostasMock.mockResolvedValue(1);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 4 });
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ from: '5511999999999' })));
+
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('referência'));
+  });
+
   it('não propaga erro quando o envio da próxima pergunta falha (Gate G — resposta já foi persistida)', async () => {
     listActiveAtendimentosMock.mockResolvedValue([
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
     ]);
     countRespostasMock.mockResolvedValue(1);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 2 });
     sendTextMessageMock.mockRejectedValue(new Error('WhatsApp indisponível'));
 
     await expect(
       processInboundWebhook(webhookPayload(inboundMessage({ from: '5511999999999' }))),
     ).resolves.toBeUndefined();
-    expect(insertRespostaMock).toHaveBeenCalledOnce();
+    expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
   });
 
   it('baixa e armazena a imagem de referência via Media API quando a pergunta atual é a última (item 14)', async () => {
@@ -351,6 +401,7 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
     ]);
     countRespostasMock.mockResolvedValue(4); // última pergunta (referência)
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 5 });
     const pngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff]);
     downloadMediaFromWhatsAppMock.mockResolvedValue(pngBuffer);
     listRespostasOrdenadasMock.mockResolvedValue(['sim', 'Tema X', 'Azul', 'Sem observações', 'atendimentos/1/referencias/x.png']);
@@ -362,10 +413,10 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
 
     expect(downloadMediaFromWhatsAppMock).toHaveBeenCalledWith('media-1');
     expect(uploadArquivoToStorageMock).toHaveBeenCalledOnce();
-    expect(insertRespostaMock).toHaveBeenCalledWith(
+    expect(registerRespostaEAvancarMock).toHaveBeenCalledWith(
       expect.anything(),
       1,
-      expect.any(String),
+      expect.any(Array),
       expect.stringMatching(/^atendimentos\/1\/referencias\/.+\.png$/),
     );
   });
@@ -375,6 +426,7 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
     ]);
     countRespostasMock.mockResolvedValue(4);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 5 });
     downloadMediaFromWhatsAppMock.mockRejectedValue(new Error('timeout'));
     listRespostasOrdenadasMock.mockResolvedValue(['sim', 'Tema X', 'Azul', 'Sem observações', 'falhou']);
     completeAtendimentoAndCreateSolicitacaoMock.mockResolvedValue(999);
@@ -386,10 +438,10 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     ).resolves.toBeUndefined();
 
     expect(uploadArquivoToStorageMock).not.toHaveBeenCalled();
-    expect(insertRespostaMock).toHaveBeenCalledWith(
+    expect(registerRespostaEAvancarMock).toHaveBeenCalledWith(
       expect.anything(),
       1,
-      expect.any(String),
+      expect.any(Array),
       '[referência enviada, mas não foi possível processar o arquivo]',
     );
     expect(completeAtendimentoAndCreateSolicitacaoMock).toHaveBeenCalledOnce();
@@ -414,10 +466,11 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
     ]);
     countRespostasMock.mockResolvedValue(0);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 1 });
 
     await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'Sim, pode continuar' } })));
 
-    expect(insertRespostaMock).toHaveBeenCalledOnce();
+    expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
     expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
     expect(sendTextMessageMock).toHaveBeenCalledOnce();
   });

@@ -22,6 +22,7 @@ const {
   setPublicacaoComprovanteMock,
   uploadArquivoToStorageMock,
   removeArquivoFromStorageBestEffortMock,
+  setInstagramMediaPendenteMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   publishImageMock: vi.fn(),
@@ -43,10 +44,14 @@ const {
   setPublicacaoComprovanteMock: vi.fn(),
   uploadArquivoToStorageMock: vi.fn(),
   removeArquivoFromStorageBestEffortMock: vi.fn(),
+  setInstagramMediaPendenteMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
-vi.mock('../config/env.js', () => ({ whatsappConfigStatus: whatsappConfigStatusMock }));
+vi.mock('../config/env.js', () => ({
+  whatsappConfigStatus: whatsappConfigStatusMock,
+  env: { INSTAGRAM_TOKEN_ENC_KEY: 'chave-de-teste-com-32-caracteres' },
+}));
 vi.mock('../integrations/instagram/instagramClient.js', () => ({ publishImage: publishImageMock }));
 vi.mock('../integrations/whatsapp/whatsappClient.js', () => {
   class WhatsAppReengagementRequiredError extends Error {}
@@ -74,6 +79,7 @@ vi.mock('../repositories/publicacao.repository.js', () => ({
   getClienteIdDaSolicitacao: getClienteIdDaSolicitacaoMock,
   getPublicacaoBySolicitacao: getPublicacaoBySolicitacaoMock,
   setPublicacaoComprovante: setPublicacaoComprovanteMock,
+  setInstagramMediaPendente: setInstagramMediaPendenteMock,
 }));
 vi.mock('../repositories/solicitacao.repository.js', () => ({
   getSolicitacaoDetail: getSolicitacaoDetailRepoMock,
@@ -95,7 +101,13 @@ const {
 
 const { WhatsAppReengagementRequiredError } = await import('../integrations/whatsapp/whatsappClient.js');
 
-const AGENDAMENTO_VENCIDO = { idAgendamento: 1, idSolicitacao: 10, legenda: 'Legenda' };
+const AGENDAMENTO_VENCIDO = {
+  idAgendamento: 1,
+  idSolicitacao: 10,
+  legenda: 'Legenda',
+  instagramMediaIdPendente: null,
+  instagramPermalinkPendente: null,
+};
 
 const CONEXAO_ATIVA = {
   instagramUserId: 'conta-cliente-10',
@@ -119,6 +131,7 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
     sendTextMessageMock.mockReset();
     sendPublicacaoTemplateMessageMock.mockReset();
     getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue(null);
+    setInstagramMediaPendenteMock.mockReset().mockResolvedValue(undefined);
     whatsappConfigStatusMock.hasPublicacaoTemplateConfigured = true;
   });
 
@@ -331,6 +344,28 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
     expect(claimAgendamentoParaPublicacaoMock).not.toHaveBeenCalled();
   });
 
+  it('item N.5.5: deixa pendente para manual sem consultar a RPC quando INSTAGRAM_TOKEN_ENC_KEY está ausente (fail-safe, nunca crasha o job)', async () => {
+    const { env } = await import('../config/env.js');
+    const originalKey = (env as { INSTAGRAM_TOKEN_ENC_KEY: string | undefined }).INSTAGRAM_TOKEN_ENC_KEY;
+    (env as { INSTAGRAM_TOKEN_ENC_KEY: string | undefined }).INSTAGRAM_TOKEN_ENC_KEY = undefined;
+    try {
+      listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+      getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+        idVersao: 1,
+        formato: 'PNG',
+        arquivoUrl: 'solicitacoes/10/versoes/x.png',
+      });
+
+      const result = await processarAgendamentosVencidos();
+
+      expect(result).toEqual({ processados: 1, publicadosAutomaticamente: 0, falhas: 0, pendentesParaManual: 1 });
+      expect(getConexaoAtivaMock).not.toHaveBeenCalled();
+      expect(publishImageMock).not.toHaveBeenCalled();
+    } finally {
+      (env as { INSTAGRAM_TOKEN_ENC_KEY: string | undefined }).INSTAGRAM_TOKEN_ENC_KEY = originalKey;
+    }
+  });
+
   it('deixa pendente para publicação manual quando o formato não é publicável (PDF)', async () => {
     listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
     getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
@@ -392,7 +427,13 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
   });
 
   it('isola erro inesperado de um agendamento sem interromper o processamento dos demais (Gate G)', async () => {
-    const outroAgendamento = { idAgendamento: 2, idSolicitacao: 11, legenda: null };
+    const outroAgendamento = {
+      idAgendamento: 2,
+      idSolicitacao: 11,
+      legenda: null,
+      instagramMediaIdPendente: null,
+      instagramPermalinkPendente: null,
+    };
     listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO, outroAgendamento]);
     getVersaoArteAtualDaSolicitacaoMock.mockImplementation((_client: unknown, idSolicitacao: number) =>
       idSolicitacao === 10
@@ -408,6 +449,84 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
       expect.anything(),
       expect.objectContaining({ idAgendamento: 2 }),
     );
+  });
+
+  it('auditoria (achado HIGH — janela de publicação duplicada): grava a marca de recuperação logo após o sucesso na Instagram, antes de registrar', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      formato: 'PNG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.png',
+    });
+    publishImageMock.mockResolvedValue({ mediaId: 'ig-media-1', permalink: 'https://www.instagram.com/p/abc/' });
+
+    await processarAgendamentosVencidos();
+
+    expect(setInstagramMediaPendenteMock).toHaveBeenCalledWith(
+      expect.anything(),
+      1,
+      'ig-media-1',
+      'https://www.instagram.com/p/abc/',
+    );
+    expect(registerPublicacaoSucessoMock).toHaveBeenCalledOnce();
+  });
+
+  it('auditoria (achado HIGH): quando já existe marca de recuperação pendente, NUNCA chama a Instagram API de novo — só confirma o registro', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([
+      {
+        ...AGENDAMENTO_VENCIDO,
+        instagramMediaIdPendente: 'ig-media-anterior',
+        instagramPermalinkPendente: 'https://www.instagram.com/p/anterior/',
+      },
+    ]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      formato: 'PNG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.png',
+    });
+
+    const result = await processarAgendamentosVencidos();
+
+    expect(result.publicadosAutomaticamente).toBe(1);
+    expect(publishImageMock).not.toHaveBeenCalled();
+    expect(createVersaoArteDownloadUrlMock).not.toHaveBeenCalled();
+    expect(registerPublicacaoSucessoMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ permalink: 'https://www.instagram.com/p/anterior/' }),
+    );
+  });
+
+  it('auditoria (achado HIGH): falha DEPOIS da Instagram já ter publicado nunca libera a reserva (não chama registerPublicacaoFalha)', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      formato: 'PNG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.png',
+    });
+    publishImageMock.mockResolvedValue({ mediaId: 'ig-media-1', permalink: null });
+    registerPublicacaoSucessoMock.mockRejectedValue(new Error('falha transitória ao gravar'));
+
+    const result = await processarAgendamentosVencidos();
+
+    expect(result).toEqual({ processados: 1, publicadosAutomaticamente: 0, falhas: 1, pendentesParaManual: 1 });
+    expect(registerPublicacaoFalhaMock).not.toHaveBeenCalled();
+  });
+
+  it('auditoria (achado HIGH): falha ao persistir a marca de recuperação não impede o registro de seguir (best-effort)', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      formato: 'PNG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.png',
+    });
+    publishImageMock.mockResolvedValue({ mediaId: 'ig-media-1', permalink: null });
+    setInstagramMediaPendenteMock.mockRejectedValue(new Error('erro transitório de banco'));
+
+    const result = await processarAgendamentosVencidos();
+
+    expect(result.publicadosAutomaticamente).toBe(1);
+    expect(registerPublicacaoSucessoMock).toHaveBeenCalledOnce();
+    expect(registerPublicacaoFalhaMock).not.toHaveBeenCalled();
   });
 });
 
@@ -647,9 +766,28 @@ describe('uploadComprovantePublicacao (item 9.3 — correções 13/09/2026)', ()
 });
 
 describe('getPublicacaoDetalhe (item 9.1 — badge de publicação)', () => {
+  beforeEach(() => {
+    getSolicitacaoDetailRepoMock.mockReset().mockResolvedValue({ idDesigner: 'designer-1', status: 'Publicado' });
+  });
+
   it('retorna null quando não há publicação', async () => {
     getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue(null);
-    await expect(getPublicacaoDetalhe({} as never, 10)).resolves.toBeNull();
+    await expect(getPublicacaoDetalhe({} as never, 10, 'designer-1')).resolves.toBeNull();
+  });
+
+  it('auditoria: rejeita quando o callerId não é o dono da solicitação (IDOR)', async () => {
+    getPublicacaoBySolicitacaoMock.mockReset();
+    await expect(getPublicacaoDetalhe({} as never, 10, 'outro-designer')).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+    expect(getPublicacaoBySolicitacaoMock).not.toHaveBeenCalled();
+  });
+
+  it('auditoria: permite administrador com allowAnyDesigner mesmo não sendo o dono', async () => {
+    getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue(null);
+    await expect(
+      getPublicacaoDetalhe({} as never, 10, 'admin-1', { allowAnyDesigner: true }),
+    ).resolves.toBeNull();
   });
 
   it('mapeia temComprovante a partir da presença de comprovanteUrl', async () => {
@@ -662,7 +800,7 @@ describe('getPublicacaoDetalhe (item 9.1 — badge de publicação)', () => {
       numeroVersao: 2,
     });
 
-    await expect(getPublicacaoDetalhe({} as never, 10)).resolves.toEqual({
+    await expect(getPublicacaoDetalhe({} as never, 10, 'designer-1')).resolves.toEqual({
       dataPublicada: '2026-09-01T12:00:00Z',
       tipo: 'manual',
       permalink: null,

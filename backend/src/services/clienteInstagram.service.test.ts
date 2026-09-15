@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConflictError, NotFoundError } from '../lib/errors.js';
+import { BlockedExternalCredentialError, ConflictError, NotFoundError } from '../lib/errors.js';
 
 const {
   getSupabaseAdminClientMock,
@@ -24,6 +24,7 @@ const {
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
+vi.mock('../config/env.js', () => ({ env: { INSTAGRAM_TOKEN_ENC_KEY: 'chave-de-teste-com-32-caracteres' } }));
 vi.mock('../repositories/cliente.repository.js', () => ({ getClienteById: getClienteByIdMock }));
 vi.mock('../integrations/instagram/instagramOAuth.js', () => ({
   buildAuthorizeUrl: buildAuthorizeUrlMock,
@@ -136,7 +137,27 @@ describe('processarCallbackInstagram (RF014/ADR 0005 — callback público)', ()
     expect(result).toEqual({ idCliente: 7 });
     expect(upsertConexaoMock).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ idCliente: 7, instagramUserId: 'conta-7', accessToken: 'token-longo' }),
+      expect.objectContaining({
+        idCliente: 7,
+        instagramUserId: 'conta-7',
+        accessToken: 'token-longo',
+        encKey: 'chave-de-teste-com-32-caracteres',
+      }),
     );
+  });
+
+  it('item N.5.5: rejeita (fail-closed) sem gravar nada quando INSTAGRAM_TOKEN_ENC_KEY está ausente', async () => {
+    const { env } = await import('../config/env.js');
+    const originalKey = (env as { INSTAGRAM_TOKEN_ENC_KEY: string | undefined }).INSTAGRAM_TOKEN_ENC_KEY;
+    (env as { INSTAGRAM_TOKEN_ENC_KEY: string | undefined }).INSTAGRAM_TOKEN_ENC_KEY = undefined;
+    try {
+      await expect(processarCallbackInstagram('state-valido', 'code-1')).rejects.toBeInstanceOf(
+        BlockedExternalCredentialError,
+      );
+      expect(consumeOAuthStateMock).not.toHaveBeenCalled();
+      expect(upsertConexaoMock).not.toHaveBeenCalled();
+    } finally {
+      (env as { INSTAGRAM_TOKEN_ENC_KEY: string | undefined }).INSTAGRAM_TOKEN_ENC_KEY = originalKey;
+    }
   });
 });
