@@ -11,12 +11,39 @@ aprovados (fallback automático, `WhatsAppReengagementRequiredError`). Basta
 submeter os textos abaixo no Business Manager e configurar o nome aprovado
 nas variáveis de ambiente indicadas — **sem novo deploy de código**.
 
-**Status: submetidos à Meta em 2026-09-14 via Graph API (`POST /{whatsapp_business_account_id}/message_templates`), aguardando revisão automática da Meta.**
+**Status em 2026-09-15 (checagem via Graph API `GET /{waba_id}/message_templates`): ambos `APPROVED`.**
 
-| Template (nome final) | ID Meta | Categoria | Status |
+| Template (nome final) | ID Meta | Categoria aprovada | Status |
 |---|---|---|---|
-| `designhub_arte_publicada` | `1047818271217084` | UTILITY | PENDING |
-| `agendamento_cancelado_cliente` | `1393053336343242` | UTILITY | PENDING |
+| `designhub_arte_publicada` | `1047818271217084` | **MARKETING** (reclassificado, 2ª vez) | APPROVED |
+| `agendamento_cancelado_cliente` | `1393053336343242` | UTILITY | APPROVED |
+
+**Ativado em produção (15/09/2026): apenas `agendamento_cancelado_cliente`**
+(`WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER`, item 8.6 — alerta ao designer no
+cancelamento de agendamento). Categoria `UTILITY` confirmada, sem risco de
+custo identificado.
+
+**NÃO ativado: `designhub_arte_publicada`** (`WHATSAPP_TEMPLATE_NAME_PUBLICACAO`,
+RF014/item 9.2-9.4 — aviso de publicação ao cliente). Apesar do texto
+neutro/factual da 2ª submissão, a Meta reclassificou para `MARKETING` de
+novo (mesmo padrão da 1ª tentativa). Mensagens `MARKETING` são cobradas por
+mensagem na maioria dos países no modelo de precificação vigente da Meta —
+incompatível com o requisito de custo zero do TFC (seção 2.1/12 do
+`CLAUDE.md`). Por isso o agente **não** configurou a variável em produção
+mesmo com o template aprovado — geração de custo exige autorização explícita
+do usuário (seção 1 do `CLAUDE.md`). Sem essa variável, o comportamento
+atual continua seguro: fora da janela de 24h, o aviso por WhatsApp fica
+`BLOCKED_EXTERNAL_WHATSAPP_PUBLICACAO` (log claro, nunca falha silenciosa) e
+a publicação em si nunca é revertida — só o aviso complementar não sai.
+
+**Decisão pendente do usuário** para RF014/item 9.2-9.4 (uma das opções,
+nenhuma implementada até confirmação explícita):
+1. resubmeter o template com um texto ainda mais neutro na tentativa de
+   conseguir `UTILITY` pela 3ª vez;
+2. aceitar o custo por mensagem do `MARKETING` e autorizar explicitamente a
+   ativação de `WHATSAPP_TEMPLATE_NAME_PUBLICACAO=designhub_arte_publicada`;
+3. manter apenas o aviso in-app (já existente) e não usar WhatsApp
+   business-initiated para este aviso específico.
 
 Histórico: a primeira submissão do aviso de publicação usou o nome
 `arte_publicada` e texto com emoji ("🎨 Sua arte foi publicada!..."), mas a

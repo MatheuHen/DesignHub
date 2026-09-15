@@ -219,16 +219,22 @@ Supabase real do DesignHub (via Supabase CLI + connection string do
 outros projetos, fora do isolamento exigido pela seção 2 do `CLAUDE.md`,
 e não foi usado para nenhuma escrita). Código e banco estão sincronizados.
 
-Resta 1 item `BLOCKED_EXTERNAL` (não é falha de implementação, depende de
-aprovação externa da Meta):
+**Item 8.6 RESOLVIDO em 15/09/2026**: o template `agendamento_cancelado_cliente`
+foi aprovado pela Meta como `UTILITY` (sem risco de custo) e ativado em
+produção (`WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER`) — o alerta ao designer
+por WhatsApp agora funciona também fora da janela de 24h, além do alerta
+in-app já existente.
 
-- **Alerta ao designer por WhatsApp quando o cliente cancela um agendamento
-  (item 8.6).** Implementado apenas o alerta in-app (`historico_solicitacao`,
-  já visível no detalhe da solicitação); o canal WhatsApp exigiria um
-  template de mensagem business-initiated aprovado pela Meta especificamente
-  para esse aviso ao designer, que não existe hoje (o único template
-  aprovado, `inicio_atendimento_designhub`, é para abrir a conversa do
-  questionário RF004) — registrar como pendência para o Business Manager.
+Resta 1 item que depende de **decisão do usuário sobre custo**, não mais de
+aprovação da Meta (ver `docs/decisions/meta-whatsapp-templates-business-initiated.md`):
+
+- **Aviso "arte publicada" ao cliente (RF014/item 9.2-9.4).** O template
+  `designhub_arte_publicada` foi aprovado, mas a Meta o reclassificou como
+  `MARKETING` (cobrado por mensagem) mesmo com texto neutro — 2ª vez que
+  isso acontece. Por violar o requisito de custo zero do TFC, o agente não
+  ativou a variável em produção sem autorização explícita. O aviso
+  complementar por WhatsApp fica `BLOCKED_EXTERNAL_WHATSAPP_PUBLICACAO`
+  fora da janela de 24h; a publicação em si nunca é afetada.
 
 ## Rodada 14-15/09/2026 — fechamento da auditoria de segurança/performance
 

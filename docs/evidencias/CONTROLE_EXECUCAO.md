@@ -2480,3 +2480,39 @@ documento oficial e corrigidos. Detalhe completo nos commits; resumo aqui.
 - Próxima etapa: usuário conecta o Instagram do cliente de teste via UI e
   executa a bateria manual final (cenários A-F do roteiro desta rodada);
   depois, Fase 17 segue pendente como já registrado.
+
+## 2026-09-15 — Fecha pendências restantes (matriz E2E 100% + item 8.6 WhatsApp)
+
+- **RF003/RF015 (últimos gaps da matriz) fechados com evidência real**: E2E
+  ao vivo contra produção (backend + Supabase reais), designer/cliente
+  sintéticos criados via `docs/evidencias/.e2e-credentials.local.json`
+  (admin E2E reaproveitado da Fase 15), exercitando criação, busca/filtro
+  (nome+status), edição, inativação/reativação e exclusão — tudo confirmado
+  por reconsulta ao estado real, não só pelo código HTTP. Dado sintético
+  100% removido ao final (confirmado por query direta: 0 resíduos). CSV
+  `docs/rastreabilidade/MATRIZ_RASTREABILIDADE_DESIGNHUB.csv` atualizado:
+  **as 16 RFs agora estão `IMPLEMENTADO_E2E_REAL`**.
+- **Item 8.6 (alerta ao designer no cancelamento) resolvido**: checagem via
+  Graph API confirmou `agendamento_cancelado_cliente` `APPROVED`/`UTILITY`.
+  Variável `WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER` configurada em
+  `.env.local` e na Vercel (produção), backend redeployado.
+- **RF014/item 9.2-9.4 NÃO ativado (decisão de custo pendente)**: o outro
+  template (`designhub_arte_publicada`) também está `APPROVED`, mas a Meta o
+  reclassificou como `MARKETING` (cobrado por mensagem) pela 2ª vez, mesmo
+  com texto neutro. Configurar isso violaria o requisito de custo zero do
+  TFC sem autorização explícita — a variável foi deliberadamente **removida**
+  de `.env.local`/Vercel (havia sido adicionada e depois revertida na mesma
+  sessão, antes de qualquer uso real) e o comportamento seguro atual
+  (`BLOCKED_EXTERNAL_WHATSAPP_PUBLICACAO`) foi mantido. Ver
+  `docs/decisions/meta-whatsapp-templates-business-initiated.md` para as 3
+  opções que dependem de decisão do usuário.
+- Validações: nenhuma mudança de código nesta entrada (só config/env +
+  dados de teste), `npm run verify` da rodada anterior (456 testes) segue
+  válido — nenhum arquivo de código tocado.
+- Deploy: backend redeployado 2x (uma para os 2 templates, outra para
+  reverter o de custo) — estado final em produção tem só o template seguro
+  ativo. Smoke test `GET /api/health` confirmou dependências configuradas.
+- **Sem bloqueios externos técnicos pendentes.** Pendência real remanescente:
+  decisão do usuário sobre RF014/item 9.2-9.4 (ver acima).
+- Próxima etapa: Fase 17 (consolidação final de evidências/matriz para a
+  banca) segue como próximo passo natural, sem pendência técnica bloqueando.
