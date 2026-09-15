@@ -2540,3 +2540,29 @@ documento oficial e corrigidos. Detalhe completo nos commits; resumo aqui.
 - Próxima etapa: nenhuma tecnicamente obrigatória. Acompanhar a aprovação
   do template quando o usuário quiser conferir; ajuste de texto do TFC II
   em si é responsabilidade do usuário (documento fora deste repositório).
+
+## 2026-09-15 — Catch-up de checkpoint (2 commits de limpeza pós-Fase 17)
+
+- **`11716b8` chore(limpeza Gate L)**: 6 exports mortos removidos (confirmado
+  via `ts-prune`+grep, zero referências) — `implementedOriginStatuses`
+  (`statusTransitions.ts`) e 5 type aliases/schema duplicado nunca
+  importados (schemas de avaliação/designer/solicitação/whatsapp).
+  `depcheck` confirmou 0 dependências não usadas nos 2 workspaces.
+  `logoofc.png` desrastreado do Git (não é código/documentação do TFC, já
+  usado só para configurar foto de perfil do WhatsApp Business via API;
+  arquivo local mantido, adicionado ao `.gitignore`). Validado: `npm run
+  verify` — 456 testes, 0 regressão.
+- **`9580830` chore**: `scripts/preflight.mjs` passou a ser versionado
+  (estava excluído só em `.git/info/exclude` local por engano). Sem
+  segredo/dado pessoal, mesmo padrão já versionado de
+  `bootstrap-e2e-admin.mjs`. Executado e confirmado funcionando antes de
+  versionar.
+- Nenhuma mudança de escopo, RF/RN/RNF ou comportamento funcional — só
+  higiene de Git (Gate L). `git status` limpo, `main` sincronizado com
+  `origin/main` (commit `9580830`).
+- **Estado real do projeto**: Fase 17 permanece concluída, 40 migrations
+  aplicadas, 0 CRITICAL/HIGH em aberto, backend+frontend em produção. Única
+  pendência é externa (aprovação do template `designhub_publicacao_concluida`
+  pela Meta) e a decisão de custo já registrada (RF014/item 9.2-9.4 não
+  ativado por exigir template `MARKETING` pago). Nenhum próximo passo
+  tecnicamente obrigatório identificado.
