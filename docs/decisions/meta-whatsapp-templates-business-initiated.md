@@ -36,14 +36,43 @@ atual continua seguro: fora da janela de 24h, o aviso por WhatsApp fica
 `BLOCKED_EXTERNAL_WHATSAPP_PUBLICACAO` (log claro, nunca falha silenciosa) e
 a publicação em si nunca é revertida — só o aviso complementar não sai.
 
-**Decisão pendente do usuário** para RF014/item 9.2-9.4 (uma das opções,
-nenhuma implementada até confirmação explícita):
-1. resubmeter o template com um texto ainda mais neutro na tentativa de
-   conseguir `UTILITY` pela 3ª vez;
-2. aceitar o custo por mensagem do `MARKETING` e autorizar explicitamente a
-   ativação de `WHATSAPP_TEMPLATE_NAME_PUBLICACAO=designhub_arte_publicada`;
-3. manter apenas o aviso in-app (já existente) e não usar WhatsApp
-   business-initiated para este aviso específico.
+**3ª tentativa em andamento (15/09/2026)**: usuário optou pela opção 1.
+Novo template submetido com nome distinto (não edita o já aprovado como
+MARKETING, que permanece existente e inativo em produção):
+
+- **Nome**: `designhub_publicacao_concluida` (ID `1279400890942154`)
+- **Categoria declarada na submissão**: `UTILITY` — **status: `PENDING`**
+  (aguardando revisão automática da Meta; a classificação final só é
+  conhecida após a aprovação, como já ocorreu duas vezes com o template
+  anterior).
+- **Corpo (Body) submetido** (mesmo estilo do único template de negócio já
+  aprovado como `UTILITY`, `agendamento_cancelado_cliente`: cabeçalho de
+  status + frase factual citando a entidade específica + ponteiro neutro
+  para consultar a plataforma — sem agradecimento/linguagem de
+  relacionamento, que é o suspeito mais provável de ter reclassificado as
+  duas tentativas anteriores):
+
+  ```
+  ✅ Publicação concluída
+
+  {{1}} foi publicada no Instagram do seu perfil.
+  Consulte o andamento da solicitação no DesignHub.
+  ```
+
+- **Parâmetro `{{1}}`**: mesmo `artLabel` já usado pelo código
+  (`a arte "Promoção de Verão" (versão 2)`, sem ID técnico) — **nenhuma
+  mudança de código necessária**, só trocar o valor de
+  `WHATSAPP_TEMPLATE_NAME_PUBLICACAO` para o novo nome quando aprovado.
+
+**Se aprovado como `UTILITY`**: configurar
+`WHATSAPP_TEMPLATE_NAME_PUBLICACAO=designhub_publicacao_concluida` (custo
+~R$0,04-0,05/mensagem, mesma faixa do item 8.6, compatível com o espírito
+de custo mínimo do TFC — não é R$0 puro, mas ordens de magnitude abaixo de
+MARKETING).
+**Se reclassificado `MARKETING` de novo**: registrar como decisão final do
+usuário entre aceitar o custo de MARKETING (~R$0,31-0,38/mensagem) ou
+manter apenas o aviso in-app — não tentar uma 4ª submissão automaticamente
+sem confirmação, para não gerar ruído de histórico de templates.
 
 Histórico: a primeira submissão do aviso de publicação usou o nome
 `arte_publicada` e texto com emoji ("🎨 Sua arte foi publicada!..."), mas a
