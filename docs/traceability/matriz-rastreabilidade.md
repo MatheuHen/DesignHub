@@ -229,3 +229,37 @@ aprovação externa da Meta):
   para esse aviso ao designer, que não existe hoje (o único template
   aprovado, `inicio_atendimento_designhub`, é para abrir a conversa do
   questionário RF004) — registrar como pendência para o Business Manager.
+
+## Rodada 14-15/09/2026 — fechamento da auditoria de segurança/performance
+
+5 migrations novas aplicadas ao Supabase real (via Supabase CLI +
+`SUPABASE_DB_URL`, mesma técnica das rodadas anteriores):
+`20260914010000_publicacao_media_pendente.sql` (RF014 — reserva do mediaId
+do Instagram antes do registro, fecha janela de publicação duplicada),
+`20260914020000_webhook_evento_duas_fases.sql` (RF004 — dedup do webhook
+WhatsApp com reserva/conclusão em duas fases),
+`20260915010000_cliente_busca_trgm_index.sql` (RNF004 — índice GIN
+`pg_trgm` para a busca `ILIKE` de `cliente.nome`/`whatsapp`),
+`20260915020000_cliente_instagram_token_encryption.sql` (RF014/RNF007 —
+`cliente_instagram_conexao.access_token_enc` cifrado com pgcrypto; chave
+`INSTAGRAM_TOKEN_ENC_KEY` só no backend, nunca no banco; tabela estava vazia
+no momento da migration, nenhuma conexão real precisou ser refeita),
+`20260915030000_resposta_atendimento_avanco_atomico.sql` (RF004/RN08/RN09 —
+RPC `register_resposta_atendimento_e_avancar` fecha a corrida entre duas
+mensagens WhatsApp quase simultâneas do mesmo atendimento, sob lock).
+
+Decisões humanas confirmadas explicitamente pelo usuário antes da
+implementação (ver seção 3 do `CLAUDE.md` — nova regra de negócio/mudança
+sensível exige decisão): cifrar o token do Instagram agora (em vez de
+apenas registrar como pendência) e corrigir a corrida do WhatsApp agora (em
+vez de apenas documentar).
+
+Validação: `npm run verify` (lint+typecheck+test+build, 2 workspaces) —
+456 testes backend + testes frontend inalterados, 0 regressão. Deploy:
+backend (`vercel build --prod` + `vercel deploy --prebuilt --prod`,
+`INSTAGRAM_TOKEN_ENC_KEY` adicionada ao ambiente de produção antes do
+deploy) e frontend (`vercel deploy --prod`) — ambos re-publicados; smoke
+test `GET /api/health` → Supabase/WhatsApp `configured`. Commits `514131d`,
+`03eef98`, `ce64343` — pushados para `origin/main`.
+
+Sem bloqueios externos novos nesta rodada.
