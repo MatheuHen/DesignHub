@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { getSupabaseUserClient } from '../config/supabase.js';
 import { toAppError } from '../lib/errors.js';
 import { attachProfile, requireAuth, requireProfile } from '../middleware/auth.js';
@@ -71,8 +72,23 @@ clienteRouter.patch('/:id', async (request, response, next) => {
   }
 });
 
+/**
+ * Auditoria (seção 12.3): dispara envio real ao WhatsApp Cloud API — mesmo
+ * padrão de limite dedicado por designer já usado em `/link-avaliacao` e
+ * `/publicacao/reenviar-notificacao` do `solicitacaoRouter`, evitando que o
+ * limite genérico do app (120 req/min por IP) permita disparo em massa de
+ * templates para clientes distintos.
+ */
+const iniciarAtendimentoRateLimit = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (request) => request.auth?.userId ?? ipKeyGenerator(request.ip ?? 'unknown'),
+});
+
 /** RF004/RN02/RN03: designer inicia o atendimento estruturado no WhatsApp. */
-clienteRouter.post('/:id/atendimentos', async (request, response, next) => {
+clienteRouter.post('/:id/atendimentos', iniciarAtendimentoRateLimit, async (request, response, next) => {
   try {
     const { id } = clienteIdParamSchema.parse(request.params);
     const client = getSupabaseUserClient(request.auth!.accessToken);

@@ -132,6 +132,7 @@ export function SolicitacoesPage() {
       {!loading && !error && items.length === 0 && <p>Nenhuma solicitação encontrada.</p>}
 
       {!loading && !error && items.length > 0 && (
+        <div className="table-scroll">
         <table className="designer-table">
           <caption className="sr-only">Lista de solicitações ({total} no total)</caption>
           <thead>
@@ -163,6 +164,7 @@ export function SolicitacoesPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </AppShell>
   );

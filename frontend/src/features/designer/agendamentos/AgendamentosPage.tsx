@@ -119,6 +119,7 @@ export function AgendamentosPage() {
       {!loading && !error && items.length === 0 && <p>Nenhum agendamento encontrado.</p>}
 
       {!loading && !error && items.length > 0 && (
+        <div className="table-scroll">
         <table className="designer-table">
           <caption className="sr-only">Lista de agendamentos ({total} no total)</caption>
           <thead>
@@ -152,6 +153,7 @@ export function AgendamentosPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </AppShell>
   );

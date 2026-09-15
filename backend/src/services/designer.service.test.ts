@@ -12,6 +12,8 @@ const {
   reassignSolicitacaoRpcMock,
   deleteDesignerRowMock,
   updateDesignerPasswordRowMock,
+  updateDesignerProfileMock,
+  setDesignerStatusMock,
 } = vi.hoisted(() => ({
   createUserMock: vi.fn(),
   deleteUserMock: vi.fn(),
@@ -23,6 +25,8 @@ const {
   reassignSolicitacaoRpcMock: vi.fn(),
   deleteDesignerRowMock: vi.fn(),
   updateDesignerPasswordRowMock: vi.fn(),
+  updateDesignerProfileMock: vi.fn(),
+  setDesignerStatusMock: vi.fn(),
 }));
 
 getSupabaseAdminClientMock.mockImplementation(() => ({
@@ -38,8 +42,8 @@ vi.mock('../repositories/designer.repository.js', () => ({
   getDesignerById: getDesignerByIdMock,
   assertDesignerIsActive: assertDesignerIsActiveMock,
   listDesigners: vi.fn(),
-  updateDesignerProfile: vi.fn(),
-  setDesignerStatus: vi.fn(),
+  updateDesignerProfile: updateDesignerProfileMock,
+  setDesignerStatus: setDesignerStatusMock,
   deleteDesigner: deleteDesignerRowMock,
   updateDesignerPassword: updateDesignerPasswordRowMock,
 }));
@@ -49,9 +53,14 @@ vi.mock('../repositories/solicitacao.repository.js', () => ({
   reassignSolicitacaoRpc: reassignSolicitacaoRpcMock,
 }));
 
-const { createDesigner, reassignSolicitacao, removeDesigner, changeDesignerPassword } = await import(
-  './designer.service.js'
-);
+const {
+  createDesigner,
+  reassignSolicitacao,
+  removeDesigner,
+  changeDesignerPassword,
+  updateDesigner,
+  changeDesignerStatus,
+} = await import('./designer.service.js');
 
 describe('createDesigner (RF001/FIGURA 28)', () => {
   beforeEach(() => {
@@ -231,5 +240,53 @@ describe('changeDesignerPassword (RF001/item 2.1 — admin altera senha do desig
 
     await expect(changeDesignerPassword('admin-1', 'designer-x', 'senha1234')).resolves.toBeUndefined();
     expect(updateDesignerPasswordRowMock).toHaveBeenCalledWith(expect.anything(), 'designer-x', 'senha1234');
+  });
+});
+
+describe('updateDesigner (auditoria — corrige falta de checagem de existência/perfil)', () => {
+  beforeEach(() => {
+    getDesignerByIdMock.mockReset();
+    updateDesignerProfileMock.mockReset();
+  });
+
+  it('lança NotFoundError quando o alvo não existe ou não é designer (nunca escreve)', async () => {
+    getDesignerByIdMock.mockResolvedValue(null);
+
+    await expect(
+      updateDesigner('outro-admin-ou-inexistente', { nomeCompleto: 'Novo Nome' }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(updateDesignerProfileMock).not.toHaveBeenCalled();
+  });
+
+  it('atualiza quando o designer existe', async () => {
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-x', email: 'x@exemplo.com' });
+    updateDesignerProfileMock.mockResolvedValue(undefined);
+
+    await expect(updateDesigner('designer-x', { nomeCompleto: 'Novo Nome' })).resolves.toBeUndefined();
+    expect(updateDesignerProfileMock).toHaveBeenCalledWith(expect.anything(), 'designer-x', {
+      nomeCompleto: 'Novo Nome',
+    });
+  });
+});
+
+describe('changeDesignerStatus (auditoria — corrige 204 falso-positivo para id inexistente)', () => {
+  beforeEach(() => {
+    getDesignerByIdMock.mockReset();
+    setDesignerStatusMock.mockReset();
+  });
+
+  it('lança NotFoundError quando o designer não existe (nunca escreve)', async () => {
+    getDesignerByIdMock.mockResolvedValue(null);
+
+    await expect(changeDesignerStatus('inexistente', 'inativo')).rejects.toBeInstanceOf(NotFoundError);
+    expect(setDesignerStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('atualiza o status quando o designer existe', async () => {
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-x', email: 'x@exemplo.com' });
+    setDesignerStatusMock.mockResolvedValue(undefined);
+
+    await expect(changeDesignerStatus('designer-x', 'inativo')).resolves.toBeUndefined();
+    expect(setDesignerStatusMock).toHaveBeenCalledWith(expect.anything(), 'designer-x', 'inativo');
   });
 });

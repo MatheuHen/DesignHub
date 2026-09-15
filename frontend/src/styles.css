@@ -288,8 +288,15 @@ p {
   font-size: 0.95rem;
 }
 
+/* Auditoria (achado HIGH — overflow em mobile): envolve .designer-table para
+   que a rolagem horizontal fique contida na tabela, não na página inteira. */
+.table-scroll {
+  overflow-x: auto;
+}
+
 .designer-table {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
   background: #fff;
   border: 1px solid #e7e4ef;

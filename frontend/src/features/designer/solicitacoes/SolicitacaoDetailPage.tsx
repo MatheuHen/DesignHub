@@ -94,11 +94,20 @@ export function SolicitacaoDetailPage() {
   const [resendNotificacaoError, setResendNotificacaoError] = useState<string | null>(null);
   const [resendNotificacaoSuccess, setResendNotificacaoSuccess] = useState(false);
 
+  // Auditoria (achado HIGH — race condition): identifica a chamada mais
+  // recente de `reload()` para descartar respostas de uma requisição antiga
+  // que chegam depois de o usuário já ter navegado para outra solicitação
+  // (ou disparado um novo reload) — mesmo padrão de guarda usado em
+  // `DesignerHome.tsx`.
+  const latestRequestIdRef = useRef(0);
+
   const reload = useCallback(() => {
+    const requestId = ++latestRequestIdRef.current;
     setLoading(true);
     setError(null);
     getSolicitacaoDetail(id)
       .then((result) => {
+        if (latestRequestIdRef.current !== requestId) return;
         setData(result);
         // RN22/RN27: sem agendamento ainda criado, pré-preenche com a preferência que o cliente informou ao aprovar.
         const preferencia = result.preferenciaAgendamento;
@@ -114,26 +123,37 @@ export function SolicitacaoDetailPage() {
 
         if (result.solicitacao.status === 'Aprovado' || result.solicitacao.status === 'Agendado') {
           getClienteInstagramStatus(result.solicitacao.idCliente)
-            .then(setInstagramStatus)
-            .catch(() => setInstagramStatus(null));
+            .then((status) => {
+              if (latestRequestIdRef.current === requestId) setInstagramStatus(status);
+            })
+            .catch(() => {
+              if (latestRequestIdRef.current === requestId) setInstagramStatus(null);
+            });
         } else {
           setInstagramStatus(null);
         }
 
         if (result.solicitacao.status === 'Publicado') {
           getPublicacaoDetalhe(id)
-            .then(setPublicacaoDetalhe)
-            .catch(() => setPublicacaoDetalhe(null));
+            .then((detalhe) => {
+              if (latestRequestIdRef.current === requestId) setPublicacaoDetalhe(detalhe);
+            })
+            .catch(() => {
+              if (latestRequestIdRef.current === requestId) setPublicacaoDetalhe(null);
+            });
         } else {
           setPublicacaoDetalhe(null);
         }
       })
       .catch((loadError: unknown) => {
+        if (latestRequestIdRef.current !== requestId) return;
         setError(
           loadError instanceof ApiError ? loadError.message : 'Não foi possível carregar a solicitação.',
         );
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (latestRequestIdRef.current === requestId) setLoading(false);
+      });
   }, [id]);
 
   useEffect(() => {
@@ -541,7 +561,7 @@ export function SolicitacaoDetailPage() {
                   </p>
                 )}
                 {uploadSuccess && !uploadError && (
-                  <p className="atendimento-success">{uploadSuccess}</p>
+                  <p role="status" className="atendimento-success">{uploadSuccess}</p>
                 )}
 
                 <div className="designer-form-actions">
@@ -581,7 +601,7 @@ export function SolicitacaoDetailPage() {
               )}
 
               {linkResult && (
-                <p className="atendimento-success">
+                <p role="status" className="atendimento-success">
                   {linkResult.whatsappNotified
                     ? 'Cliente notificado via WhatsApp com sucesso.'
                     : `Link gerado, mas não foi possível notificar via WhatsApp${linkResult.whatsappError ? ` (${linkResult.whatsappError})` : ''}. Copie e envie manualmente.`}
@@ -661,7 +681,7 @@ export function SolicitacaoDetailPage() {
                     {agendError}
                   </p>
                 )}
-                {agendSuccess && !agendError && <p className="atendimento-success">{agendSuccess}</p>}
+                {agendSuccess && !agendError && <p role="status" className="atendimento-success">{agendSuccess}</p>}
 
                 <div className="designer-form-actions">
                   <button type="submit" disabled={agendSaving}>
@@ -764,7 +784,7 @@ export function SolicitacaoDetailPage() {
                     </p>
                   )}
                   {resendNotificacaoSuccess && (
-                    <p className="atendimento-success">
+                    <p role="status" className="atendimento-success">
                       Reenvio solicitado. Se o cliente não receber, verifique o número de WhatsApp cadastrado.
                     </p>
                   )}
@@ -796,7 +816,7 @@ export function SolicitacaoDetailPage() {
                       {comprovanteError}
                     </p>
                   )}
-                  {comprovanteSuccess && <p className="atendimento-success">Comprovante enviado com sucesso.</p>}
+                  {comprovanteSuccess && <p role="status" className="atendimento-success">Comprovante enviado com sucesso.</p>}
                   {comprovanteDownloadError && (
                     <p role="alert" className="auth-error">
                       {comprovanteDownloadError}

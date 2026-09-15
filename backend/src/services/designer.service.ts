@@ -107,12 +107,16 @@ export async function createDesigner(input: CreateDesignerInput): Promise<Design
 
 export async function updateDesigner(id: string, changes: UpdateDesignerInput): Promise<void> {
   const adminClient = getSupabaseAdminClient();
+  const designer = await getDesignerById(adminClient, id);
+  if (!designer) throw new NotFoundError('Designer não encontrado.');
   await updateDesignerProfile(adminClient, id, changes);
 }
 
 /** RF001: inativação/reativação de designer. */
 export async function changeDesignerStatus(id: string, status: 'ativo' | 'inativo'): Promise<void> {
   const adminClient = getSupabaseAdminClient();
+  const designer = await getDesignerById(adminClient, id);
+  if (!designer) throw new NotFoundError('Designer não encontrado.');
   await setDesignerStatus(adminClient, id, status);
 }
 

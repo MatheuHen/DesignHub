@@ -33,6 +33,7 @@ export function DesignersPage() {
   const [panel, setPanel] = useState<PanelState>({ mode: 'closed' });
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [excluindoSaving, setExcluindoSaving] = useState(false);
 
   const [solicitacoes, setSolicitacoes] = useState<Solicitacao[]>([]);
@@ -98,22 +99,37 @@ export function DesignersPage() {
     reload();
   }
 
+  /**
+   * Auditoria (achado MEDIUM — falha parcial silenciosa): nome/WhatsApp são
+   * persistidos primeiro; se a troca de senha falhar em seguida, o erro
+   * deixa claro que os dados básicos já foram salvos (em vez da mensagem
+   * genérica de senha), e a listagem é recarregada imediatamente para
+   * refletir o estado real — não fica mostrando dados antigos como se nada
+   * tivesse sido salvo.
+   */
   async function handleEdit(designer: Designer, values: EditFormValues) {
     await updateDesigner(designer.id, {
       nomeCompleto: values.nomeCompleto,
       whatsapp: values.whatsapp,
       statusOperacional: values.statusOperacional || null,
     });
+    reload();
+
     if (values.novaSenha) {
-      await updateDesignerPassword(designer.id, values.novaSenha, values.confirmaSenha ?? '');
+      try {
+        await updateDesignerPassword(designer.id, values.novaSenha, values.confirmaSenha ?? '');
+      } catch (passwordError) {
+        const detail = passwordError instanceof Error ? passwordError.message : 'erro desconhecido';
+        throw new Error(`Nome/WhatsApp já foram salvos. Falha ao atualizar a senha: ${detail}`);
+      }
     }
     setPanel({ mode: 'closed' });
-    reload();
   }
 
   function handleToggleStatus(designer: Designer) {
     const nextStatus = designer.status === 'ativo' ? 'inativo' : 'ativo';
     setRowError(null);
+    setTogglingId(designer.id);
     setDesignerStatus(designer.id, nextStatus)
       .then(() => reload())
       .catch((toggleError: unknown) => {
@@ -121,7 +137,8 @@ export function DesignersPage() {
           id: designer.id,
           message: toggleError instanceof ApiError ? toggleError.message : 'Não foi possível atualizar o status.',
         });
-      });
+      })
+      .finally(() => setTogglingId(null));
   }
 
   /** RF001/item 2.4: exclusão ADITIVA ao Ativo/Inativo — bloqueada pelo backend quando há histórico vinculado. */
@@ -203,6 +220,7 @@ export function DesignersPage() {
       {!loading && !error && items.length === 0 && <p>Nenhum designer encontrado.</p>}
 
       {!loading && !error && items.length > 0 && (
+        <div className="table-scroll">
         <table className="designer-table">
           <caption className="sr-only">Lista de designers ({total} no total)</caption>
           <thead>
@@ -230,8 +248,16 @@ export function DesignersPage() {
                   <button type="button" onClick={() => setPanel({ mode: 'edit', designer })}>
                     Editar
                   </button>
-                  <button type="button" onClick={() => handleToggleStatus(designer)}>
-                    {designer.status === 'ativo' ? 'Inativar' : 'Ativar'}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleStatus(designer)}
+                    disabled={togglingId === designer.id}
+                  >
+                    {togglingId === designer.id
+                      ? 'Atualizando…'
+                      : designer.status === 'ativo'
+                        ? 'Inativar'
+                        : 'Ativar'}
                   </button>
                   {excluindoId === designer.id ? (
                     <>
@@ -270,6 +296,7 @@ export function DesignersPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       {panel.mode === 'create' && (
@@ -346,6 +373,7 @@ export function DesignersPage() {
         {!solicitacoesLoading && solicitacoes.length === 0 && <p>Nenhuma solicitação encontrada.</p>}
 
         {!solicitacoesLoading && solicitacoes.length > 0 && (
+          <div className="table-scroll">
           <table className="designer-table">
             <caption className="sr-only">Solicitações atribuídas aos designers</caption>
             <thead>
@@ -414,6 +442,7 @@ export function DesignersPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
         {reatribuirError && (
           <p role="alert" className="auth-error">

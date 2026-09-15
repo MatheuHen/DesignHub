@@ -541,6 +541,9 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
       numeroVersao: 2,
       temComprovante: false,
     });
+    expect(getPublicacaoDetalheMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1', {
+      allowAnyDesigner: true,
+    });
   });
 
   it('item 9.3: POST /:id/publicacao/comprovante é exclusivo do designer — administrador recebe 403', async () => {

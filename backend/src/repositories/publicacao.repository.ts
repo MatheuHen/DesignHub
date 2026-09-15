@@ -15,19 +15,30 @@ const agendamentoVencidoRowSchema = z.object({
   id_agendamento: z.number(),
   id_solicitacao: z.number(),
   legenda: z.string().nullable(),
+  instagram_media_id_pendente: z.string().nullable(),
+  instagram_permalink_pendente: z.string().nullable(),
 });
 
 export interface AgendamentoVencido {
   idAgendamento: number;
   idSolicitacao: number;
   legenda: string | null;
+  /**
+   * Auditoria (achado HIGH — janela de publicação duplicada): quando não
+   * nulo, uma tentativa anterior já publicou de fato no Instagram mas caiu
+   * antes de `registerPublicacaoSucesso` confirmar. O chamador deve pular a
+   * chamada à Instagram API e ir direto para o registro, usando este
+   * permalink — nunca publicar de novo.
+   */
+  instagramMediaIdPendente: string | null;
+  instagramPermalinkPendente: string | null;
 }
 
 /** RF014/RN32: agendamentos ativos cujo horário planejado já passou (job de publicação). */
 export async function listAgendamentosVencidos(adminClient: SupabaseClient): Promise<AgendamentoVencido[]> {
   const result: unknown = await adminClient
     .from('agendamento_publicacao')
-    .select('id_agendamento, id_solicitacao, legenda')
+    .select('id_agendamento, id_solicitacao, legenda, instagram_media_id_pendente, instagram_permalink_pendente')
     .eq('status', 'Agendado')
     .lte('data_hora_publicacao', new Date().toISOString());
   const { data, error } = result as { data: unknown; error: { message: string } | null };
@@ -38,6 +49,8 @@ export async function listAgendamentosVencidos(adminClient: SupabaseClient): Pro
     idAgendamento: row.id_agendamento,
     idSolicitacao: row.id_solicitacao,
     legenda: row.legenda,
+    instagramMediaIdPendente: row.instagram_media_id_pendente,
+    instagramPermalinkPendente: row.instagram_permalink_pendente,
   }));
 }
 
@@ -110,6 +123,27 @@ export async function claimAgendamentoParaPublicacao(
   const { data, error } = result as { data: unknown; error: { message: string } | null };
   if (error) throw new Error(`Falha ao reservar agendamento para publicação: ${error.message}`);
   return data === true;
+}
+
+/**
+ * Auditoria (achado HIGH — janela de publicação duplicada): grava a marca de
+ * recuperação imediatamente após o sucesso real da chamada à Instagram API,
+ * antes de qualquer outra operação que possa falhar. Se o processo cair
+ * logo em seguida, a próxima tentativa detecta a marca e não republica.
+ */
+export async function setInstagramMediaPendente(
+  adminClient: SupabaseClient,
+  idAgendamento: number,
+  mediaId: string,
+  permalink: string | null,
+): Promise<void> {
+  const result: unknown = await adminClient.rpc('set_instagram_media_pendente', {
+    p_id_agendamento: idAgendamento,
+    p_media_id: mediaId,
+    p_permalink: permalink,
+  });
+  const { error } = result as { error: { message: string } | null };
+  if (error) throw new Error(`Falha ao gravar marca de recuperação da publicação: ${error.message}`);
 }
 
 /**

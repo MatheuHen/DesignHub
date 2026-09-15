@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
@@ -23,10 +23,12 @@ export function ClientesPage() {
   const [items, setItems] = useState<Cliente[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelState>({ mode: 'closed' });
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [rowError, setRowError] = useState<{ id: number; message: string } | null>(null);
   const [atendimentoFeedback, setAtendimentoFeedback] = useState<
     { id: number; type: 'success' | 'error'; message: string } | null
@@ -40,11 +42,25 @@ export function ClientesPage() {
   >(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Auditoria (achado MEDIUM — N+1 + ausência de debounce): sem isso, cada
+  // tecla digitada disparava `listClientes` + 1 chamada de status do
+  // Instagram por cliente retornado. O debounce reduz drasticamente o
+  // volume de requisições; o `latestRequestIdRef` descarta respostas de uma
+  // busca antiga que chegam fora de ordem (mesmo padrão de `DesignerHome`).
+  useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timeout);
+  }, [search]);
+
+  const latestRequestIdRef = useRef(0);
+
   const reload = useCallback(() => {
+    const requestId = ++latestRequestIdRef.current;
     setLoading(true);
     setError(null);
-    listClientes({ search: search || undefined })
+    listClientes({ search: debouncedSearch || undefined })
       .then((result) => {
+        if (latestRequestIdRef.current !== requestId) return undefined;
         setItems(result.items);
         setTotal(result.total);
         return Promise.all(
@@ -56,15 +72,18 @@ export function ClientesPage() {
         );
       })
       .then((entries) => {
-        if (entries) setInstagramStatus(Object.fromEntries(entries));
+        if (entries && latestRequestIdRef.current === requestId) setInstagramStatus(Object.fromEntries(entries));
       })
       .catch((loadError: unknown) => {
+        if (latestRequestIdRef.current !== requestId) return;
         setError(
           loadError instanceof ApiError ? loadError.message : 'Não foi possível carregar os clientes.',
         );
       })
-      .finally(() => setLoading(false));
-  }, [search]);
+      .finally(() => {
+        if (latestRequestIdRef.current === requestId) setLoading(false);
+      });
+  }, [debouncedSearch]);
 
   useEffect(() => {
     reload();
@@ -150,6 +169,7 @@ export function ClientesPage() {
 
   function handleDelete(cliente: Cliente) {
     setRowError(null);
+    setDeletingId(cliente.id);
     deleteCliente(cliente.id)
       .then(() => {
         setConfirmingDeleteId(null);
@@ -161,7 +181,8 @@ export function ClientesPage() {
           id: cliente.id,
           message: deleteError instanceof ApiError ? deleteError.message : 'Não foi possível excluir o cliente.',
         });
-      });
+      })
+      .finally(() => setDeletingId(null));
   }
 
   function handleIniciarAtendimento(cliente: Cliente) {
@@ -226,6 +247,7 @@ export function ClientesPage() {
       {!loading && !error && items.length === 0 && <p>Nenhum cliente encontrado.</p>}
 
       {!loading && !error && items.length > 0 && (
+        <div className="table-scroll">
         <table className="designer-table">
           <caption className="sr-only">Lista de clientes ({total} no total)</caption>
           <thead>
@@ -289,10 +311,18 @@ export function ClientesPage() {
                   </button>
                   {confirmingDeleteId === cliente.id ? (
                     <>
-                      <button type="button" onClick={() => handleDelete(cliente)}>
-                        Confirmar exclusão
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(cliente)}
+                        disabled={deletingId === cliente.id}
+                      >
+                        {deletingId === cliente.id ? 'Excluindo…' : 'Confirmar exclusão'}
                       </button>
-                      <button type="button" onClick={() => setConfirmingDeleteId(null)}>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingDeleteId(null)}
+                        disabled={deletingId === cliente.id}
+                      >
                         Cancelar
                       </button>
                     </>
@@ -319,6 +349,7 @@ export function ClientesPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       {panel.mode === 'create' && (

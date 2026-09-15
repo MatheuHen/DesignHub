@@ -69,23 +69,39 @@ export function AdminSolicitacaoDetailPage() {
   }
 
   useEffect(() => {
+    // Auditoria (achado HIGH — race condition): descarta a resposta se o
+    // usuário já navegou para outra solicitação antes dela chegar — mesmo
+    // padrão de guarda usado em `DesignerHome.tsx`.
+    let cancelled = false;
     setLoading(true);
     setError(null);
     getSolicitacaoDetail(id)
       .then((result) => {
+        if (cancelled) return;
         setData(result);
         if (result.solicitacao.status === 'Publicado') {
           getPublicacaoDetalhe(id)
-            .then(setPublicacaoDetalhe)
-            .catch(() => setPublicacaoDetalhe(null));
+            .then((detalhe) => {
+              if (!cancelled) setPublicacaoDetalhe(detalhe);
+            })
+            .catch(() => {
+              if (!cancelled) setPublicacaoDetalhe(null);
+            });
         }
       })
       .catch((loadError: unknown) => {
+        if (cancelled) return;
         setError(
           loadError instanceof ApiError ? loadError.message : 'Não foi possível carregar a solicitação.',
         );
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   return (

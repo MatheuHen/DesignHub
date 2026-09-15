@@ -329,7 +329,10 @@ solicitacaoRouter.get(
     try {
       const { id } = solicitacaoIdParamSchema.parse(request.params);
       const client = getSupabaseUserClient(request.auth!.accessToken);
-      const result = await getPublicacaoDetalhe(client, id);
+      const isAdmin = request.profile!.perfil === 'administrador';
+      const result = await getPublicacaoDetalhe(client, id, request.auth!.userId, {
+        allowAnyDesigner: isAdmin,
+      });
       response.status(200).json(result);
     } catch (error) {
       next(toAppError(error));

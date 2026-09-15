@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { getSupabaseUserClient } from '../config/supabase.js';
 import { toAppError } from '../lib/errors.js';
 import { attachProfile, requireAuth, requireProfile } from '../middleware/auth.js';
@@ -47,7 +48,22 @@ designerRouter.get('/:id', async (request, response, next) => {
   }
 });
 
-designerRouter.post('/', async (request, response, next) => {
+/**
+ * Auditoria (seção 12.3): sem limite dedicado, um token de administrador
+ * comprometido poderia automatizar criação em massa de contas
+ * (`auth.admin.createUser`) ou girar senhas de todos os designers rapidamente
+ * (`/:id/senha` abaixo) — mesmo padrão de limite por usuário já usado no
+ * restante do backend.
+ */
+const designerAdminRateLimit = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (request) => request.auth?.userId ?? ipKeyGenerator(request.ip ?? 'unknown'),
+});
+
+designerRouter.post('/', designerAdminRateLimit, async (request, response, next) => {
   try {
     const input = createDesignerSchema.parse(request.body);
     const designer = await createDesigner(input);
@@ -80,7 +96,7 @@ designerRouter.patch('/:id/status', async (request, response, next) => {
 });
 
 /** RF001/item 2.1 (correções 13/09/2026): Admin altera a senha do designer. */
-designerRouter.patch('/:id/senha', async (request, response, next) => {
+designerRouter.patch('/:id/senha', designerAdminRateLimit, async (request, response, next) => {
   try {
     const { id } = designerIdParamSchema.parse(request.params);
     const input = changeDesignerPasswordSchema.parse(request.body);

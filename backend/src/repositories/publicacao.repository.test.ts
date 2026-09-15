@@ -7,6 +7,7 @@ import {
   listAgendamentosVencidos,
   registerPublicacaoFalha,
   registerPublicacaoSucesso,
+  setInstagramMediaPendente,
   setPublicacaoComprovante,
 } from './publicacao.repository.js';
 
@@ -76,7 +77,15 @@ describe('listAgendamentosVencidos (RF014/RN32)', () => {
           eq: () => ({
             lte: () =>
               Promise.resolve({
-                data: [{ id_agendamento: 1, id_solicitacao: 10, legenda: 'Legenda' }],
+                data: [
+                  {
+                    id_agendamento: 1,
+                    id_solicitacao: 10,
+                    legenda: 'Legenda',
+                    instagram_media_id_pendente: null,
+                    instagram_permalink_pendente: null,
+                  },
+                ],
                 error: null,
               }),
           }),
@@ -85,8 +94,28 @@ describe('listAgendamentosVencidos (RF014/RN32)', () => {
     } as unknown as Parameters<typeof listAgendamentosVencidos>[0];
 
     await expect(listAgendamentosVencidos(client)).resolves.toEqual([
-      { idAgendamento: 1, idSolicitacao: 10, legenda: 'Legenda' },
+      {
+        idAgendamento: 1,
+        idSolicitacao: 10,
+        legenda: 'Legenda',
+        instagramMediaIdPendente: null,
+        instagramPermalinkPendente: null,
+      },
     ]);
+  });
+});
+
+describe('setInstagramMediaPendente (auditoria — achado HIGH, janela de publicação duplicada)', () => {
+  it('resolve sem erro quando a RPC tem sucesso', async () => {
+    const client = rpcClient({ data: null, error: null });
+    await expect(
+      setInstagramMediaPendente(client, 1, 'ig-media-1', 'https://www.instagram.com/p/abc/'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('propaga erro inesperado da RPC', async () => {
+    const client = rpcClient({ data: null, error: { message: 'falha de conexão' } });
+    await expect(setInstagramMediaPendente(client, 1, 'ig-media-1', null)).rejects.toThrow('falha de conexão');
   });
 });
 

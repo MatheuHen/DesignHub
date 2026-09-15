@@ -146,7 +146,8 @@ export async function updateDesignerProfile(
     const result: unknown = await adminClient
       .from('usuario')
       .update({ nome_completo: changes.nomeCompleto })
-      .eq('id_usuario', id);
+      .eq('id_usuario', id)
+      .eq('perfil', 'designer');
     const { error } = result as { error: { message: string } | null };
     if (error) throw new Error(`Falha ao atualizar usuário: ${error.message}`);
   }

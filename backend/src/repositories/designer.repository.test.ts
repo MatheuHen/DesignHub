@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
-import { assertDesignerIsActive, deleteDesigner, updateDesignerPassword } from './designer.repository.js';
+import {
+  assertDesignerIsActive,
+  deleteDesigner,
+  updateDesignerPassword,
+  updateDesignerProfile,
+} from './designer.repository.js';
 
 function createMaybeSingleClient(row: unknown) {
   return {
@@ -59,6 +64,31 @@ describe('deleteDesigner (RF001/item 2.4 — exclusão ADITIVA ao Ativo/Inativo)
   it('resolve sem erro quando não há impedimento histórico', async () => {
     const client = createAuthAdminClient({ error: null });
     await expect(deleteDesigner(client, 'designer-x')).resolves.toBeUndefined();
+  });
+});
+
+describe('updateDesignerProfile (auditoria — nunca atualiza usuário fora do perfil designer)', () => {
+  it('filtra a atualização de nome por perfil=designer (não confia só no id)', async () => {
+    const eqCalls: unknown[][] = [];
+    const client = {
+      from: () => ({
+        update: () => ({
+          eq: (...args: unknown[]) => {
+            eqCalls.push(args);
+            return {
+              eq: (...args2: unknown[]) => {
+                eqCalls.push(args2);
+                return Promise.resolve({ error: null });
+              },
+            };
+          },
+        }),
+      }),
+    } as unknown as Parameters<typeof updateDesignerProfile>[0];
+
+    await updateDesignerProfile(client, 'designer-x', { nomeCompleto: 'Novo Nome' });
+
+    expect(eqCalls).toContainEqual(['perfil', 'designer']);
   });
 });
 

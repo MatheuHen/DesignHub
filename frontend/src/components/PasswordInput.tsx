@@ -22,7 +22,6 @@ export function PasswordInput({ className, ...inputProps }: PasswordInputProps) 
         onClick={() => setVisible((current) => !current)}
         aria-label={visible ? 'Ocultar senha' : 'Mostrar senha'}
         aria-pressed={visible}
-        tabIndex={-1}
       >
         {visible ? (
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
