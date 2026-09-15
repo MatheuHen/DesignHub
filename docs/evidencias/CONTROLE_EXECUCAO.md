@@ -2516,3 +2516,27 @@ documento oficial e corrigidos. Detalhe completo nos commits; resumo aqui.
   decisão do usuário sobre RF014/item 9.2-9.4 (ver acima).
 - Próxima etapa: Fase 17 (consolidação final de evidências/matriz para a
   banca) segue como próximo passo natural, sem pendência técnica bloqueando.
+
+## 2026-09-15 — Fase 17 concluída (entrega e banca)
+
+- Hardening adicional: migration `20260915040000` revoga TRUNCATE/TRIGGER/
+  REFERENCES de anon/authenticated (privilégio de plataforma não usado pela
+  app); confirmado sem regressão (leitura autenticada real segue 200 em
+  produção após a migration).
+- `npm audit fix` (não-destrutivo): multer/qs/js-yaml corrigidos (1 HIGH +
+  2 moderate resolvidos, mesma major version). `vitest`/`@vitest/mocker`
+  (moderate, dev-only, exige major breaking bump) registrado como
+  pendência de baixo risco, não forçado. `npm run verify` revalidado
+  (456 testes, build limpo) e backend redeployado com as dependências
+  corrigidas.
+- Documento final consolidado: `docs/evidencias/FASE-17_RESULTADO.md`
+  (cobertura RF001-016, postura de segurança, explicação automático x
+  manual das integrações Meta, pendência remanescente, validação final).
+- **Estado final**: 40 migrations (local == remote), git limpo e
+  sincronizado com `origin/main`, backend+frontend em produção na Vercel,
+  0 CRITICAL/HIGH em aberto. Única pendência: aprovação do template
+  `designhub_publicacao_concluida` pela Meta (não bloqueia nenhum RF
+  obrigatório).
+- Próxima etapa: nenhuma tecnicamente obrigatória. Acompanhar a aprovação
+  do template quando o usuário quiser conferir; ajuste de texto do TFC II
+  em si é responsabilidade do usuário (documento fora deste repositório).
