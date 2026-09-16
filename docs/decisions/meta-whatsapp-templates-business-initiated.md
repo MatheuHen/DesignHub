@@ -23,28 +23,26 @@ nas variáveis de ambiente indicadas — **sem novo deploy de código**.
 cancelamento de agendamento). Categoria `UTILITY` confirmada, sem risco de
 custo identificado.
 
-**NÃO ativado: `designhub_arte_publicada`** (`WHATSAPP_TEMPLATE_NAME_PUBLICACAO`,
-RF014/item 9.2-9.4 — aviso de publicação ao cliente). Apesar do texto
-neutro/factual da 2ª submissão, a Meta reclassificou para `MARKETING` de
-novo (mesmo padrão da 1ª tentativa). Mensagens `MARKETING` são cobradas por
-mensagem na maioria dos países no modelo de precificação vigente da Meta —
-incompatível com o requisito de custo zero do TFC (seção 2.1/12 do
-`CLAUDE.md`). Por isso o agente **não** configurou a variável em produção
-mesmo com o template aprovado — geração de custo exige autorização explícita
-do usuário (seção 1 do `CLAUDE.md`). Sem essa variável, o comportamento
-atual continua seguro: fora da janela de 24h, o aviso por WhatsApp fica
-`BLOCKED_EXTERNAL_WHATSAPP_PUBLICACAO` (log claro, nunca falha silenciosa) e
-a publicação em si nunca é revertida — só o aviso complementar não sai.
+**`designhub_arte_publicada` (MARKETING) permanece NÃO ativado** — substituído
+pela 3ª tentativa abaixo, que foi aprovada como `UTILITY` e é a que está em
+uso em produção. `designhub_arte_publicada` continua existindo no Business
+Manager mas nenhuma env var aponta para ele.
 
-**3ª tentativa em andamento (15/09/2026)**: usuário optou pela opção 1.
-Novo template submetido com nome distinto (não edita o já aprovado como
-MARKETING, que permanece existente e inativo em produção):
+**3ª tentativa (submetida 15/09/2026, aprovada 16/09/2026)**: usuário optou
+pela opção 1. Novo template submetido com nome distinto (não edita o já
+aprovado como MARKETING, que permanece existente e inativo em produção):
 
 - **Nome**: `designhub_publicacao_concluida` (ID `1279400890942154`)
-- **Categoria declarada na submissão**: `UTILITY` — **status: `PENDING`**
-  (aguardando revisão automática da Meta; a classificação final só é
-  conhecida após a aprovação, como já ocorreu duas vezes com o template
-  anterior).
+- **Categoria declarada na submissão**: `UTILITY` — **status: `APPROVED`**
+  (confirmado via Graph API `GET /{waba_id}/message_templates` em
+  2026-09-16, categoria final manteve `UTILITY`, sem reclassificação desta
+  vez).
+- **Ativado em produção (16/09/2026)**: `WHATSAPP_TEMPLATE_NAME_PUBLICACAO=
+  designhub_publicacao_concluida` configurado em `.env.local` e na Vercel
+  (produção), backend rebuildado/redeployado; smoke test `GET /api/health`
+  confirmou `whatsappSendingClient: configured`. Autorização de custo dada
+  explicitamente pelo usuário nesta sessão (~R$0,04-0,05/mensagem, RF014/
+  item 9.2-9.4 agora ativo fora da janela de 24h).
 - **Corpo (Body) submetido** (mesmo estilo do único template de negócio já
   aprovado como `UTILITY`, `agendamento_cancelado_cliente`: cabeçalho de
   status + frase factual citando a entidade específica + ponteiro neutro

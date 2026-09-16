@@ -2566,3 +2566,26 @@ documento oficial e corrigidos. Detalhe completo nos commits; resumo aqui.
   pela Meta) e a decisão de custo já registrada (RF014/item 9.2-9.4 não
   ativado por exigir template `MARKETING` pago). Nenhum próximo passo
   tecnicamente obrigatório identificado.
+
+## 2026-09-16 — Template `designhub_publicacao_concluida` aprovado e ativado
+
+- Checagem via Graph API confirmou `designhub_publicacao_concluida`
+  `APPROVED`/`UTILITY` (3ª tentativa, sem reclassificação para `MARKETING`
+  desta vez).
+- Usuário autorizou explicitamente o custo (~R$0,04-0,05/mensagem) para
+  ativar RF014/item 9.2-9.4 (aviso "arte publicada" ao cliente fora da
+  janela de 24h).
+- `WHATSAPP_TEMPLATE_NAME_PUBLICACAO=designhub_publicacao_concluida`
+  configurado em `.env.local` e na Vercel (produção); backend
+  rebuildado/redeployado (`vercel build --prod` + `vercel deploy --prebuilt
+  --prod`). Smoke test `GET /api/health` → `whatsappSendingClient:
+  configured`.
+- Nenhuma mudança de código nesta entrada, só config/env — `npm run verify`
+  da rodada anterior (456 testes) continua válido.
+- `docs/decisions/meta-whatsapp-templates-business-initiated.md` atualizado
+  refletindo aprovação/ativação.
+- **Sem bloqueios externos pendentes.** RF014 completo (automático + manual
+  já cobertos anteriormente); item 9.2-9.4 agora ativo em produção.
+- Próxima etapa: nenhuma tecnicamente obrigatória. Recomendo testar o aviso
+  end-to-end (publicar uma arte e confirmar recebimento do WhatsApp pelo
+  cliente) quando houver oportunidade real de publicação agendada.
