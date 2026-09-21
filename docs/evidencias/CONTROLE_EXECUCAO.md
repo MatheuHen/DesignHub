@@ -2589,3 +2589,20 @@ documento oficial e corrigidos. Detalhe completo nos commits; resumo aqui.
 - Próxima etapa: nenhuma tecnicamente obrigatória. Recomendo testar o aviso
   end-to-end (publicar uma arte e confirmar recebimento do WhatsApp pelo
   cliente) quando houver oportunidade real de publicação agendada.
+
+## 2026-09-16 — Checklist manual executado + Site URL do Supabase Auth corrigida
+
+- **Checklist manual** (`docs/test-evidence/checklist-manual-2026-09-15.md`)
+  executado pelo usuário: 8/8 itens `OK`, 0 falhas — item 8.6 (alerta
+  WhatsApp ao designer no cancelamento) e as 7 regressões da auditoria
+  14-15/09 (token Instagram cifrado, corrida WhatsApp, idempotência de
+  webhook, rate limit, troca de senha, ownership entre designers, filtro de
+  data America/Sao_Paulo) confirmados sem regressão.
+- **Site URL/Redirect URLs do Supabase Auth corrigidas pelo usuário** no
+  Dashboard (Authentication → URL Configuration), apontando para
+  `https://designhub-frontend-ten.vercel.app` — resolve o bug em que o link
+  de recuperação de senha (RF002) chegava apontando para `localhost`. Não
+  envolveu mudança de código (config externa do provedor de auth).
+- Nenhuma mudança de código nesta entrada. Nenhum `CRITICAL`/`HIGH` em
+  aberto, nenhum bloqueio externo pendente identificado.
+- Próxima etapa: nenhuma tecnicamente obrigatória.
