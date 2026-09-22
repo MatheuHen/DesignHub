@@ -23,6 +23,7 @@ const {
   uploadArquivoToStorageMock,
   removeArquivoFromStorageBestEffortMock,
   setInstagramMediaPendenteMock,
+  claimNotificacaoPublicacaoMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   publishImageMock: vi.fn(),
@@ -45,6 +46,7 @@ const {
   uploadArquivoToStorageMock: vi.fn(),
   removeArquivoFromStorageBestEffortMock: vi.fn(),
   setInstagramMediaPendenteMock: vi.fn(),
+  claimNotificacaoPublicacaoMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
@@ -80,6 +82,7 @@ vi.mock('../repositories/publicacao.repository.js', () => ({
   getPublicacaoBySolicitacao: getPublicacaoBySolicitacaoMock,
   setPublicacaoComprovante: setPublicacaoComprovanteMock,
   setInstagramMediaPendente: setInstagramMediaPendenteMock,
+  claimNotificacaoPublicacao: claimNotificacaoPublicacaoMock,
 }));
 vi.mock('../repositories/solicitacao.repository.js', () => ({
   getSolicitacaoDetail: getSolicitacaoDetailRepoMock,
@@ -130,8 +133,9 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
     findClienteByIdMock.mockReset();
     sendTextMessageMock.mockReset();
     sendPublicacaoTemplateMessageMock.mockReset();
-    getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue(null);
+    getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue({ idPublicacao: 1, permalink: null });
     setInstagramMediaPendenteMock.mockReset().mockResolvedValue(undefined);
+    claimNotificacaoPublicacaoMock.mockReset().mockResolvedValue(true);
     whatsappConfigStatusMock.hasPublicacaoTemplateConfigured = true;
   });
 
@@ -203,6 +207,26 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
     expect(message).toContain('Post promocional');
     expect(message).toContain('versão 3');
     expect(message).not.toContain('10'); // id_solicitacao/id_agendamento nunca aparecem no texto
+    expect(claimNotificacaoPublicacaoMock).toHaveBeenCalledWith(expect.anything(), 1, { force: undefined });
+  });
+
+  it('rodada correções (item 14): quando o aviso já foi reivindicado por outra execução, nunca envia de novo (idempotência do envio)', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      numeroVersao: 3,
+      formato: 'PNG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.png',
+    });
+    publishImageMock.mockResolvedValue({ mediaId: 'ig-1', permalink: null });
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idCliente: 5, tema: 'Post promocional' });
+    findClienteByIdMock.mockResolvedValue({ id: 5, whatsapp: '5511999999999' });
+    claimNotificacaoPublicacaoMock.mockResolvedValue(false);
+
+    const result = await processarAgendamentosVencidos();
+
+    expect(result.publicadosAutomaticamente).toBe(1);
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
   });
 
   it('item 9.2: falha ao notificar via WhatsApp não desfaz a publicação já registrada (melhor esforço)', async () => {
@@ -539,7 +563,8 @@ describe('registrarPublicacaoManual (RF014 — fallback manual)', () => {
     findClienteByIdMock.mockReset();
     sendTextMessageMock.mockReset();
     sendPublicacaoTemplateMessageMock.mockReset();
-    getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue(null);
+    getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue({ idPublicacao: 1, permalink: null });
+    claimNotificacaoPublicacaoMock.mockReset().mockResolvedValue(true);
   });
 
   it('rejeita quando o callerId não é o dono da solicitação', async () => {
@@ -623,7 +648,8 @@ describe('reenviarNotificacaoPublicacao (melhoria autorizada — retry seguro do
     getSolicitacaoDetailRepoMock.mockReset();
     findClienteByIdMock.mockReset();
     getVersaoArteAtualDaSolicitacaoMock.mockReset();
-    getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue(null);
+    getPublicacaoBySolicitacaoMock.mockReset().mockResolvedValue({ idPublicacao: 1, permalink: null });
+    claimNotificacaoPublicacaoMock.mockReset().mockResolvedValue(true);
     sendTextMessageMock.mockReset();
     sendPublicacaoTemplateMessageMock.mockReset();
   });
@@ -676,6 +702,9 @@ describe('reenviarNotificacaoPublicacao (melhoria autorizada — retry seguro do
     expect(sendTextMessageMock).toHaveBeenCalledTimes(2);
     const [, message] = sendTextMessageMock.mock.calls[0] as [string, string];
     expect(message).toContain('Post promocional');
+    // Item 14: reenvio manual explícito sempre reivindica com force — nunca
+    // é bloqueado pela marca de idempotência do envio automático.
+    expect(claimNotificacaoPublicacaoMock).toHaveBeenCalledWith(expect.anything(), 1, { force: true });
   });
 
   it('não lança erro quando o reenvio falha (best-effort) — resolve normalmente', async () => {

@@ -14,7 +14,7 @@ const whatsappSchema = z
   .min(8)
   .max(20)
   .refine((value) => value.replace(/\D/g, '').length >= 12, {
-    message: 'Informe o WhatsApp com código do país (ex.: 5511999999999).',
+    message: 'Informe o WhatsApp com o código do país, DDD e número.',
   });
 
 export const createClienteSchema = z.object({

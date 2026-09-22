@@ -356,12 +356,17 @@ const agendamentoPreferenciaRowSchema = z.object({
   data_desejada: z.string().nullable(),
   horario_desejado: z.string().nullable(),
   data_avaliacao: z.string(),
+  opcao_publicacao: z.enum(['automatico', 'designer_manual', 'proprio_cliente']).nullable(),
+  legenda_desejada: z.string().nullable(),
 });
 
 export interface AgendamentoPreferencia {
   desejaAgendamento: boolean | null;
   dataDesejada: string | null;
   horarioDesejado: string | null;
+  /** Rodada correções (item 8): qual das 3 opções o cliente escolheu ao aprovar. */
+  opcaoPublicacao: 'automatico' | 'designer_manual' | 'proprio_cliente' | null;
+  legendaDesejada: string | null;
 }
 
 /**
@@ -377,7 +382,7 @@ export async function getAgendamentoPreferencia(
   const result: unknown = await client
     .from('avaliacao')
     .select(
-      'deseja_agendamento, data_desejada, horario_desejado, data_avaliacao, versao_arte!inner(id_solicitacao)',
+      'deseja_agendamento, data_desejada, horario_desejado, data_avaliacao, opcao_publicacao, legenda_desejada, versao_arte!inner(id_solicitacao)',
     )
     .eq('decisao', 'Aprovado')
     .eq('versao_arte.id_solicitacao', idSolicitacao)
@@ -393,6 +398,8 @@ export async function getAgendamentoPreferencia(
     desejaAgendamento: row.deseja_agendamento,
     dataDesejada: row.data_desejada,
     horarioDesejado: row.horario_desejado,
+    opcaoPublicacao: row.opcao_publicacao,
+    legendaDesejada: row.legenda_desejada,
   };
 }
 
@@ -495,4 +502,31 @@ export async function reassignSolicitacaoRpc(
     throw new ConflictError(error.message);
   }
   throw new Error(`Falha ao reatribuir solicitação: ${error.message}`);
+}
+
+/**
+ * Item 12/30 (rodada correções): designer cancela a própria solicitação em
+ * qualquer estado ativo — mesma RPC atômica que também cancela o
+ * agendamento ativo, se houver (nunca deixar publicação automática futura
+ * pendente de uma solicitação cancelada).
+ */
+export async function cancelSolicitacaoDesignerRpc(
+  adminClient: SupabaseClient,
+  params: { idSolicitacao: number; idDesigner: string },
+): Promise<void> {
+  const result: unknown = await adminClient.rpc('cancel_solicitacao_designer', {
+    p_id_solicitacao: params.idSolicitacao,
+    p_id_designer: params.idDesigner,
+  });
+
+  const { error } = result as { error: { message: string; code?: string } | null };
+  if (!error) return;
+
+  if (error.code === PG_NO_DATA_FOUND) {
+    throw new NotFoundError('Solicitação não encontrada.');
+  }
+  if (error.code === PG_RAISE_EXCEPTION) {
+    throw new ConflictError(error.message);
+  }
+  throw new Error(`Falha ao cancelar solicitação: ${error.message}`);
 }

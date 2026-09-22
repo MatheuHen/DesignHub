@@ -71,4 +71,29 @@ describe('config/env — guarda de produção', () => {
     const { env } = await importEnvWith({ NODE_ENV: 'development', FRONTEND_URL: undefined, PUBLIC_BACKEND_URL: undefined });
     expect(env.FRONTEND_URL).toBe('http://localhost:5173');
   });
+
+  /**
+   * Rodada correções (item 5): causa mais provável do "Invalid redirect_uri"
+   * relatado na Meta — uma barra final em PUBLIC_BACKEND_URL vira barra dupla
+   * no redirect_uri montado (`.../%2F/api/instagram/oauth/callback`), que não
+   * bate com o URI cadastrado no App da Meta.
+   */
+  it('remove a barra final de PUBLIC_BACKEND_URL/FRONTEND_URL para o redirect_uri do Instagram nunca ter barra dupla', async () => {
+    const { env } = await importEnvWith({
+      NODE_ENV: 'production',
+      FRONTEND_URL: 'https://app.exemplo.com/',
+      PUBLIC_BACKEND_URL: 'https://api.exemplo.com/',
+    });
+    expect(env.FRONTEND_URL).toBe('https://app.exemplo.com');
+    expect(env.PUBLIC_BACKEND_URL).toBe('https://api.exemplo.com');
+  });
+
+  it('não afeta uma URL sem barra final', async () => {
+    const { env } = await importEnvWith({
+      NODE_ENV: 'production',
+      FRONTEND_URL: 'https://app.exemplo.com',
+      PUBLIC_BACKEND_URL: 'https://api.exemplo.com',
+    });
+    expect(env.PUBLIC_BACKEND_URL).toBe('https://api.exemplo.com');
+  });
 });

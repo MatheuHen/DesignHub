@@ -21,8 +21,8 @@ describe('SOLICITACAO_STATUSES (RN39 — exatamente 7 estados oficiais)', () => 
 });
 
 describe('SOLICITACAO_STATUS_TRANSITIONS (RF011 — grafo completo, incluindo agendamento/publicação)', () => {
-  it('tem exatamente 9 arestas, cada uma apontando para um estado oficial', () => {
-    expect(SOLICITACAO_STATUS_TRANSITIONS).toHaveLength(9);
+  it('tem exatamente 13 arestas, cada uma apontando para um estado oficial', () => {
+    expect(SOLICITACAO_STATUS_TRANSITIONS).toHaveLength(13);
     for (const edge of SOLICITACAO_STATUS_TRANSITIONS) {
       expect(SOLICITACAO_STATUSES).toContain(edge.to);
       if (edge.from !== null) {
@@ -31,11 +31,11 @@ describe('SOLICITACAO_STATUS_TRANSITIONS (RF011 — grafo completo, incluindo ag
     }
   });
 
-  it('marca todas as 9 arestas (Fases 4-12) como implementadas', () => {
+  it('marca todas as 13 arestas (Fases 4-12 + item 12/30) como implementadas', () => {
     const implemented = SOLICITACAO_STATUS_TRANSITIONS.filter((edge) => edge.implemented);
     const pending = SOLICITACAO_STATUS_TRANSITIONS.filter((edge) => !edge.implemented);
 
-    expect(implemented).toHaveLength(9);
+    expect(implemented).toHaveLength(13);
     expect(pending).toHaveLength(0);
   });
 
@@ -67,6 +67,11 @@ describe('isValidSolicitacaoTransition', () => {
     expect(isValidSolicitacaoTransition('Aprovado', 'Agendado')).toBe(true);
     expect(isValidSolicitacaoTransition('Agendado', 'Aprovado')).toBe(true);
     expect(isValidSolicitacaoTransition('Agendado', 'Publicado')).toBe(true);
+    // Item 12/30 (rodada correções): designer cancela em qualquer estado ativo.
+    expect(isValidSolicitacaoTransition('Em produção', 'Cancelado')).toBe(true);
+    expect(isValidSolicitacaoTransition('Ajustes', 'Cancelado')).toBe(true);
+    expect(isValidSolicitacaoTransition('Aprovado', 'Cancelado')).toBe(true);
+    expect(isValidSolicitacaoTransition('Agendado', 'Cancelado')).toBe(true);
   });
 
   it('rejeita saltos ilegais não documentados por nenhuma aresta', () => {

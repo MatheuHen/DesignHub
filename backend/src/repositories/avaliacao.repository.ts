@@ -1,11 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { ConflictError, ExpiredLinkError, NotFoundError } from '../lib/errors.js';
+import { ConflictError, ExpiredLinkError, NotFoundError, ValidationError } from '../lib/errors.js';
 
 const PG_NOT_FOUND_OR_REVOKED = 'P0002';
 const PG_STATUS_INVALID = 'P0001';
 const PG_EXPIRED = 'P0003';
 const PG_ALREADY_USED = 'P0004';
+/** `create_agendamento_cliente` reaproveita o código P0004 para "data/horário inválidos", não "link já usado". */
+const PG_AGENDAMENTO_DATA_INVALIDA = 'P0004';
 
 const generateTokenRowSchema = z.object({ id_versao: z.number(), numero_versao: z.number() });
 
@@ -85,8 +87,8 @@ const versaoPreviewRowSchema = z.object({
   observacoes: z.string().nullable(),
   arquivo_url: z.string(),
   solicitacao: z.union([
-    z.object({ tema: z.string().nullable() }),
-    z.array(z.object({ tema: z.string().nullable() })),
+    z.object({ tema: z.string().nullable(), id_cliente: z.number() }),
+    z.array(z.object({ tema: z.string().nullable(), id_cliente: z.number() })),
     z.null(),
   ]),
 });
@@ -98,6 +100,8 @@ export interface VersaoArtePreview {
   observacoes: string | null;
   arquivoUrl: string;
   tema: string | null;
+  /** Rodada correções (item 8): necessário para checar conexão de Instagram antes de oferecer "agendar automaticamente". */
+  idCliente: number;
 }
 
 /**
@@ -113,7 +117,7 @@ export async function getVersaoArtePreview(
 ): Promise<VersaoArtePreview | null> {
   const result: unknown = await adminClient
     .from('versao_arte')
-    .select('id_solicitacao, numero_versao, formato, observacoes, arquivo_url, solicitacao(tema)')
+    .select('id_solicitacao, numero_versao, formato, observacoes, arquivo_url, solicitacao(tema, id_cliente)')
     .eq('id_versao', idVersao)
     .maybeSingle();
   const { data, error } = result as { data: unknown; error: { message: string } | null };
@@ -122,13 +126,15 @@ export async function getVersaoArtePreview(
 
   const row = versaoPreviewRowSchema.parse(data);
   const solicitacao = Array.isArray(row.solicitacao) ? (row.solicitacao[0] ?? null) : row.solicitacao;
+  if (!solicitacao) return null;
   return {
     idSolicitacao: row.id_solicitacao,
     numeroVersao: row.numero_versao,
     formato: row.formato,
     observacoes: row.observacoes,
     arquivoUrl: row.arquivo_url,
-    tema: solicitacao?.tema ?? null,
+    tema: solicitacao.tema,
+    idCliente: solicitacao.id_cliente,
   };
 }
 
@@ -326,6 +332,8 @@ export async function submitAvaliacao(
     desejaAgendamento?: boolean | undefined;
     dataDesejada?: string | undefined;
     horarioDesejado?: string | undefined;
+    opcaoPublicacao?: 'automatico' | 'designer_manual' | 'proprio_cliente' | undefined;
+    legendaDesejada?: string | undefined;
   },
 ): Promise<SubmitAvaliacaoResult> {
   const result: unknown = await adminClient.rpc('submit_avaliacao', {
@@ -337,6 +345,8 @@ export async function submitAvaliacao(
     p_deseja_agendamento: params.desejaAgendamento ?? null,
     p_data_desejada: params.dataDesejada ?? null,
     p_horario_desejado: params.horarioDesejado ?? null,
+    p_opcao_publicacao: params.opcaoPublicacao ?? null,
+    p_legenda_desejada: params.legendaDesejada ?? null,
   });
   const { data, error } = result as {
     data: unknown;
@@ -357,4 +367,42 @@ export async function submitAvaliacao(
   const row = rows[0];
   if (!row) throw new Error('Falha ao registrar avaliação: resposta vazia da função.');
   return { idSolicitacao: row.id_solicitacao, statusNovo: row.status_novo, numeroVersao: row.numero_versao };
+}
+
+const createAgendamentoClienteRowSchema = z.object({ id_agendamento: z.number() });
+
+/**
+ * Rodada correções (itens 7/8): opção "agendar automaticamente" — mesma
+ * RPC atômica de `create_agendamento`, mas o dono é resolvido a partir da
+ * própria solicitação (nunca comparado a um caller autenticado, já que
+ * quem chama é um cliente sem sessão, só com o token de avaliação).
+ */
+export async function createAgendamentoCliente(
+  adminClient: SupabaseClient,
+  params: { idSolicitacao: number; dataPublicacao: string; horario: string; legenda: string | null },
+): Promise<{ idAgendamento: number }> {
+  const result: unknown = await adminClient.rpc('create_agendamento_cliente', {
+    p_id_solicitacao: params.idSolicitacao,
+    p_data_publicacao: params.dataPublicacao,
+    p_horario: params.horario,
+    p_legenda: params.legenda,
+  });
+  const { data, error } = result as {
+    data: unknown;
+    error: { message: string; code?: string } | null;
+  };
+
+  if (error) {
+    if (error.code === PG_NOT_FOUND_OR_REVOKED) throw new NotFoundError('Solicitação não encontrada.');
+    if (error.code === PG_STATUS_INVALID) throw new ConflictError(error.message);
+    if (error.code === PG_AGENDAMENTO_DATA_INVALIDA) {
+      throw new ValidationError('Data/horário do agendamento são obrigatórios e devem ser no futuro.');
+    }
+    throw new Error(`Falha ao agendar automaticamente: ${error.message}`);
+  }
+
+  const rows = z.array(createAgendamentoClienteRowSchema).parse(data ?? []);
+  const row = rows[0];
+  if (!row) throw new Error('Falha ao agendar automaticamente: resposta vazia da função.');
+  return { idAgendamento: row.id_agendamento };
 }

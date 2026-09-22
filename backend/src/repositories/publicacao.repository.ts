@@ -54,6 +54,53 @@ export async function listAgendamentosVencidos(adminClient: SupabaseClient): Pro
   }));
 }
 
+const agendamentoParaNotificarRowSchema = z.object({
+  id_agendamento: z.number(),
+  id_solicitacao: z.number(),
+  data_publicacao: z.string(),
+  horario: z.string(),
+});
+
+export interface AgendamentoParaNotificar {
+  idAgendamento: number;
+  idSolicitacao: number;
+  dataPublicacao: string;
+  horario: string;
+}
+
+/**
+ * Item 9: "reivindica" (marca `notificado_2h = true`) os agendamentos cujo
+ * horário cai dentro da janela informada — um único UPDATE...RETURNING é
+ * atômico no Postgres/PostgREST, então dois ciclos do cron rodando quase
+ * juntos nunca reivindicam a mesma linha duas vezes (mesmo sem lock
+ * explícito). O envio do push em si é best-effort e nunca reprocessado pelo
+ * mesmo agendamento, mesmo se falhar.
+ */
+export async function claimAgendamentosParaNotificar(
+  adminClient: SupabaseClient,
+  windowStart: string,
+  windowEnd: string,
+): Promise<AgendamentoParaNotificar[]> {
+  const result: unknown = await adminClient
+    .from('agendamento_publicacao')
+    .update({ notificado_2h: true })
+    .eq('status', 'Agendado')
+    .eq('notificado_2h', false)
+    .gte('data_hora_publicacao', windowStart)
+    .lte('data_hora_publicacao', windowEnd)
+    .select('id_agendamento, id_solicitacao, data_publicacao, horario');
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao reivindicar agendamentos para notificar: ${error.message}`);
+
+  const rows = z.array(agendamentoParaNotificarRowSchema).parse(data ?? []);
+  return rows.map((row) => ({
+    idAgendamento: row.id_agendamento,
+    idSolicitacao: row.id_solicitacao,
+    dataPublicacao: row.data_publicacao,
+    horario: row.horario,
+  }));
+}
+
 const versaoAtualRowSchema = z.object({
   id_versao: z.number(),
   numero_versao: z.number(),
@@ -220,6 +267,32 @@ export async function getPublicacaoBySolicitacao(
     comprovanteUrl: row.comprovante_url,
     numeroVersao: versaoArte?.numero_versao ?? null,
   };
+}
+
+/**
+ * Item 14 (rodada correções): reivindica atomicamente o direito de enviar o
+ * aviso automático "ARTE PUBLICADA!" — um único UPDATE...WHERE IS
+ * NULL...RETURNING é atômico por linha no PostgREST, então duas chamadas
+ * concorrentes (por qualquer motivo: job sobreposto, retry de
+ * infraestrutura) nunca conseguem reivindicar a mesma publicação duas
+ * vezes. `force=true` (reenvio manual explícito) sempre atualiza a marca e
+ * retorna true, sem checar se já foi enviada antes — é uma ação humana
+ * deliberada, não deve ser bloqueada pela idempotência do envio automático.
+ */
+export async function claimNotificacaoPublicacao(
+  adminClient: SupabaseClient,
+  idPublicacao: number,
+  options: { force?: boolean | undefined } = {},
+): Promise<boolean> {
+  let query = adminClient.from('publicacao').update({ notificado_arte_publicada_em: new Date().toISOString() });
+  query = query.eq('id_publicacao', idPublicacao);
+  if (!options.force) {
+    query = query.is('notificado_arte_publicada_em', null);
+  }
+  const result: unknown = await query.select('id_publicacao');
+  const { data, error } = result as { data: unknown[] | null; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao reivindicar aviso de publicação: ${error.message}`);
+  return (data?.length ?? 0) > 0;
 }
 
 /** Item 9.3: vincula o comprovante/print (path privado no Storage) à publicação já concluída. */

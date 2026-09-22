@@ -32,6 +32,7 @@ import {
   uploadComprovantePublicacao,
 } from '../services/publicacao.service.js';
 import {
+  cancelSolicitacao,
   getAjusteReferenciaUrl,
   getAtendimentoReferenciaUrl,
   getSolicitacaoDetail,
@@ -133,6 +134,36 @@ solicitacaoRouter.patch('/:id', requireProfile('designer'), async (request, resp
     next(toAppError(error));
   }
 });
+
+/**
+ * Item 12/30 (rodada correções) + seção 12.3: dispara aviso a um serviço
+ * externo (Meta) — limite dedicado por designer, mesmo padrão de
+ * `linkAvaliacaoRateLimit`.
+ */
+const cancelarSolicitacaoRateLimit = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (request) => request.auth?.userId ?? ipKeyGenerator(request.ip ?? 'unknown'),
+});
+
+/** RF005/RF011 (item 12/30): designer cancela a própria solicitação em qualquer estado ativo. */
+solicitacaoRouter.post(
+  '/:id/cancelar',
+  requireProfile('designer'),
+  cancelarSolicitacaoRateLimit,
+  async (request, response, next) => {
+    try {
+      const { id } = solicitacaoIdParamSchema.parse(request.params);
+      const client = getSupabaseUserClient(request.auth!.accessToken);
+      await cancelSolicitacao(client, id, request.auth!.userId);
+      response.status(204).end();
+    } catch (error) {
+      next(toAppError(error));
+    }
+  },
+);
 
 /** RF007/RF008: upload de nova versão (PDF/JPG/PNG) pelo designer responsável. */
 solicitacaoRouter.post(

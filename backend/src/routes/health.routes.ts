@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseConfigStatus, whatsappConfigStatus } from '../config/env.js';
+import { geminiConfigStatus, supabaseConfigStatus, webPushConfigStatus, whatsappConfigStatus } from '../config/env.js';
 
 export const healthRouter = Router();
 
@@ -12,6 +12,8 @@ healthRouter.get('/health', (_request, response) => {
       supabaseAdminClient: supabaseConfigStatus.hasAdminClient ? 'configured' : 'missing',
       whatsappSendingClient: whatsappConfigStatus.hasSendingClient ? 'configured' : 'missing',
       whatsappWebhookSecurity: whatsappConfigStatus.hasWebhookSecurity ? 'configured' : 'missing',
+      webPushVapidKeys: webPushConfigStatus.hasVapidKeys ? 'configured' : 'missing',
+      geminiClassifier: geminiConfigStatus.hasApiKey ? 'configured' : 'missing',
     },
   });
 });

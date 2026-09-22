@@ -417,6 +417,12 @@ p {
   font-size: 0.95rem;
 }
 
+.cliente-form-instagram-hint {
+  margin-top: 10px;
+  font-size: 0.82rem;
+  color: #6b6478;
+}
+
 .designer-form-actions {
   margin-top: 18px;
   display: flex;
@@ -500,6 +506,22 @@ p {
 .avaliacao-actions button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.avaliacao-actions--column {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.avaliacao-actions--column button {
+  flex: none;
+  text-align: left;
+}
+
+.avaliacao-instagram-hint {
+  margin: -4px 0 6px;
+  font-size: 0.82rem;
+  color: #6b6478;
 }
 
 .avaliacao-actions button.avaliacao-approve {
@@ -809,6 +831,35 @@ p {
   cursor: pointer;
   text-decoration: none;
   display: inline-block;
+}
+
+.dashboard-notifications-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.dashboard-notifications-cta button {
+  padding: 8px 16px;
+  border: 1px solid #d9d5e3;
+  border-radius: 10px;
+  background: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dashboard-notifications-cta button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dashboard-notifications-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #6b6478;
+  max-width: 260px;
+  text-align: right;
 }
 
 /* ===== Badge de status genérico (solicitações/agendamentos) ===== */

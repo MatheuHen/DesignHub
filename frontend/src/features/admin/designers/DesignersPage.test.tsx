@@ -9,7 +9,6 @@ const {
   setDesignerStatusMock,
   listSolicitacoesAdminMock,
   reassignSolicitacaoMock,
-  deleteDesignerMock,
   updateDesignerPasswordMock,
 } = vi.hoisted(() => ({
   listDesignersMock: vi.fn(),
@@ -17,7 +16,6 @@ const {
   setDesignerStatusMock: vi.fn(),
   listSolicitacoesAdminMock: vi.fn(),
   reassignSolicitacaoMock: vi.fn(),
-  deleteDesignerMock: vi.fn(),
   updateDesignerPasswordMock: vi.fn(),
 }));
 
@@ -28,7 +26,6 @@ vi.mock('./api', () => ({
   setDesignerStatus: setDesignerStatusMock,
   listSolicitacoesAdmin: listSolicitacoesAdminMock,
   reassignSolicitacao: reassignSolicitacaoMock,
-  deleteDesigner: deleteDesignerMock,
   updateDesignerPassword: updateDesignerPasswordMock,
 }));
 
@@ -77,7 +74,6 @@ describe('DesignersPage (RF001/RF015)', () => {
     setDesignerStatusMock.mockReset();
     listSolicitacoesAdminMock.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
     reassignSolicitacaoMock.mockReset();
-    deleteDesignerMock.mockReset();
     updateDesignerPasswordMock.mockReset();
   });
 
@@ -98,40 +94,45 @@ describe('DesignersPage (RF001/RF015)', () => {
     expect(await screen.findByText('Nenhum designer encontrado.')).toBeInTheDocument();
   });
 
-  it('item 2.4 (correções 13/09/2026): Excluir é oferecido ADITIVAMENTE ao lado de Editar/Inativar', async () => {
+  it('rodada correções: Excluir é a única ação de estado para designer ativo (sem "Inativar" redundante)', async () => {
     listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
 
     renderPage();
     await screen.findByRole('cell', { name: 'Dora Designer' });
 
     expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Inativar' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Excluir' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Inativar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ativar' })).not.toBeInTheDocument();
   });
 
-  it('item 2.4: Excluir exige confirmação inline antes de chamar a API', async () => {
+  it('Excluir exige confirmação inline e, por trás, inativa (não apaga) o designer', async () => {
     listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
-    deleteDesignerMock.mockResolvedValue(undefined);
+    setDesignerStatusMock.mockResolvedValue(undefined);
 
     renderPage();
     await screen.findByRole('cell', { name: 'Dora Designer' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
-    expect(deleteDesignerMock).not.toHaveBeenCalled();
-    expect(screen.getByText('Excluir permanentemente Dora Designer?')).toBeInTheDocument();
+    expect(setDesignerStatusMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/será inativado \(não apagado\)/)).toBeInTheDocument();
 
-    listDesignersMock.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    listDesignersMock.mockResolvedValue({
+      items: [{ ...sampleDesigner, status: 'inativo' }],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
 
-    await waitFor(() => expect(deleteDesignerMock).toHaveBeenCalledWith('designer-1'));
+    await waitFor(() => expect(setDesignerStatusMock).toHaveBeenCalledWith('designer-1', 'inativo'));
+    expect(await screen.findByRole('button', { name: 'Ativar' })).toBeInTheDocument();
   });
 
-  it('item 2.4: exclusão bloqueada (409) mostra a mensagem do backend orientando reatribuição', async () => {
+  it('exclusão (inativação) com erro do backend mostra a mensagem retornada', async () => {
     listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
     const { ApiError } = await import('../../../lib/apiClient');
-    deleteDesignerMock.mockRejectedValue(
-      new ApiError(409, 'CONFLICT', 'Não é possível excluir: designer possui clientes ou solicitações vinculados. Reatribua-os antes de excluir.'),
-    );
+    setDesignerStatusMock.mockRejectedValue(new ApiError(500, 'INTERNAL', 'Não foi possível atualizar o status.'));
 
     renderPage();
     await screen.findByRole('cell', { name: 'Dora Designer' });
@@ -139,9 +140,7 @@ describe('DesignersPage (RF001/RF015)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
 
-    expect(
-      await screen.findByText(/Reatribua-os antes de excluir/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Não foi possível atualizar o status.')).toBeInTheDocument();
   });
 
   it('item 2.1: admin altera a senha do designer a partir do formulário de edição', async () => {

@@ -63,8 +63,8 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
   });
 
   it.each([
-    ['invalid', 'Este link de avaliação não é válido. Solicite um novo link ao designer responsável.'],
-    ['expired', 'Este link de avaliação expirou. Solicite um novo link ao designer responsável.'],
+    ['invalid', 'Este link de avaliação não está mais disponível.'],
+    ['expired', 'Este link de avaliação não está mais disponível.'],
     ['used', 'Este link de avaliação já foi utilizado.'],
   ] as const)('mostra mensagem amigável quando o link está %s', async (state, message) => {
     getAvaliacaoPreviewMock.mockResolvedValue({ state });
@@ -74,6 +74,22 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
     expect(await screen.findByText(message)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Aprovar' })).not.toBeInTheDocument();
   });
+
+  it.each(['invalid', 'expired'] as const)(
+    'orienta a verificar o WhatsApp por um link mais recente quando o link está %s (rodada correções, item 6)',
+    async (state) => {
+      getAvaliacaoPreviewMock.mockResolvedValue({ state });
+
+      renderPage();
+
+      expect(
+        await screen.findByText('Verifique no WhatsApp se você recebeu um link mais recente desta arte.'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText('Se não encontrar outro link válido, entre em contato com o designer responsável.'),
+      ).toBeInTheDocument();
+    },
+  );
 
   it('mostra o acompanhamento somente-leitura quando o link já foi usado, mas identifica a solicitação (RN13/RN14/RN18)', async () => {
     getAvaliacaoPreviewMock.mockResolvedValue({
@@ -158,33 +174,34 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
     expect(screen.queryByText('Agendamento cancelado com sucesso.')).not.toBeInTheDocument();
   });
 
-  it('aprova a arte sem desejar agendamento (RN22)', async () => {
+  it('rodada correções (item 8): aprova escolhendo "eu mesmo vou publicar" (sem data/horário)', async () => {
     getAvaliacaoPreviewMock.mockResolvedValue(validPreview);
     submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado' });
 
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Aprovar' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Não, decido depois com o designer' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Eu mesmo vou publicar' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar aprovação' }));
 
     await waitFor(() => {
       expect(submitAvaliacaoMock).toHaveBeenCalledWith(TOKEN, {
         decisao: 'Aprovado',
-        desejaAgendamento: false,
+        opcaoPublicacao: 'proprio_cliente',
         dataDesejada: undefined,
         horarioDesejado: undefined,
+        legendaDesejada: undefined,
       });
     });
     expect(await screen.findByText(/Arte aprovada com sucesso/)).toBeInTheDocument();
   });
 
-  it('aprova a arte informando data/horário desejados de agendamento (RN22/RN27)', async () => {
+  it('rodada correções (item 8): aprova escolhendo "designer agendar manualmente" informando data/horário', async () => {
     getAvaliacaoPreviewMock.mockResolvedValue(validPreview);
     submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado' });
 
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Aprovar' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Sim, quero agendar' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Designer agendar manualmente' }));
     fireEvent.change(screen.getByLabelText('Data desejada'), { target: { value: '2026-09-01' } });
     fireEvent.change(screen.getByLabelText('Horário desejado'), { target: { value: '14:30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar aprovação' }));
@@ -192,12 +209,48 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
     await waitFor(() => {
       expect(submitAvaliacaoMock).toHaveBeenCalledWith(TOKEN, {
         decisao: 'Aprovado',
-        desejaAgendamento: true,
+        opcaoPublicacao: 'designer_manual',
         dataDesejada: '2026-09-01',
         horarioDesejado: '14:30',
+        legendaDesejada: undefined,
       });
     });
     expect(await screen.findByText(/Arte aprovada com sucesso/)).toBeInTheDocument();
+  });
+
+  it('rodada correções (item 7/8/19): "agendar automaticamente" fica desabilitado quando o Instagram não está conectado', async () => {
+    getAvaliacaoPreviewMock.mockResolvedValue({ ...validPreview, clienteInstagramConectado: false });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Aprovar' }));
+
+    expect(await screen.findByRole('button', { name: 'Agendar automaticamente' })).toBeDisabled();
+    expect(screen.getByText(/conecte sua conta do Instagram ao DesignHub/)).toBeInTheDocument();
+  });
+
+  it('rodada correções (item 7/8/19): aprova escolhendo "agendar automaticamente" quando o Instagram está conectado e confirma o agendamento real', async () => {
+    getAvaliacaoPreviewMock.mockResolvedValue({ ...validPreview, clienteInstagramConectado: true });
+    submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Agendado', agendamentoAutomaticoCriado: true });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Aprovar' }));
+    const automaticoBtn = await screen.findByRole('button', { name: 'Agendar automaticamente' });
+    expect(automaticoBtn).not.toBeDisabled();
+    fireEvent.click(automaticoBtn);
+    fireEvent.change(screen.getByLabelText('Data da publicação'), { target: { value: '2026-09-26' } });
+    fireEvent.change(screen.getByLabelText('Horário da publicação'), { target: { value: '12:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar aprovação' }));
+
+    await waitFor(() => {
+      expect(submitAvaliacaoMock).toHaveBeenCalledWith(TOKEN, {
+        decisao: 'Aprovado',
+        opcaoPublicacao: 'automatico',
+        dataDesejada: '2026-09-26',
+        horarioDesejado: '12:00',
+        legendaDesejada: undefined,
+      });
+    });
+    expect(await screen.findByText('Publicação agendada automaticamente com sucesso.')).toBeInTheDocument();
   });
 
   it('cancela somente após confirmação explícita', async () => {

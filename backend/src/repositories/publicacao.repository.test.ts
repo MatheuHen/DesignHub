@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 import {
+  claimAgendamentosParaNotificar,
   claimAgendamentoParaPublicacao,
+  claimNotificacaoPublicacao,
   getPublicacaoBySolicitacao,
   getVersaoArteAtualDaSolicitacao,
   listAgendamentosVencidos,
@@ -102,6 +104,89 @@ describe('listAgendamentosVencidos (RF014/RN32)', () => {
         instagramPermalinkPendente: null,
       },
     ]);
+  });
+});
+
+describe('claimAgendamentosParaNotificar (item 9 — idempotência do aviso de push)', () => {
+  it('reivindica (UPDATE...RETURNING) e mapeia os agendamentos dentro da janela', async () => {
+    const select = vi.fn().mockResolvedValue({
+      data: [{ id_agendamento: 1, id_solicitacao: 10, data_publicacao: '2026-09-26', horario: '12:00:00' }],
+      error: null,
+    });
+    const lte = vi.fn(() => ({ select }));
+    const gte = vi.fn(() => ({ lte }));
+    const eqNotificado = vi.fn(() => ({ gte }));
+    const eqStatus = vi.fn(() => ({ eq: eqNotificado }));
+    const update = vi.fn(() => ({ eq: eqStatus }));
+    const client = { from: () => ({ update }) } as unknown as Parameters<typeof claimAgendamentosParaNotificar>[0];
+
+    await expect(claimAgendamentosParaNotificar(client, '2026-09-26T14:00:00.000Z', '2026-09-26T14:10:00.000Z')).resolves.toEqual(
+      [{ idAgendamento: 1, idSolicitacao: 10, dataPublicacao: '2026-09-26', horario: '12:00:00' }],
+    );
+    expect(update).toHaveBeenCalledWith({ notificado_2h: true });
+    expect(eqStatus).toHaveBeenCalledWith('status', 'Agendado');
+    expect(eqNotificado).toHaveBeenCalledWith('notificado_2h', false);
+  });
+
+  function chainedClient(response: { data: unknown; error: { message: string } | null }) {
+    const select = vi.fn().mockResolvedValue(response);
+    const lte = vi.fn(() => ({ select }));
+    const gte = vi.fn(() => ({ lte }));
+    const eqNotificado = vi.fn(() => ({ gte }));
+    const eqStatus = vi.fn(() => ({ eq: eqNotificado }));
+    const update = vi.fn(() => ({ eq: eqStatus }));
+    return { from: () => ({ update }) } as unknown as Parameters<typeof claimAgendamentosParaNotificar>[0];
+  }
+
+  it('retorna lista vazia quando nada está na janela', async () => {
+    const client = chainedClient({ data: [], error: null });
+    await expect(claimAgendamentosParaNotificar(client, 'a', 'b')).resolves.toEqual([]);
+  });
+
+  it('propaga erro do banco', async () => {
+    const client = chainedClient({ data: null, error: { message: 'falhou' } });
+    await expect(claimAgendamentosParaNotificar(client, 'a', 'b')).rejects.toThrow(/falhou/);
+  });
+});
+
+describe('claimNotificacaoPublicacao (item 14 — idempotência do aviso "ARTE PUBLICADA!")', () => {
+  it('sem force: aplica .is(...null) e retorna true quando reivindica (linha ainda não notificada)', async () => {
+    const select = vi.fn().mockResolvedValue({ data: [{ id_publicacao: 1 }], error: null });
+    const is = vi.fn(() => ({ select }));
+    const eq = vi.fn(() => ({ is }));
+    const update = vi.fn(() => ({ eq }));
+    const client = { from: () => ({ update }) } as unknown as Parameters<typeof claimNotificacaoPublicacao>[0];
+
+    await expect(claimNotificacaoPublicacao(client, 1)).resolves.toBe(true);
+    expect(is).toHaveBeenCalledWith('notificado_arte_publicada_em', null);
+  });
+
+  it('sem force: retorna false quando já havia sido reivindicada (nenhuma linha atualizada)', async () => {
+    const select = vi.fn().mockResolvedValue({ data: [], error: null });
+    const client = {
+      from: () => ({ update: () => ({ eq: () => ({ is: () => ({ select }) }) }) }),
+    } as unknown as Parameters<typeof claimNotificacaoPublicacao>[0];
+
+    await expect(claimNotificacaoPublicacao(client, 1)).resolves.toBe(false);
+  });
+
+  it('com force: NÃO aplica o filtro .is(...null) — sempre reivindica (reenvio manual explícito)', async () => {
+    const select = vi.fn().mockResolvedValue({ data: [{ id_publicacao: 1 }], error: null });
+    const is = vi.fn();
+    const eq = vi.fn(() => ({ select }));
+    const update = vi.fn(() => ({ eq }));
+    const client = { from: () => ({ update }) } as unknown as Parameters<typeof claimNotificacaoPublicacao>[0];
+
+    await expect(claimNotificacaoPublicacao(client, 1, { force: true })).resolves.toBe(true);
+    expect(is).not.toHaveBeenCalled();
+  });
+
+  it('propaga erro do banco', async () => {
+    const client = {
+      from: () => ({ update: () => ({ eq: () => ({ is: () => ({ select: () => Promise.resolve({ data: null, error: { message: 'falhou' } }) }) }) }) }),
+    } as unknown as Parameters<typeof claimNotificacaoPublicacao>[0];
+
+    await expect(claimNotificacaoPublicacao(client, 1)).rejects.toThrow(/falhou/);
   });
 });
 

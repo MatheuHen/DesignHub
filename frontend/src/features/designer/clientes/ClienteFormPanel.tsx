@@ -4,7 +4,6 @@ import type { Cliente } from './api';
 export interface ClienteFormValues {
   nome: string;
   whatsapp: string;
-  instagram: string;
 }
 
 interface CreatePanelProps {
@@ -27,7 +26,6 @@ export function ClienteFormPanel(props: ClienteFormPanelProps) {
   const isCreate = props.mode === 'create';
   const [nome, setNome] = useState(isCreate ? '' : props.cliente.nome);
   const [whatsapp, setWhatsapp] = useState(isCreate ? '' : props.cliente.whatsapp);
-  const [instagram, setInstagram] = useState(isCreate ? '' : (props.cliente.instagram ?? ''));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +35,7 @@ export function ClienteFormPanel(props: ClienteFormPanelProps) {
     setError(null);
 
     void props
-      .onSubmit({ nome, whatsapp, instagram })
+      .onSubmit({ nome, whatsapp })
       .catch((submitError: unknown) => {
         setError(submitError instanceof Error ? submitError.message : 'Não foi possível salvar.');
       })
@@ -64,12 +62,10 @@ export function ClienteFormPanel(props: ClienteFormPanelProps) {
         onChange={(event) => setWhatsapp(event.target.value)}
       />
 
-      <label htmlFor="cliente-instagram">Instagram (opcional)</label>
-      <input
-        id="cliente-instagram"
-        value={instagram}
-        onChange={(event) => setInstagram(event.target.value)}
-      />
+      <p className="cliente-form-instagram-hint">
+        Instagram (opcional): conecte a conta oficial do cliente depois de salvar, na listagem de
+        Clientes ("Conectar Instagram").
+      </p>
 
       {error && (
         <p role="alert" className="auth-error">

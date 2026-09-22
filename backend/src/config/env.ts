@@ -89,6 +89,35 @@ const schema = z.object({
    * de usuário, então um valor curto/previsível facilitaria força bruta.
    */
   INTERNAL_JOB_SECRET: z.string().min(32).optional(),
+  /**
+   * Item 9 (rodada correções): Web Push (VAPID) — aviso "publicação em 2h"
+   * ao designer. Par de chaves gratuito e específico deste app, gerado uma
+   * vez (`npx web-push generate-vapid-keys`); a pública é servida ao
+   * frontend em runtime por `GET /api/push/vapid-public-key` (sem
+   * autenticação, não é segredo). Sem as duas, o subsistema de push fica
+   * BLOCKED_EXTERNAL_CREDENTIAL — o resto do dashboard continua funcionando.
+   */
+  WEB_PUSH_VAPID_PUBLIC_KEY: z.string().min(1).optional(),
+  WEB_PUSH_VAPID_PRIVATE_KEY: z.string().min(1).optional(),
+  /** Contato exigido pelo protocolo Web Push (RFC 8292) — e-mail ou URL https. */
+  WEB_PUSH_VAPID_SUBJECT: z.string().min(1).default('mailto:designhub@example.com'),
+  /**
+   * Item 16 (rodada correções — IA autorizada nesta rodada): chave da API
+   * Gemini (Google AI Studio, camada gratuita) usada exclusivamente como
+   * classificador auxiliar de intenção na resposta de confirmação inicial
+   * do questionário RF004/RN08 (`atendimento.service.ts`). Sem esta chave,
+   * o classificador fica indisponível e o fluxo usa só a regra
+   * determinística já existente (`classificarConfirmacaoTexto`) — nunca
+   * bloqueia o atendimento, nunca simula uma classificação.
+   */
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  /**
+   * Modelo Gemini da família Flash (rápido/barato, adequado a uma tarefa de
+   * classificação fechada). Configurável por env para permitir troca sem
+   * deploy de código caso a Google descontinue a versão atual — nunca
+   * hardcoded sem alternativa.
+   */
+  GEMINI_MODEL: z.string().min(1).default('gemini-2.5-flash-lite'),
 });
 
 // Aceita nomes de convenção alternativa (ex.: NEXT_PUBLIC_*) apenas como
@@ -108,7 +137,24 @@ if (!parsed.success) {
   throw new Error(`Configuração de ambiente inválida: ${names.join(', ')}`);
 }
 
-export const env = parsed.data;
+/**
+ * Rodada correções (item 5): "Invalid redirect_uri" na Meta é tipicamente
+ * causado por um valor de URL configurado com barra final — isso faz o
+ * redirect_uri montado (`${PUBLIC_BACKEND_URL}/api/instagram/oauth/callback`)
+ * virar uma barra dupla, que não bate byte a byte com o URI cadastrado no App
+ * da Meta (exige correspondência exata). Normaliza aqui, uma única vez, para
+ * que todo consumidor (OAuth do Instagram, links de e-mail/avaliação) receba
+ * sempre a forma sem barra final.
+ */
+function stripTrailingSlash(url: string): string {
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+export const env = {
+  ...parsed.data,
+  FRONTEND_URL: stripTrailingSlash(parsed.data.FRONTEND_URL),
+  PUBLIC_BACKEND_URL: stripTrailingSlash(parsed.data.PUBLIC_BACKEND_URL),
+};
 
 /**
  * Item 1/7.1 (correções 13/09/2026): links de recuperação de senha/avaliação
@@ -166,7 +212,17 @@ export const instagramConfigStatus = {
   hasTokenEncryptionKey: Boolean(env.INSTAGRAM_TOKEN_ENC_KEY),
 } as const;
 
+export const webPushConfigStatus = {
+  /** Item 9: sem as duas chaves VAPID, o envio de Web Push fica indisponível (fail-closed, sem simular sucesso). */
+  hasVapidKeys: Boolean(env.WEB_PUSH_VAPID_PUBLIC_KEY && env.WEB_PUSH_VAPID_PRIVATE_KEY),
+} as const;
+
 export const internalJobConfigStatus = {
   /** RF014/seção 11: sem este segredo, o endpoint interno de publicação fica indisponível (fail-closed). */
   hasSecret: Boolean(env.INTERNAL_JOB_SECRET),
+} as const;
+
+export const geminiConfigStatus = {
+  /** Item 16: sem a chave, o classificador de intenção por IA fica indisponível — fallback determinístico assume sozinho. */
+  hasApiKey: Boolean(env.GEMINI_API_KEY),
 } as const;

@@ -19,6 +19,7 @@ import { findClienteById } from '../repositories/atendimento.repository.js';
 import { getConexaoAtiva } from '../repositories/clienteInstagram.repository.js';
 import {
   claimAgendamentoParaPublicacao,
+  claimNotificacaoPublicacao,
   getClienteIdDaSolicitacao,
   getPublicacaoBySolicitacao,
   getVersaoArteAtualDaSolicitacao,
@@ -106,10 +107,19 @@ export async function processarAgendamentosVencidos(): Promise<ProcessarAgendame
  * dedicado quando aprovado/configurado, ou marcamos o canal como
  * `BLOCKED_EXTERNAL_WHATSAPP_PUBLICACAO` sem nunca inventar um template não
  * aprovado nem afetar o registro da publicação.
+ *
+ * Item 14 (rodada correções): reivindicação atômica prévia
+ * (`claimNotificacaoPublicacao`) — sem `force`, uma segunda chamada para a
+ * mesma publicação (por qualquer motivo: job sobreposto, retry de
+ * infraestrutura) encontra a marca já preenchida e nunca chega a enviar de
+ * novo. `force: true` é usado só pelo reenvio manual explícito
+ * (`reenviarNotificacaoPublicacao`) — ação humana deliberada, ignora a
+ * marca de propósito.
  */
 async function notificarClientePublicacaoBestEffort(
   adminClient: SupabaseClient,
   idSolicitacao: number,
+  options: { force?: boolean } = {},
 ): Promise<void> {
   try {
     const solicitacao = await getSolicitacaoDetailRepo(adminClient, idSolicitacao);
@@ -118,12 +128,25 @@ async function notificarClientePublicacaoBestEffort(
     const cliente = await findClienteById(adminClient, solicitacao.idCliente);
     if (!cliente) return;
 
+    const publicacao = await getPublicacaoBySolicitacao(adminClient, idSolicitacao);
+    if (!publicacao) return;
+
+    const reivindicado = await claimNotificacaoPublicacao(adminClient, publicacao.idPublicacao, {
+      force: options.force,
+    });
+    if (!reivindicado) {
+      console.warn(
+        '[designhub:publicacao] aviso "ARTE PUBLICADA!" já havia sido enviado — chamada duplicada descartada (idempotência, item 14)',
+        { idSolicitacao },
+      );
+      return;
+    }
+
     const versao = await getVersaoArteAtualDaSolicitacao(adminClient, idSolicitacao);
     const versaoLabel = versao ? ` (versão ${versao.numeroVersao})` : '';
     const artLabel = solicitacao.tema ? `a arte "${solicitacao.tema}"${versaoLabel}` : `sua arte${versaoLabel}`;
 
-    const publicacao = await getPublicacaoBySolicitacao(adminClient, idSolicitacao);
-    const permalinkLine = publicacao?.permalink ? `\n\nVeja aqui: ${publicacao.permalink}` : '';
+    const permalinkLine = publicacao.permalink ? `\n\nVeja aqui: ${publicacao.permalink}` : '';
     const message = `ARTE PUBLICADA! Boas notícias: ${artLabel} já está no ar.${permalinkLine}`;
 
     try {
@@ -361,7 +384,7 @@ export async function reenviarNotificacaoPublicacao(
   }
 
   const adminClient = getSupabaseAdminClient();
-  await notificarClientePublicacaoBestEffort(adminClient, idSolicitacao);
+  await notificarClientePublicacaoBestEffort(adminClient, idSolicitacao, { force: true });
 }
 
 export interface PublicacaoDetalhe {

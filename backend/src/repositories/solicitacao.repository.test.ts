@@ -1,6 +1,45 @@
 import { describe, expect, it, vi } from 'vitest';
-import { NotFoundError } from '../lib/errors.js';
-import { listRespostasBySolicitacao, listSolicitacoes, updateSolicitacaoFields } from './solicitacao.repository.js';
+import { ConflictError, NotFoundError } from '../lib/errors.js';
+import {
+  cancelSolicitacaoDesignerRpc,
+  listRespostasBySolicitacao,
+  listSolicitacoes,
+  updateSolicitacaoFields,
+} from './solicitacao.repository.js';
+
+function rpcClient(response: { error: { message: string; code?: string } | null }) {
+  return { rpc: () => Promise.resolve(response) } as unknown as Parameters<typeof cancelSolicitacaoDesignerRpc>[0];
+}
+
+describe('cancelSolicitacaoDesignerRpc (item 12/30 — rodada correções)', () => {
+  it('resolve sem erro quando a RPC tem sucesso', async () => {
+    const client = rpcClient({ error: null });
+    await expect(
+      cancelSolicitacaoDesignerRpc(client, { idSolicitacao: 1, idDesigner: 'designer-1' }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('mapeia P0002 (solicitação não encontrada/não pertence ao designer) para NotFoundError', async () => {
+    const client = rpcClient({ error: { message: 'não encontrada', code: 'P0002' } });
+    await expect(
+      cancelSolicitacaoDesignerRpc(client, { idSolicitacao: 1, idDesigner: 'designer-1' }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('mapeia P0001 (status já terminal) para ConflictError', async () => {
+    const client = rpcClient({ error: { message: 'já cancelada', code: 'P0001' } });
+    await expect(
+      cancelSolicitacaoDesignerRpc(client, { idSolicitacao: 1, idDesigner: 'designer-1' }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('propaga erro inesperado da RPC', async () => {
+    const client = rpcClient({ error: { message: 'falha de conexão' } });
+    await expect(
+      cancelSolicitacaoDesignerRpc(client, { idSolicitacao: 1, idDesigner: 'designer-1' }),
+    ).rejects.toThrow('falha de conexão');
+  });
+});
 
 function updateClient(returnedRows: unknown[]) {
   return {

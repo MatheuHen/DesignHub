@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
+import { classificarConfirmacaoComGemini } from '../integrations/ai/geminiClient.js';
 import {
   downloadMediaFromWhatsApp,
   sendTemplateMessage,
@@ -37,6 +38,7 @@ import {
   revertAtendimentoParaAndamento,
   type ActiveAtendimento,
 } from '../repositories/atendimento.repository.js';
+import { getDesignerById } from '../repositories/designer.repository.js';
 import { syncDesignerBloqueio } from '../repositories/solicitacao.repository.js';
 import type { WhatsAppInboundMessage, WhatsAppWebhookPayload } from '../schemas/whatsapp.schemas.js';
 import {
@@ -47,6 +49,9 @@ import {
   CLOSING_MESSAGE,
   CONFIRMACAO_INVALIDA_MESSAGE,
   RECUSA_MESSAGE,
+  TIPO_MENSAGEM_NAO_SUPORTADA_MESSAGE,
+  TIPO_MENSAGEM_NAO_SUPORTADA_REFERENCIA_MESSAGE,
+  buildConfirmacaoPromptComDesigner,
   type QuestionDefinition,
 } from './atendimentoQuestions.js';
 
@@ -101,6 +106,15 @@ export async function iniciarAtendimento(
     throw new Error('Configuração inválida: nenhuma pergunta definida para o atendimento.');
   }
 
+  // Item 27 (rodada correções): a pergunta de confirmação identifica o
+  // designer responsável pelo nome — nunca e-mail/ID (RNF010). Falha ao
+  // buscar o nome não pode travar o início do atendimento: cai para o texto
+  // genérico já aprovado.
+  const designer = await getDesignerById(adminClient, idDesigner);
+  const primeiraPerguntaTexto = designer
+    ? buildConfirmacaoPromptComDesigner(designer.nomeCompleto)
+    : primeiraPergunta.prompt;
+
   try {
     // RF004/item 20: mensagem que abre a conversa é business-initiated (fora
     // da janela de 24h) — a Cloud API exige `type: 'template'`, não texto
@@ -109,7 +123,7 @@ export async function iniciarAtendimento(
     // pergunta de confirmação (RN08) é enviada em seguida como texto livre,
     // já dentro da janela de 24h que o template acabou de abrir.
     await sendTemplateMessage(cliente.whatsapp);
-    await sendTextMessage(cliente.whatsapp, primeiraPergunta.prompt);
+    await sendTextMessage(cliente.whatsapp, primeiraPerguntaTexto);
   } catch (sendError) {
     await deleteAtendimento(adminClient, atendimento.id);
     throw sendError;
@@ -208,7 +222,7 @@ const CANCEL_CONFIRM_PATTERN = /^(cancelar|confirmar|confirmo|sim)\b/;
 
 type ConfirmacaoClassificacao = 'sim' | 'nao' | 'indefinido';
 
-function classificarConfirmacao(message: WhatsAppInboundMessage): ConfirmacaoClassificacao {
+function classificarConfirmacaoRegex(message: WhatsAppInboundMessage): ConfirmacaoClassificacao {
   if (message.type !== 'text' || !message.text) return 'indefinido';
   const normalized = normalizeText(message.text.body);
   if (YES_PATTERN.test(normalized)) return 'sim';
@@ -216,8 +230,49 @@ function classificarConfirmacao(message: WhatsAppInboundMessage): ConfirmacaoCla
   return 'indefinido';
 }
 
+/**
+ * Item 16 (rodada correções — IA autorizada nesta rodada): a regra
+ * determinística acima cobre as respostas inequívocas de sempre ("sim",
+ * "não", "pode", "claro"...) e nunca é sobrescrita quando já decide algo —
+ * o classificador Gemini (`classificarConfirmacaoComGemini`) só é consultado
+ * quando ela retorna 'indefinido' e a mensagem é texto real, como uma
+ * segunda tentativa de entender respostas mais naturais ("por mim tudo
+ * certo", "acho que não quero agora") antes de pedir esclarecimento ao
+ * cliente. Em qualquer indisponibilidade da IA (sem chave, timeout, erro,
+ * limite local) o resultado permanece 'indefinido' — comportamento idêntico
+ * ao existente antes deste item, nunca bloqueia nem muda o fluxo por conta
+ * própria.
+ */
+async function classificarConfirmacao(message: WhatsAppInboundMessage): Promise<ConfirmacaoClassificacao> {
+  const classificacaoRegex = classificarConfirmacaoRegex(message);
+  if (classificacaoRegex !== 'indefinido') return classificacaoRegex;
+  if (message.type !== 'text' || !message.text) return 'indefinido';
+
+  const iaResultado = await classificarConfirmacaoComGemini(message.text.body);
+  return iaResultado?.confirmacao ?? 'indefinido';
+}
+
 function textoBrutoDaMensagem(message: WhatsAppInboundMessage): string | null {
   return message.type === 'text' && message.text ? message.text.body : null;
+}
+
+/** RN08/item 28: uma resposta só de emoji/símbolo (sem letra nem número) não carrega informação real. */
+const HAS_ALPHANUMERIC_CONTENT = /[\p{L}\p{N}]/u;
+
+/**
+ * Item 28 (rodada correções): distingue o que a Cloud API pode entregar
+ * (`text`, `image`, `document`, `sticker`, `reaction`, `audio`, `video`,
+ * `location`, `contacts`, `interactive`, `unknown`) do que cada pergunta
+ * RN08 de fato aceita como resposta. `referencia` aceita texto ou
+ * imagem/PDF; as demais perguntas livres (tema/cores/observações) só
+ * aceitam texto com conteúdo real — nunca figurinha/reação/áudio/vídeo/
+ * emoji isolado tratados como se fossem a resposta.
+ */
+function isRespostaAceitavelParaPergunta(question: QuestionDefinition, message: WhatsAppInboundMessage): boolean {
+  if (question.key === 'referencia') {
+    return message.type === 'text' || message.type === 'image' || message.type === 'document';
+  }
+  return message.type === 'text' && message.text !== undefined && HAS_ALPHANUMERIC_CONTENT.test(message.text.body);
 }
 
 /**
@@ -312,7 +367,7 @@ async function handleInboundMessage(
   // restrito (sim/não) — "não" encerra sem avançar; resposta ambígua pede
   // esclarecimento e repete a pergunta, sem inventar dado nem avançar.
   if (question.key === 'confirmacao') {
-    const classificacao = classificarConfirmacao(message);
+    const classificacao = await classificarConfirmacao(message);
     if (classificacao === 'nao') {
       const answerText = await extractAnswerText(match.id, question, message);
       await insertResposta(adminClient, match.id, question.prompt, answerText);
@@ -324,6 +379,17 @@ async function handleInboundMessage(
       await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, CONFIRMACAO_INVALIDA_MESSAGE);
       return;
     }
+  }
+
+  // Item 28: figurinha/reação/áudio/vídeo/emoji isolado nunca contam como
+  // resposta válida — pede esclarecimento e NÃO avança o questionário
+  // (sem isso, `extractAnswerText` caía no fallback genérico e gravava um
+  // texto de placeholder como se fosse a resposta real, RN09).
+  if (!isRespostaAceitavelParaPergunta(question, message)) {
+    const naoSuportadaMessage =
+      question.key === 'referencia' ? TIPO_MENSAGEM_NAO_SUPORTADA_REFERENCIA_MESSAGE : TIPO_MENSAGEM_NAO_SUPORTADA_MESSAGE;
+    await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, naoSuportadaMessage);
+    return;
   }
 
   // Item N.5.6: a decisão de qual pergunta esta resposta corresponde e o

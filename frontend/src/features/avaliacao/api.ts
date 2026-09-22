@@ -39,11 +39,16 @@ export interface AvaliacaoPreview {
   expiresInSeconds?: number;
   /** RN13/RN14/RN18: presente quando state === 'used' — acompanhamento somente-leitura. */
   tracking?: AvaliacaoTracking;
+  /** Rodada correções (item 8/19): permite oferecer "agendar automaticamente" só quando fizer sentido. */
+  clienteInstagramConectado?: boolean;
 }
+
+export type OpcaoPublicacao = 'automatico' | 'designer_manual' | 'proprio_cliente';
 
 export interface SubmitAvaliacaoResult {
   idSolicitacao: number;
   statusNovo: string;
+  agendamentoAutomaticoCriado?: boolean;
 }
 
 export interface SubmitAvaliacaoInput {
@@ -51,10 +56,11 @@ export interface SubmitAvaliacaoInput {
   descricao?: string | undefined;
   observacoes?: string | undefined;
   referencia?: File | undefined;
-  /** RN22: só relevante quando decisao === 'Aprovado'. */
-  desejaAgendamento?: boolean | undefined;
+  /** RN22/RN27/RN29: só relevante quando decisao === 'Aprovado'. */
+  opcaoPublicacao?: OpcaoPublicacao | undefined;
   dataDesejada?: string | undefined;
   horarioDesejado?: string | undefined;
+  legendaDesejada?: string | undefined;
 }
 
 interface ApiErrorBody {
@@ -105,11 +111,10 @@ export async function submitAvaliacao(
   if (input.descricao) formData.append('descricao', input.descricao);
   if (input.observacoes) formData.append('observacoes', input.observacoes);
   if (input.referencia) formData.append('referencia', input.referencia);
-  if (input.desejaAgendamento !== undefined) {
-    formData.append('desejaAgendamento', input.desejaAgendamento ? 'true' : 'false');
-  }
+  if (input.opcaoPublicacao) formData.append('opcaoPublicacao', input.opcaoPublicacao);
   if (input.dataDesejada) formData.append('dataDesejada', input.dataDesejada);
   if (input.horarioDesejado) formData.append('horarioDesejado', input.horarioDesejado);
+  if (input.legendaDesejada) formData.append('legendaDesejada', input.legendaDesejada);
 
   const response = await fetch(`${apiUrl}/api/avaliacao/${token}`, { method: 'POST', body: formData });
   return parseOrThrow<SubmitAvaliacaoResult>(response);

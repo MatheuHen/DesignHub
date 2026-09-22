@@ -71,10 +71,20 @@ describe('rotas públicas /api/avaliacao (RF009/RF010)', () => {
 
     const response = await request(createApp())
       .post(`/api/avaliacao/${VALID_TOKEN}`)
-      .field('decisao', 'Aprovado');
+      .field('decisao', 'Aprovado')
+      .field('opcaoPublicacao', 'proprio_cliente');
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ idSolicitacao: 10, statusNovo: 'Aprovado' });
+  });
+
+  it('POST /:token rejeita Aprovado sem escolher uma opção de publicação (item 8/19)', async () => {
+    const response = await request(createApp())
+      .post(`/api/avaliacao/${VALID_TOKEN}`)
+      .field('decisao', 'Aprovado');
+
+    expect(response.status).toBe(400);
+    expect(submitAvaliacaoDecisaoMock).not.toHaveBeenCalled();
   });
 
   it('POST /:token rejeita decisao=Ajustes sem descrição (RF010)', async () => {
@@ -110,7 +120,8 @@ describe('rotas públicas /api/avaliacao (RF009/RF010)', () => {
 
     const response = await request(createApp())
       .post(`/api/avaliacao/${VALID_TOKEN}`)
-      .field('decisao', 'Aprovado');
+      .field('decisao', 'Aprovado')
+      .field('opcaoPublicacao', 'proprio_cliente');
 
     expect(response.status).toBe(404);
   });
@@ -120,7 +131,8 @@ describe('rotas públicas /api/avaliacao (RF009/RF010)', () => {
 
     const response = await request(createApp())
       .post(`/api/avaliacao/${VALID_TOKEN}`)
-      .field('decisao', 'Aprovado');
+      .field('decisao', 'Aprovado')
+      .field('opcaoPublicacao', 'proprio_cliente');
 
     expect(response.status).toBe(410);
   });
@@ -130,7 +142,8 @@ describe('rotas públicas /api/avaliacao (RF009/RF010)', () => {
 
     const response = await request(createApp())
       .post(`/api/avaliacao/${VALID_TOKEN}`)
-      .field('decisao', 'Aprovado');
+      .field('decisao', 'Aprovado')
+      .field('opcaoPublicacao', 'proprio_cliente');
 
     expect(response.status).toBe(409);
   });

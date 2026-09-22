@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import { AppShell } from '../../app/AppShell';
 import { ApiError } from '../../lib/apiClient';
 import { statusSlug } from '../../lib/statusStyle';
+import { listAgendamentos, type Agendamento } from './agendamentos/api';
 import { useAuth } from '../auth/useAuth';
+import { NotificationsCta } from './notifications/NotificationsCta';
 import { listSolicitacoes, SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from './solicitacoes/api';
 
 interface TileCount {
@@ -41,6 +43,7 @@ export function DesignerHome() {
 
   const [tiles, setTiles] = useState<TileCount[] | null>(null);
   const [emProducao, setEmProducao] = useState<Solicitacao[] | null>(null);
+  const [agendamentos, setAgendamentos] = useState<Agendamento[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,13 +59,21 @@ export function DesignerHome() {
         ),
       ),
       listSolicitacoes({ status: 'Em produção' }),
+      listAgendamentos({ status: 'Agendado' }),
     ])
-      .then(([tileResults, emProducaoResult]) => {
+      .then(([tileResults, emProducaoResult, agendamentosResult]) => {
         if (cancelled) return;
         setTiles(tileResults);
         setEmProducao(
           [...emProducaoResult.items].sort(
             (a, b) => new Date(a.prazoPrimeiraVersao).getTime() - new Date(b.prazoPrimeiraVersao).getTime(),
+          ),
+        );
+        setAgendamentos(
+          [...agendamentosResult.items].sort(
+            (a, b) =>
+              new Date(`${a.dataPublicacao}T${a.horario}`).getTime() -
+              new Date(`${b.dataPublicacao}T${b.horario}`).getTime(),
           ),
         );
       })
@@ -94,6 +105,7 @@ export function DesignerHome() {
     <AppShell>
       <div className="page-header">
         <h1>Dashboard</h1>
+        <NotificationsCta />
       </div>
 
       {profile?.bloqueado && (
@@ -164,6 +176,32 @@ export function DesignerHome() {
               </tbody>
             </table>
           )}
+        </section>
+      )}
+
+      {!loading && !error && agendamentos && agendamentos.length > 0 && (
+        <section className="dashboard-prazos" aria-labelledby="publicacoes-title">
+          <h2 id="publicacoes-title">Publicações agendadas</h2>
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Cliente</th>
+                <th scope="col">Data</th>
+                <th scope="col">Horário</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agendamentos.map((agendamento) => (
+                <tr key={agendamento.idAgendamento}>
+                  <td>
+                    <Link to={`/designer/solicitacoes/${agendamento.idSolicitacao}`}>{agendamento.clienteNome}</Link>
+                  </td>
+                  <td>{new Date(`${agendamento.dataPublicacao}T00:00:00`).toLocaleDateString('pt-BR')}</td>
+                  <td>{agendamento.horario.slice(0, 5)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
       )}
 

@@ -144,7 +144,7 @@ describe('getVersaoArtePreview (RF009 — dados mínimos, sem PII)', () => {
                   formato: 'PDF',
                   observacoes: null,
                   arquivo_url: 'solicitacoes/10/versoes/x.pdf',
-                  solicitacao: { tema: 'Post promocional' },
+                  solicitacao: { tema: 'Post promocional', id_cliente: 3 },
                 },
                 error: null,
               }),
@@ -160,6 +160,7 @@ describe('getVersaoArtePreview (RF009 — dados mínimos, sem PII)', () => {
       observacoes: null,
       arquivoUrl: 'solicitacoes/10/versoes/x.pdf',
       tema: 'Post promocional',
+      idCliente: 3,
     });
   });
 });

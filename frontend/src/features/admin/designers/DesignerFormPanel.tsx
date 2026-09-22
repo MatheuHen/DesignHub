@@ -12,7 +12,6 @@ export interface CreateFormValues {
 export interface EditFormValues {
   nomeCompleto: string;
   whatsapp: string;
-  statusOperacional: string;
   /** RF001/item 2.1: preenchidos apenas quando o Admin decide trocar a senha. */
   novaSenha?: string;
   confirmaSenha?: string;
@@ -41,9 +40,6 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
   const [senha, setSenha] = useState('');
   const [confirmaSenha, setConfirmaSenha] = useState('');
   const [whatsapp, setWhatsapp] = useState(isCreate ? '' : (props.designer.whatsapp ?? ''));
-  const [statusOperacional, setStatusOperacional] = useState(
-    isCreate ? '' : (props.designer.statusOperacional ?? ''),
-  );
   const [novaSenha, setNovaSenha] = useState('');
   const [confirmaNovaSenha, setConfirmaNovaSenha] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -71,7 +67,6 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
         : props.onSubmit({
             nomeCompleto,
             whatsapp,
-            statusOperacional,
             ...(novaSenha ? { novaSenha, confirmaSenha: confirmaNovaSenha } : {}),
           });
 
@@ -139,13 +134,6 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
 
       {!isCreate && (
         <>
-          <label htmlFor="designer-status-operacional">Status operacional (opcional)</label>
-          <input
-            id="designer-status-operacional"
-            value={statusOperacional}
-            onChange={(event) => setStatusOperacional(event.target.value)}
-          />
-
           <fieldset className="designer-form-senha">
             <legend>Alterar senha (opcional)</legend>
 

@@ -6,6 +6,7 @@ import { ApiError } from '../../../lib/apiClient';
 import { statusSlug } from '../../../lib/statusStyle';
 import {
   cancelAgendamento,
+  cancelSolicitacao,
   createAgendamento,
   gerarLinkAvaliacao,
   getAjusteReferenciaUrl,
@@ -38,6 +39,9 @@ function formatDateTime(value: string): string {
 /** RF007/RN26: só é possível enviar nova versão quando a solicitação está aguardando envio. */
 const UPLOADABLE_STATUSES = new Set(['Em produção', 'Ajustes']);
 
+/** Item 12/30 (rodada correções): "Cancelar arte" só em estados ativos — nunca em Cancelado/Publicado (terminais). */
+const CANCELAVEIS = new Set(['Em produção', 'Enviado para avaliação', 'Ajustes', 'Aprovado', 'Agendado']);
+
 /** RF005: detalhes com atendimento, status, versões e histórico; edição dos campos descritivos. */
 export function SolicitacaoDetailPage() {
   const params = useParams<{ id: string }>();
@@ -54,13 +58,27 @@ export function SolicitacaoDetailPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
-  const [downloadingVersaoId, setDownloadingVersaoId] = useState<number | null>(null);
+  /**
+   * Rodada correções (item 6): antes havia um único estado por `id` (sem
+   * distinguir Visualizar de Baixar), então clicar em um botão acendia o
+   * texto de carregamento genérico "Gerando link…" nos DOIS botões da mesma
+   * linha. Agora cada ação guarda também qual botão foi clicado, então só
+   * ele mostra seu próprio texto ("Carregando versão…"/"Preparando
+   * download…") e só ele fica desabilitado.
+   */
+  const [downloadingVersaoAction, setDownloadingVersaoAction] = useState<{ id: number; inline: boolean } | null>(
+    null,
+  );
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
-  const [downloadingAjusteId, setDownloadingAjusteId] = useState<number | null>(null);
+  const [downloadingAjusteAction, setDownloadingAjusteAction] = useState<{ id: number; inline: boolean } | null>(
+    null,
+  );
   const [ajusteDownloadError, setAjusteDownloadError] = useState<string | null>(null);
 
-  const [downloadingAtendimentoReferencia, setDownloadingAtendimentoReferencia] = useState(false);
+  const [downloadingAtendimentoReferenciaAction, setDownloadingAtendimentoReferenciaAction] = useState<
+    'inline' | 'download' | null
+  >(null);
   const [atendimentoReferenciaError, setAtendimentoReferenciaError] = useState<string | null>(null);
 
   const [generatingLink, setGeneratingLink] = useState(false);
@@ -77,6 +95,7 @@ export function SolicitacaoDetailPage() {
   const [confirmingCancelAgend, setConfirmingCancelAgend] = useState(false);
   const [cancelingAgend, setCancelingAgend] = useState(false);
   const [cancelAgendError, setCancelAgendError] = useState<string | null>(null);
+  const [cancelAgendSuccess, setCancelAgendSuccess] = useState(false);
 
   const [registeringPublicacao, setRegisteringPublicacao] = useState(false);
   const [publicacaoError, setPublicacaoError] = useState<string | null>(null);
@@ -93,6 +112,10 @@ export function SolicitacaoDetailPage() {
   const [resendingNotificacao, setResendingNotificacao] = useState(false);
   const [resendNotificacaoError, setResendNotificacaoError] = useState<string | null>(null);
   const [resendNotificacaoSuccess, setResendNotificacaoSuccess] = useState(false);
+
+  const [confirmingCancelSolicitacao, setConfirmingCancelSolicitacao] = useState(false);
+  const [cancelingSolicitacao, setCancelingSolicitacao] = useState(false);
+  const [cancelSolicitacaoError, setCancelSolicitacaoError] = useState<string | null>(null);
 
   // Auditoria (achado HIGH — race condition): identifica a chamada mais
   // recente de `reload()` para descartar respostas de uma requisição antiga
@@ -119,7 +142,9 @@ export function SolicitacaoDetailPage() {
           result.agendamento?.horario.slice(0, 5) ??
             (usarPreferencia ? (preferencia.horarioDesejado?.slice(0, 5) ?? '') : ''),
         );
-        setAgendLegenda(result.agendamento?.legenda ?? '');
+        setAgendLegenda(
+          result.agendamento?.legenda ?? (usarPreferencia ? (preferencia.legendaDesejada ?? '') : ''),
+        );
 
         if (result.solicitacao.status === 'Aprovado' || result.solicitacao.status === 'Agendado') {
           getClienteInstagramStatus(result.solicitacao.idCliente)
@@ -187,7 +212,7 @@ export function SolicitacaoDetailPage() {
   }
 
   function handleDownload(idVersao: number, inline: boolean) {
-    setDownloadingVersaoId(idVersao);
+    setDownloadingVersaoAction({ id: idVersao, inline });
     setDownloadError(null);
 
     getVersaoArteDownloadUrl(id, idVersao, inline)
@@ -199,11 +224,11 @@ export function SolicitacaoDetailPage() {
           downloadErr instanceof ApiError ? downloadErr.message : 'Não foi possível gerar o link de download.',
         );
       })
-      .finally(() => setDownloadingVersaoId(null));
+      .finally(() => setDownloadingVersaoAction(null));
   }
 
   function handleDownloadAjusteReferencia(idAjuste: number, inline: boolean) {
-    setDownloadingAjusteId(idAjuste);
+    setDownloadingAjusteAction({ id: idAjuste, inline });
     setAjusteDownloadError(null);
 
     getAjusteReferenciaUrl(id, idAjuste, inline)
@@ -215,11 +240,11 @@ export function SolicitacaoDetailPage() {
           downloadErr instanceof ApiError ? downloadErr.message : 'Não foi possível gerar o link de download.',
         );
       })
-      .finally(() => setDownloadingAjusteId(null));
+      .finally(() => setDownloadingAjusteAction(null));
   }
 
   function handleDownloadAtendimentoReferencia(inline: boolean) {
-    setDownloadingAtendimentoReferencia(true);
+    setDownloadingAtendimentoReferenciaAction(inline ? 'inline' : 'download');
     setAtendimentoReferenciaError(null);
 
     getAtendimentoReferenciaUrl(id, inline)
@@ -231,7 +256,7 @@ export function SolicitacaoDetailPage() {
           downloadErr instanceof ApiError ? downloadErr.message : 'Não foi possível gerar o link de download.',
         );
       })
-      .finally(() => setDownloadingAtendimentoReferencia(false));
+      .finally(() => setDownloadingAtendimentoReferenciaAction(null));
   }
 
   function handleGerarLink() {
@@ -256,6 +281,9 @@ export function SolicitacaoDetailPage() {
     setAgendSaving(true);
     setAgendError(null);
     setAgendSuccess(null);
+    // Rodada correções (item 13/31/32): um agendamento novo/editado nunca
+    // deve deixar visível uma mensagem de cancelamento de uma ação anterior.
+    setCancelAgendSuccess(false);
 
     const input = { dataPublicacao: agendData, horario: agendHorario, legenda: agendLegenda };
     const action = data?.agendamento ? updateAgendamento(id, input) : createAgendamento(id, input);
@@ -276,10 +304,17 @@ export function SolicitacaoDetailPage() {
   function handleConfirmarCancelamentoAgendamento() {
     setCancelingAgend(true);
     setCancelAgendError(null);
+    // Rodada correções (item 13/31): sem isso, "Publicação agendada com
+    // sucesso." (de quando o agendamento foi criado) continuava visível na
+    // tela depois de cancelá-lo — mensagem de uma ação diferente, já
+    // desatualizada (stale state).
+    setAgendSuccess(null);
+    setCancelAgendSuccess(false);
 
     cancelAgendamento(id)
       .then(() => {
         setConfirmingCancelAgend(false);
+        setCancelAgendSuccess(true);
         reload();
       })
       .catch((cancelErr: unknown) => {
@@ -351,6 +386,10 @@ export function SolicitacaoDetailPage() {
   function handleDownloadComprovante() {
     setDownloadingComprovante(true);
     setComprovanteDownloadError(null);
+    // Rodada correções (item 10): "Ver comprovante" é uma ação de leitura —
+    // nunca deve deixar a mensagem "Comprovante enviado com sucesso." (de um
+    // upload anterior nesta mesma visita) visível ao lado dela.
+    setComprovanteSuccess(false);
 
     getComprovanteDownloadUrl(id)
       .then(({ url }) => {
@@ -364,6 +403,23 @@ export function SolicitacaoDetailPage() {
       .finally(() => setDownloadingComprovante(false));
   }
 
+  /** Item 12/30 (rodada correções): designer cancela a própria arte em qualquer estado ativo. */
+  function handleCancelarSolicitacao() {
+    setCancelingSolicitacao(true);
+    setCancelSolicitacaoError(null);
+    cancelSolicitacao(id)
+      .then(() => {
+        setConfirmingCancelSolicitacao(false);
+        reload();
+      })
+      .catch((cancelErr: unknown) => {
+        setCancelSolicitacaoError(
+          cancelErr instanceof ApiError ? cancelErr.message : 'Não foi possível cancelar a solicitação.',
+        );
+      })
+      .finally(() => setCancelingSolicitacao(false));
+  }
+
   return (
     <AppShell>
       <Link to="/designer/solicitacoes" className="page-back">
@@ -371,7 +427,47 @@ export function SolicitacaoDetailPage() {
       </Link>
       <div className="page-header">
         <h1>Detalhes da solicitação</h1>
+        {data && CANCELAVEIS.has(data.solicitacao.status) && (
+          <div className="designer-form-actions">
+            {confirmingCancelSolicitacao ? (
+              <>
+                <span role="alert">Cancelar esta solicitação de arte? Esta ação não pode ser desfeita.</span>
+                <button
+                  type="button"
+                  className="designer-action-danger"
+                  disabled={cancelingSolicitacao}
+                  onClick={handleCancelarSolicitacao}
+                >
+                  {cancelingSolicitacao ? 'Cancelando…' : 'Confirmar cancelamento'}
+                </button>
+                <button
+                  type="button"
+                  disabled={cancelingSolicitacao}
+                  onClick={() => setConfirmingCancelSolicitacao(false)}
+                >
+                  Voltar
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="designer-action-danger"
+                onClick={() => {
+                  setCancelSolicitacaoError(null);
+                  setConfirmingCancelSolicitacao(true);
+                }}
+              >
+                Cancelar arte
+              </button>
+            )}
+          </div>
+        )}
       </div>
+      {cancelSolicitacaoError && (
+        <p role="alert" className="auth-error">
+          {cancelSolicitacaoError}
+        </p>
+      )}
 
       {loading && <p role="status">Carregando…</p>}
       {error && (
@@ -428,16 +524,16 @@ export function SolicitacaoDetailPage() {
                         <button
                           type="button"
                           onClick={() => handleDownloadAtendimentoReferencia(true)}
-                          disabled={downloadingAtendimentoReferencia}
+                          disabled={downloadingAtendimentoReferenciaAction !== null}
                         >
-                          {downloadingAtendimentoReferencia ? 'Gerando link…' : 'Visualizar'}
+                          {downloadingAtendimentoReferenciaAction === 'inline' ? 'Carregando…' : 'Visualizar'}
                         </button>
                         <button
                           type="button"
                           onClick={() => handleDownloadAtendimentoReferencia(false)}
-                          disabled={downloadingAtendimentoReferencia}
+                          disabled={downloadingAtendimentoReferenciaAction !== null}
                         >
-                          {downloadingAtendimentoReferencia ? 'Gerando link…' : 'Baixar'}
+                          {downloadingAtendimentoReferenciaAction === 'download' ? 'Preparando download…' : 'Baixar'}
                         </button>
                       </span>
                     ) : (
@@ -471,16 +567,20 @@ export function SolicitacaoDetailPage() {
                         <button
                           type="button"
                           onClick={() => handleDownloadAjusteReferencia(ajuste.idAjuste, true)}
-                          disabled={downloadingAjusteId === ajuste.idAjuste}
+                          disabled={downloadingAjusteAction?.id === ajuste.idAjuste}
                         >
-                          {downloadingAjusteId === ajuste.idAjuste ? 'Gerando link…' : 'Visualizar'}
+                          {downloadingAjusteAction?.id === ajuste.idAjuste && downloadingAjusteAction.inline
+                            ? 'Carregando…'
+                            : 'Visualizar'}
                         </button>
                         <button
                           type="button"
                           onClick={() => handleDownloadAjusteReferencia(ajuste.idAjuste, false)}
-                          disabled={downloadingAjusteId === ajuste.idAjuste}
+                          disabled={downloadingAjusteAction?.id === ajuste.idAjuste}
                         >
-                          {downloadingAjusteId === ajuste.idAjuste ? 'Gerando link…' : 'Baixar'}
+                          {downloadingAjusteAction?.id === ajuste.idAjuste && !downloadingAjusteAction.inline
+                            ? 'Preparando download…'
+                            : 'Baixar'}
                         </button>
                       </span>
                     )}
@@ -509,16 +609,20 @@ export function SolicitacaoDetailPage() {
                       <button
                         type="button"
                         onClick={() => handleDownload(versao.id_versao, true)}
-                        disabled={downloadingVersaoId === versao.id_versao}
+                        disabled={downloadingVersaoAction?.id === versao.id_versao}
                       >
-                        {downloadingVersaoId === versao.id_versao ? 'Gerando link…' : 'Visualizar'}
+                        {downloadingVersaoAction?.id === versao.id_versao && downloadingVersaoAction.inline
+                          ? 'Carregando versão…'
+                          : 'Visualizar'}
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDownload(versao.id_versao, false)}
-                        disabled={downloadingVersaoId === versao.id_versao}
+                        disabled={downloadingVersaoAction?.id === versao.id_versao}
                       >
-                        {downloadingVersaoId === versao.id_versao ? 'Gerando link…' : 'Baixar'}
+                        {downloadingVersaoAction?.id === versao.id_versao && !downloadingVersaoAction.inline
+                          ? 'Preparando download…'
+                          : 'Baixar'}
                       </button>
                     </span>
                   </li>
@@ -590,7 +694,7 @@ export function SolicitacaoDetailPage() {
 
               <div className="designer-form-actions">
                 <button type="button" onClick={handleGerarLink} disabled={generatingLink}>
-                  {generatingLink ? 'Gerando link…' : 'Gerar e enviar link de avaliação'}
+                  {generatingLink ? 'Gerando link de avaliação…' : 'Gerar e enviar link de avaliação'}
                 </button>
               </div>
 
@@ -633,8 +737,17 @@ export function SolicitacaoDetailPage() {
                 </p>
               )}
 
-              {/* RN22: preferência que o cliente informou ao aprovar — só a leitura, quem cria/gerencia o agendamento continua sendo o designer (RF012). */}
-              {data.preferenciaAgendamento?.desejaAgendamento === true && (
+              {/* Rodada correções (item 8): opção que o cliente escolheu ao aprovar — só leitura; quem cria/gerencia o agendamento manual continua sendo o designer (RF012). */}
+              {data.preferenciaAgendamento?.opcaoPublicacao === 'automatico' && (
+                <p role="alert" className="auth-error">
+                  O cliente escolheu agendar automaticamente, mas isso não foi possível (o Instagram dele não
+                  estava mais conectado no momento). Agende manualmente abaixo para {' '}
+                  {data.preferenciaAgendamento.dataDesejada &&
+                    new Date(`${data.preferenciaAgendamento.dataDesejada}T00:00:00`).toLocaleDateString('pt-BR')}{' '}
+                  às {data.preferenciaAgendamento.horarioDesejado?.slice(0, 5)}.
+                </p>
+              )}
+              {data.preferenciaAgendamento?.opcaoPublicacao === 'designer_manual' && (
                 <p>
                   O cliente indicou que deseja agendar para{' '}
                   {data.preferenciaAgendamento.dataDesejada &&
@@ -642,9 +755,22 @@ export function SolicitacaoDetailPage() {
                   às {data.preferenciaAgendamento.horarioDesejado?.slice(0, 5)}.
                 </p>
               )}
-              {data.preferenciaAgendamento?.desejaAgendamento === false && (
-                <p>O cliente optou por decidir o agendamento junto com você depois.</p>
+              {data.preferenciaAgendamento?.opcaoPublicacao === 'proprio_cliente' && (
+                <p>
+                  O cliente informou que vai publicar esta arte por conta própria. Registre a publicação manual
+                  quando ela ocorrer.
+                </p>
               )}
+              {/* Compatibilidade com aprovações registradas antes desta rodada (sem opcaoPublicacao). */}
+              {data.preferenciaAgendamento?.opcaoPublicacao === null &&
+                data.preferenciaAgendamento?.desejaAgendamento === true && (
+                  <p>
+                    O cliente indicou que deseja agendar para{' '}
+                    {data.preferenciaAgendamento.dataDesejada &&
+                      new Date(`${data.preferenciaAgendamento.dataDesejada}T00:00:00`).toLocaleDateString('pt-BR')}{' '}
+                    às {data.preferenciaAgendamento.horarioDesejado?.slice(0, 5)}.
+                  </p>
+                )}
 
               <form
                 className="designer-form"
@@ -725,6 +851,11 @@ export function SolicitacaoDetailPage() {
                   {cancelAgendError}
                 </p>
               )}
+              {cancelAgendSuccess && !cancelAgendError && (
+                <p role="status" className="atendimento-success">
+                  Agendamento cancelado com sucesso.
+                </p>
+              )}
               <p>
                 O cancelamento do agendamento é permitido com pelo menos 3 horas de antecedência do
                 horário planejado.
@@ -792,7 +923,7 @@ export function SolicitacaoDetailPage() {
                   {publicacaoDetalhe.temComprovante ? (
                     <div className="designer-form-actions">
                       <button type="button" onClick={handleDownloadComprovante} disabled={downloadingComprovante}>
-                        {downloadingComprovante ? 'Gerando link…' : 'Ver comprovante'}
+                        {downloadingComprovante ? 'Carregando comprovante…' : 'Ver comprovante'}
                       </button>
                     </div>
                   ) : (

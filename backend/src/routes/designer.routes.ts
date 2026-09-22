@@ -73,7 +73,7 @@ designerRouter.post('/', designerAdminRateLimit, async (request, response, next)
   }
 });
 
-designerRouter.patch('/:id', async (request, response, next) => {
+designerRouter.patch('/:id', designerAdminRateLimit, async (request, response, next) => {
   try {
     const { id } = designerIdParamSchema.parse(request.params);
     const input = updateDesignerSchema.parse(request.body);
@@ -84,7 +84,7 @@ designerRouter.patch('/:id', async (request, response, next) => {
   }
 });
 
-designerRouter.patch('/:id/status', async (request, response, next) => {
+designerRouter.patch('/:id/status', designerAdminRateLimit, async (request, response, next) => {
   try {
     const { id } = designerIdParamSchema.parse(request.params);
     const input = setDesignerStatusSchema.parse(request.body);
@@ -108,12 +108,16 @@ designerRouter.patch('/:id/senha', designerAdminRateLimit, async (request, respo
 });
 
 /**
- * RF001/item 2.4 (correções 13/09/2026): exclusão física reintroduzida de
- * forma ADITIVA — Ativo/Inativo continua disponível; Excluir é oferecido
- * além disso e respeita impedimentos históricos (ConflictError quando o
- * designer tem cliente/solicitação vinculados).
+ * RF001 (rodada correções): o botão "Excluir" da interface passou a executar
+ * inativação lógica (PATCH /:id/status) para preservar histórico sem exigir
+ * reatribuição prévia. Este DELETE físico não é mais chamado pelo frontend —
+ * mantido porque RF001 exige "exclusão" como capacidade distinta de
+ * "inativação" (ainda respeita impedimentos históricos via ConflictError),
+ * disponível como operação administrativa de baixo nível, não exposta na
+ * operação comum. Item 17 (auditoria de segurança): limite de taxa dedicado
+ * aplicado por ser uma operação irreversível de alto impacto.
  */
-designerRouter.delete('/:id', async (request, response, next) => {
+designerRouter.delete('/:id', designerAdminRateLimit, async (request, response, next) => {
   try {
     const { id } = designerIdParamSchema.parse(request.params);
     await removeDesigner(request.auth!.userId, id);

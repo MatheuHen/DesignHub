@@ -18,6 +18,15 @@ import { ClienteFormPanel, type ClienteFormValues } from './ClienteFormPanel';
 
 type PanelState = { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; cliente: Cliente };
 
+const INSTAGRAM_OAUTH_MESSAGE_SOURCE = 'designhub-instagram-oauth';
+/** Mesmo breakpoint tablet/desktop já usado no restante do app (styles.css). */
+const POPUP_VIEWPORT_QUERY = '(min-width: 861px)';
+
+/** Abrir popup é confiável só em telas de notebook/desktop — mobile/tablet usa redirect de página inteira. */
+function canUseOAuthPopup(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia(POPUP_VIEWPORT_QUERY).matches;
+}
+
 /** RF003: gerenciamento dos próprios clientes pelo Designer. */
 export function ClientesPage() {
   const [items, setItems] = useState<Cliente[]>([]);
@@ -41,6 +50,8 @@ export function ClientesPage() {
     { id: number; type: 'success' | 'error'; message: string } | null
   >(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const oauthPopupRef = useRef<Window | null>(null);
+  const oauthPopupPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Auditoria (achado MEDIUM — N+1 + ausência de debounce): sem isso, cada
   // tecla digitada disparava `listClientes` + 1 chamada de status do
@@ -89,32 +100,98 @@ export function ClientesPage() {
     reload();
   }, [reload]);
 
-  /** RF014/ADR 0005: volta do fluxo OAuth do Instagram (redirect do backend após aprovação/erro na Meta). */
+  const applyInstagramOAuthResult = useCallback(
+    (resultado: string) => {
+      if (resultado === 'conectado') {
+        setInstagramFeedback({ id: -1, type: 'success', message: 'Instagram conectado com sucesso.' });
+        reload();
+      } else if (resultado === 'erro') {
+        setInstagramFeedback({
+          id: -1,
+          type: 'error',
+          message: 'Não foi possível conectar o Instagram. Tente novamente.',
+        });
+      }
+      setConnectingInstagramId(null);
+    },
+    [reload],
+  );
+
+  function stopWatchingOAuthPopup() {
+    if (oauthPopupPollRef.current) {
+      clearInterval(oauthPopupPollRef.current);
+      oauthPopupPollRef.current = null;
+    }
+    oauthPopupRef.current = null;
+  }
+
+  /**
+   * RF014/ADR 0005 (rodada correções, item 5/12): esta página tem dois papéis
+   * possíveis ao carregar com `?instagram=...` na URL: (a) é a aba original,
+   * recebendo o resultado por `postMessage` do popup — caso comum em
+   * desktop/notebook; ou (b) é a PRÓPRIA página que acabou de ser redirecionada
+   * pelo backend após o callback da Meta (popup bloqueado pelo navegador ou
+   * fallback de página inteira em mobile/tablet). Quando `window.opener`
+   * aponta para outra janela, este documento é o popup: repassa o resultado
+   * para quem abriu e se fecha, sem tentar recarregar sua própria listagem
+   * (que vai desaparecer de qualquer forma).
+   */
   useEffect(() => {
     const resultado = searchParams.get('instagram');
-    if (resultado === 'conectado') {
-      setInstagramFeedback({ id: -1, type: 'success', message: 'Instagram conectado com sucesso.' });
-      reload();
-    } else if (resultado === 'erro') {
-      setInstagramFeedback({
-        id: -1,
-        type: 'error',
-        message: 'Não foi possível conectar o Instagram. Tente novamente.',
-      });
+    if (!resultado) return;
+
+    if (window.opener && window.opener !== window) {
+      try {
+        (window.opener as Window).postMessage({ source: INSTAGRAM_OAUTH_MESSAGE_SOURCE, resultado }, window.location.origin);
+      } finally {
+        window.close();
+      }
+      return;
     }
-    if (resultado) {
-      const next = new URLSearchParams(searchParams);
-      next.delete('instagram');
-      setSearchParams(next, { replace: true });
-    }
+
+    applyInstagramOAuthResult(resultado);
+    const next = new URLSearchParams(searchParams);
+    next.delete('instagram');
+    setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Recebe o resultado do popup de OAuth do Instagram quando ele se fecha sozinho (ver efeito acima). */
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as { source?: string; resultado?: string } | null;
+      if (!data || data.source !== INSTAGRAM_OAUTH_MESSAGE_SOURCE || !data.resultado) return;
+      stopWatchingOAuthPopup();
+      applyInstagramOAuthResult(data.resultado);
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [applyInstagramOAuthResult]);
+
+  useEffect(() => stopWatchingOAuthPopup, []);
 
   function handleConectarInstagram(cliente: Cliente) {
     setInstagramFeedback(null);
     setConnectingInstagramId(cliente.id);
     getInstagramAuthorizeUrl(cliente.id)
       .then(({ url }) => {
+        if (canUseOAuthPopup()) {
+          const popup = window.open(url, INSTAGRAM_OAUTH_MESSAGE_SOURCE, 'width=500,height=720');
+          if (popup) {
+            stopWatchingOAuthPopup();
+            oauthPopupRef.current = popup;
+            // Se o usuário fechar o popup manualmente sem concluir, destrava o botão.
+            oauthPopupPollRef.current = setInterval(() => {
+              if (oauthPopupRef.current?.closed) {
+                stopWatchingOAuthPopup();
+                setConnectingInstagramId(null);
+              }
+            }, 500);
+            return;
+          }
+          // Popup bloqueado pelo navegador: cai no mesmo caminho de página inteira do mobile.
+        }
         window.location.href = url;
       })
       .catch((connectError: unknown) => {
@@ -151,7 +228,6 @@ export function ClientesPage() {
     await createCliente({
       nome: values.nome,
       whatsapp: values.whatsapp,
-      instagram: values.instagram || undefined,
     });
     setPanel({ mode: 'closed' });
     reload();
@@ -161,7 +237,6 @@ export function ClientesPage() {
     await updateCliente(cliente.id, {
       nome: values.nome,
       whatsapp: values.whatsapp,
-      instagram: values.instagram || null,
     });
     setPanel({ mode: 'closed' });
     reload();
@@ -217,6 +292,10 @@ export function ClientesPage() {
           + Novo Cliente
         </button>
       </div>
+      <p className="cliente-form-instagram-hint">
+        "Publicação automática" exige conectar uma conta profissional do Instagram (Business ou
+        Creator) — a conexão é feita pelo próprio cliente ao clicar em "Conectar Instagram".
+      </p>
 
       <div className="designer-filters">
         <label htmlFor="cliente-search">Buscar</label>

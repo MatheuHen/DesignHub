@@ -1,12 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import { createVersaoArteDownloadUrl } from '../repositories/versaoArte.repository.js';
-import { NotFoundError } from '../lib/errors.js';
+import { ConflictError, NotFoundError } from '../lib/errors.js';
 import {
   getActiveAgendamentoSummary,
   type ActiveAgendamentoSummary,
 } from '../repositories/agendamento.repository.js';
+import { findClienteById } from '../repositories/atendimento.repository.js';
 import {
+  cancelSolicitacaoDesignerRpc,
   getAgendamentoPreferencia,
   getAjusteReferenciaPath,
   getReferenciaPathBySolicitacao,
@@ -24,8 +26,11 @@ import {
   type SolicitacaoDetail,
   type VersaoArteEntry,
 } from '../repositories/solicitacao.repository.js';
+import { WhatsAppReengagementRequiredError, sendTextMessage } from '../integrations/whatsapp/whatsappClient.js';
 import { ATENDIMENTO_QUESTIONS } from './atendimentoQuestions.js';
 import type { ListSolicitacoesQuery, UpdateSolicitacaoInput } from '../schemas/solicitacao.schemas.js';
+
+const CANCELAVEIS = new Set(['Em produção', 'Enviado para avaliação', 'Ajustes', 'Aprovado', 'Agendado']);
 
 const AJUSTE_REFERENCIA_URL_EXPIRES_IN_SECONDS = 300;
 const REFERENCIA_PROMPT = ATENDIMENTO_QUESTIONS.find((q) => q.key === 'referencia')!.prompt;
@@ -173,4 +178,68 @@ export async function updateSolicitacao(
   }
   const adminClient = getSupabaseAdminClient();
   await updateSolicitacaoFields(adminClient, id, callerId, changes);
+}
+
+/**
+ * Item 12/30 (rodada correções): o designer responsável cancela a própria
+ * solicitação em qualquer estado ativo — RPC atômica cancela também o
+ * agendamento ativo, se houver. Idempotente contra duplo clique: a segunda
+ * chamada encontra `status = 'Cancelado'` e é rejeitada pela própria RPC
+ * (`ConflictError`, tratado como "não suportado" pelo cliente).
+ */
+export async function cancelSolicitacao(
+  userClient: SupabaseClient,
+  id: number,
+  callerId: string,
+): Promise<void> {
+  const owned = await getSolicitacaoDetailRepo(userClient, id);
+  if (!owned || owned.idDesigner !== callerId) {
+    throw new NotFoundError('Solicitação não encontrada.');
+  }
+  if (!CANCELAVEIS.has(owned.status)) {
+    throw new ConflictError(`Solicitação não pode mais ser cancelada (status atual: ${owned.status}).`);
+  }
+
+  const adminClient = getSupabaseAdminClient();
+  await cancelSolicitacaoDesignerRpc(adminClient, { idSolicitacao: id, idDesigner: callerId });
+  await notificarClienteCancelamentoDesignerBestEffort(adminClient, owned);
+}
+
+/**
+ * Melhor esforço — a solicitação já foi cancelada com sucesso acima; uma
+ * falha aqui nunca desfaz o cancelamento nem quebra a resposta ao designer,
+ * mesmo padrão já usado no restante da rodada (ex.: aviso pós-aprovação).
+ */
+async function notificarClienteCancelamentoDesignerBestEffort(
+  adminClient: SupabaseClient,
+  solicitacao: SolicitacaoDetail,
+): Promise<void> {
+  try {
+    const cliente = await findClienteById(adminClient, solicitacao.idCliente);
+    if (!cliente?.whatsapp) return;
+
+    const versoes = await listVersoesArte(adminClient, solicitacao.id);
+    const ultimaVersao = versoes.at(-1)?.numero_versao;
+    const message = solicitacao.tema
+      ? `Esta solicitação de arte foi cancelada pelo designer: "${solicitacao.tema}"${ultimaVersao ? ` (versão ${ultimaVersao})` : ''}.`
+      : 'Esta solicitação de arte foi cancelada pelo designer.';
+
+    await sendTextMessage(cliente.whatsapp, message);
+  } catch (error) {
+    if (error instanceof WhatsAppReengagementRequiredError) {
+      // Sem template dedicado aprovado pela Meta para este aviso (fora do
+      // escopo desta rodada criar um — depende de aprovação externa/humana):
+      // BLOCKED_EXTERNAL explícito, nunca finge sucesso. O cancelamento em
+      // si já está confirmado e não depende deste aviso.
+      console.warn(
+        '[designhub:solicitacao] BLOCKED_EXTERNAL_WHATSAPP_CANCELAMENTO_DESIGNER: janela de 24h fechada e nenhum template aprovado configurado para este aviso',
+        { idSolicitacao: solicitacao.id },
+      );
+      return;
+    }
+    console.error('[designhub:solicitacao] falha ao avisar cliente via WhatsApp (cancelamento pelo designer)', {
+      idSolicitacao: solicitacao.id,
+      message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
+    });
+  }
 }

@@ -1,12 +1,14 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getUserMock, maybeSingleMock, listSolicitacoesMock, reassignSolicitacaoMock } = vi.hoisted(() => ({
-  getUserMock: vi.fn(),
-  maybeSingleMock: vi.fn(),
-  listSolicitacoesMock: vi.fn(),
-  reassignSolicitacaoMock: vi.fn(),
-}));
+const { getUserMock, maybeSingleMock, listSolicitacoesMock, reassignSolicitacaoMock, cancelSolicitacaoMock } =
+  vi.hoisted(() => ({
+    getUserMock: vi.fn(),
+    maybeSingleMock: vi.fn(),
+    listSolicitacoesMock: vi.fn(),
+    reassignSolicitacaoMock: vi.fn(),
+    cancelSolicitacaoMock: vi.fn(),
+  }));
 
 vi.mock('../config/supabase.js', () => ({
   getSupabasePublicClient: () => ({ auth: { getUser: getUserMock } }),
@@ -23,6 +25,7 @@ vi.mock('../services/solicitacao.service.js', () => ({
   listSolicitacoes: listSolicitacoesMock,
   getSolicitacaoDetail: vi.fn(),
   updateSolicitacao: vi.fn(),
+  cancelSolicitacao: cancelSolicitacaoMock,
 }));
 
 vi.mock('../services/designer.service.js', () => ({
@@ -108,6 +111,7 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
     uploadComprovantePublicacaoMock.mockReset();
     getComprovanteDownloadUrlMock.mockReset();
     reenviarNotificacaoPublicacaoMock.mockReset();
+    cancelSolicitacaoMock.mockReset();
   });
 
   it('GET / é exclusivo do designer — administrador recebe 403', async () => {
@@ -165,6 +169,48 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
       .send({ tema: 'Novo tema', status: 'Aprovado' });
 
     expect(response.status).toBe(400);
+  });
+
+  it('POST /:id/cancelar é exclusivo do designer — administrador recebe 403', async () => {
+    mockAuthenticatedUser('administrador');
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/cancelar')
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(403);
+    expect(cancelSolicitacaoMock).not.toHaveBeenCalled();
+  });
+
+  it('POST /:id/cancelar rejeita sem autenticação', async () => {
+    const response = await request(createApp()).post('/api/solicitacoes/10/cancelar');
+
+    expect(response.status).toBe(401);
+    expect(cancelSolicitacaoMock).not.toHaveBeenCalled();
+  });
+
+  it('POST /:id/cancelar permite designer e delega ao service (item 12/30)', async () => {
+    mockAuthenticatedUser('designer');
+    cancelSolicitacaoMock.mockResolvedValue(undefined);
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/cancelar')
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(204);
+    expect(cancelSolicitacaoMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1');
+  });
+
+  it('POST /:id/cancelar retorna 409 quando o service rejeita (status já terminal)', async () => {
+    mockAuthenticatedUser('designer');
+    const { ConflictError } = await import('../lib/errors.js');
+    cancelSolicitacaoMock.mockRejectedValue(new ConflictError('Solicitação não pode mais ser cancelada.'));
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/cancelar')
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(409);
   });
 
   it('POST /:id/versoes é exclusivo do designer — administrador recebe 403', async () => {

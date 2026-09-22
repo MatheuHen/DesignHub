@@ -16,6 +16,7 @@ import {
 import { generateOpaqueToken, hashOpaqueToken } from '../lib/tokens.js';
 import {
   cancelAgendamentoCliente,
+  createAgendamentoCliente,
   generateAvaliacaoLinkToken,
   getAvaliacaoLinkState,
   getTrackingAgendamento,
@@ -28,6 +29,7 @@ import {
 } from '../repositories/avaliacao.repository.js';
 import { findClienteById } from '../repositories/atendimento.repository.js';
 import { getDesignerById } from '../repositories/designer.repository.js';
+import { getStatusConexao } from '../repositories/clienteInstagram.repository.js';
 import {
   getSolicitacaoDetail as getSolicitacaoDetailRepo,
   listVersoesArte,
@@ -161,6 +163,12 @@ export interface AvaliacaoPreview {
   downloadUrl?: string;
   expiresInSeconds?: number;
   tracking?: AvaliacaoTracking;
+  /**
+   * Rodada correções (item 8/19): permite ao frontend oferecer "agendar
+   * automaticamente" só quando fizer sentido — nunca vaza token/detalhe da
+   * conexão, apenas um booleano (RNF010/seção 12.2).
+   */
+  clienteInstagramConectado?: boolean;
 }
 
 /**
@@ -238,6 +246,8 @@ export async function getAvaliacaoPreview(rawToken: string): Promise<AvaliacaoPr
     false,
   );
 
+  const instagramStatus = await getStatusConexao(adminClient, versao.idCliente);
+
   return {
     state: 'valid',
     tema: versao.tema,
@@ -246,6 +256,7 @@ export async function getAvaliacaoPreview(rawToken: string): Promise<AvaliacaoPr
     observacoes: versao.observacoes,
     downloadUrl,
     expiresInSeconds: DOWNLOAD_URL_EXPIRES_IN_SECONDS,
+    clienteInstagramConectado: instagramStatus.conectado,
   };
 }
 
@@ -254,14 +265,24 @@ export interface SubmitAvaliacaoInput {
   descricao: string | undefined;
   observacoes: string | undefined;
   referenciaBuffer: Buffer | undefined;
-  desejaAgendamento?: boolean | undefined;
+  opcaoPublicacao?: 'automatico' | 'designer_manual' | 'proprio_cliente' | undefined;
   dataDesejada?: string | undefined;
   horarioDesejado?: string | undefined;
+  legendaDesejada?: string | undefined;
 }
 
 export interface SubmitAvaliacaoOutcome {
   idSolicitacao: number;
   statusNovo: string;
+  /**
+   * Rodada correções (item 7/8): só presente quando `opcaoPublicacao ===
+   * 'automatico'`. `true` quando o agendamento real foi criado na hora
+   * (status já virou Agendado); `false` no caso raro em que o Instagram do
+   * cliente deixou de estar conectado entre o carregamento da tela e o
+   * envio (aprovação continua válida, só o agendamento automático não
+   * aconteceu — o designer precisa agendar manualmente).
+   */
+  agendamentoAutomaticoCriado?: boolean;
 }
 
 /**
@@ -303,23 +324,135 @@ export async function submitAvaliacaoDecisao(
     );
   }
 
+  const opcaoPublicacao = input.decisao === 'Aprovado' ? input.opcaoPublicacao : undefined;
+  const desejaAgendamento = opcaoPublicacao === 'automatico' || opcaoPublicacao === 'designer_manual';
+
+  let result: { idSolicitacao: number; statusNovo: string; numeroVersao: number };
   try {
-    const result = await submitAvaliacao(adminClient, {
+    result = await submitAvaliacao(adminClient, {
       tokenHash: hash,
       decisao: input.decisao,
       descricaoAjuste: input.descricao,
       observacoesAjuste: input.observacoes,
       imagemReferenciaPath,
-      desejaAgendamento: input.desejaAgendamento,
+      desejaAgendamento,
       dataDesejada: input.dataDesejada,
       horarioDesejado: input.horarioDesejado,
+      opcaoPublicacao,
+      legendaDesejada: input.legendaDesejada,
     });
-    return { idSolicitacao: result.idSolicitacao, statusNovo: result.statusNovo };
   } catch (error) {
     if (imagemReferenciaPath) {
       await removeArquivoFromStorageBestEffort(adminClient, imagemReferenciaPath);
     }
     throw error;
+  }
+
+  // A partir daqui a decisão já está confirmada e persistida — nada abaixo
+  // pode desfazê-la; qualquer falha vira melhor-esforço (log), nunca erro
+  // de resposta ao cliente que já aprovou/ajustou/cancelou com sucesso.
+  if (opcaoPublicacao === 'automatico') {
+    const agendamentoAutomaticoCriado = await tentarAgendamentoAutomaticoBestEffort(adminClient, {
+      idSolicitacao: result.idSolicitacao,
+      idVersao: linkState.idVersao,
+      dataPublicacao: input.dataDesejada!,
+      horario: input.horarioDesejado!,
+      legenda: input.legendaDesejada ?? null,
+    });
+    return {
+      idSolicitacao: result.idSolicitacao,
+      statusNovo: agendamentoAutomaticoCriado ? 'Agendado' : result.statusNovo,
+      agendamentoAutomaticoCriado,
+    };
+  }
+
+  if (opcaoPublicacao === 'designer_manual' || opcaoPublicacao === 'proprio_cliente') {
+    await notificarDesignerPosAprovacaoBestEffort(adminClient, result.idSolicitacao, opcaoPublicacao);
+  }
+
+  return { idSolicitacao: result.idSolicitacao, statusNovo: result.statusNovo };
+}
+
+/**
+ * Item 7/8 (opção 1 "agendar automaticamente"): reconfere a conexão do
+ * Instagram do cliente na hora (defesa em profundidade — o frontend já só
+ * oferece esta opção quando conectado, mas nunca confia só nisso) e cria o
+ * agendamento real. Nunca falha a requisição: a aprovação já foi
+ * confirmada acima; no pior caso (Instagram desconectado entre a tela
+ * carregar e o envio, ou qualquer outra falha), a solicitação permanece
+ * "Aprovado" — igual ao caminho "designer agenda manualmente" — e o
+ * chamador recebe `false` para explicar isso ao cliente.
+ */
+async function tentarAgendamentoAutomaticoBestEffort(
+  adminClient: SupabaseClient,
+  params: { idSolicitacao: number; idVersao: number; dataPublicacao: string; horario: string; legenda: string | null },
+): Promise<boolean> {
+  try {
+    const versao = await getVersaoArtePreview(adminClient, params.idVersao);
+    if (!versao) return false;
+
+    const instagramStatus = await getStatusConexao(adminClient, versao.idCliente);
+    if (!instagramStatus.conectado) {
+      console.warn('[designhub:avaliacao] agendamento automático não criado: Instagram do cliente não conectado', {
+        idSolicitacao: params.idSolicitacao,
+      });
+      return false;
+    }
+
+    await createAgendamentoCliente(adminClient, {
+      idSolicitacao: params.idSolicitacao,
+      dataPublicacao: params.dataPublicacao,
+      horario: params.horario,
+      legenda: params.legenda,
+    });
+    return true;
+  } catch (error) {
+    console.error('[designhub:avaliacao] falha ao criar agendamento automático (aprovação permanece válida)', {
+      idSolicitacao: params.idSolicitacao,
+      message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
+    });
+    return false;
+  }
+}
+
+/**
+ * Item 8 (opções 2/3): avisa o designer por WhatsApp que o cliente aprovou
+ * e escolheu "designer agendar manualmente" ou "eu mesmo vou publicar" —
+ * melhor esforço, mesmo padrão texto→BLOCKED_EXTERNAL já usado no
+ * cancelamento (item 8.6). O canal confiável é sempre o histórico da
+ * solicitação (gravado pela RPC `submit_avaliacao`) e a própria tela de
+ * detalhe, que qualquer designer autenticado sempre pode consultar.
+ */
+async function notificarDesignerPosAprovacaoBestEffort(
+  adminClient: SupabaseClient,
+  idSolicitacao: number,
+  opcaoPublicacao: 'designer_manual' | 'proprio_cliente',
+): Promise<void> {
+  try {
+    const solicitacao = await getSolicitacaoDetailRepo(adminClient, idSolicitacao);
+    if (!solicitacao) return;
+
+    const designer = await getDesignerById(adminClient, solicitacao.idDesigner);
+    if (!designer?.whatsapp) return;
+
+    const message =
+      opcaoPublicacao === 'designer_manual'
+        ? `O cliente ${solicitacao.clienteNome} aprovou a arte "${solicitacao.tema}" e prefere que você agende a publicação. Confira a preferência de data/horário no DesignHub.`
+        : `O cliente ${solicitacao.clienteNome} aprovou a arte "${solicitacao.tema}" e informou que vai publicar por conta própria. Registre a publicação manual no DesignHub quando ela ocorrer.`;
+
+    await sendTextMessage(designer.whatsapp, message);
+  } catch (error) {
+    if (error instanceof WhatsAppReengagementRequiredError) {
+      console.warn(
+        '[designhub:avaliacao] BLOCKED_EXTERNAL_WHATSAPP_POS_APROVACAO: janela de 24h fechada — alerta in-app (histórico da solicitação) permanece registrado',
+        { idSolicitacao },
+      );
+      return;
+    }
+    console.error('[designhub:avaliacao] falha ao alertar designer via WhatsApp (pós-aprovação)', {
+      idSolicitacao,
+      message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
+    });
   }
 }
 

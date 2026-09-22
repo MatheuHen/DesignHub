@@ -70,6 +70,9 @@ export interface AgendamentoPreferencia {
   desejaAgendamento: boolean | null;
   dataDesejada: string | null;
   horarioDesejado: string | null;
+  /** Rodada correções (item 8): qual das 3 opções o cliente escolheu ao aprovar. */
+  opcaoPublicacao: 'automatico' | 'designer_manual' | 'proprio_cliente' | null;
+  legendaDesejada: string | null;
 }
 
 export interface SolicitacaoDetailResult {
@@ -122,6 +125,11 @@ export function getSolicitacaoDetail(id: number): Promise<SolicitacaoDetailResul
 
 export function updateSolicitacao(id: number, input: UpdateSolicitacaoInput): Promise<void> {
   return apiRequest<void>(`/api/solicitacoes/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+/** Item 12/30 (rodada correções): designer cancela a própria solicitação em qualquer estado ativo. */
+export function cancelSolicitacao(id: number): Promise<void> {
+  return apiRequest<void>(`/api/solicitacoes/${id}/cancelar`, { method: 'POST' });
 }
 
 export interface UploadVersaoArteResult {

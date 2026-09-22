@@ -7,14 +7,27 @@ import {
   getAvaliacaoPreview,
   submitAvaliacao,
   type AvaliacaoPreview,
+  type OpcaoPublicacao,
 } from './api';
 
 type ViewState = 'loading' | 'error' | 'preview' | 'ajustes-form' | 'confirm-cancelar' | 'aprovar-agendamento' | 'submitted';
 
-const FRIENDLY_LINK_MESSAGE: Record<'invalid' | 'expired' | 'used', string> = {
-  invalid: 'Este link de avaliação não é válido. Solicite um novo link ao designer responsável.',
-  expired: 'Este link de avaliação expirou. Solicite um novo link ao designer responsável.',
-  used: 'Este link de avaliação já foi utilizado.',
+/**
+ * Rodada correções (item 6): mensagem única e mais útil para link
+ * inválido/expirado — orienta o cliente a procurar um link mais recente no
+ * WhatsApp antes de precisar contatar o designer. Nunca expõe token, ID ou
+ * qual versão está associada ao link (LGPD/seção 12.2).
+ */
+const LINK_INDISPONIVEL_MESSAGE = [
+  'Este link de avaliação não está mais disponível.',
+  'Verifique no WhatsApp se você recebeu um link mais recente desta arte.',
+  'Se não encontrar outro link válido, entre em contato com o designer responsável.',
+];
+
+const FRIENDLY_LINK_MESSAGE: Record<'invalid' | 'expired' | 'used', string[]> = {
+  invalid: LINK_INDISPONIVEL_MESSAGE,
+  expired: LINK_INDISPONIVEL_MESSAGE,
+  used: ['Este link de avaliação já foi utilizado.'],
 };
 
 const SUBMITTED_MESSAGE: Record<'Aprovado' | 'Ajustes' | 'Cancelado', string> = {
@@ -39,9 +52,11 @@ export function AvaliacaoPage() {
   const [observacoesAjuste, setObservacoesAjuste] = useState('');
   const [referenciaAjuste, setReferenciaAjuste] = useState<File | null>(null);
 
-  const [desejaAgendamento, setDesejaAgendamento] = useState<boolean | null>(null);
+  const [opcaoPublicacao, setOpcaoPublicacao] = useState<OpcaoPublicacao | null>(null);
   const [dataDesejada, setDataDesejada] = useState('');
   const [horarioDesejado, setHorarioDesejado] = useState('');
+  const [legendaDesejada, setLegendaDesejada] = useState('');
+  const [agendamentoAutomaticoCriado, setAgendamentoAutomaticoCriado] = useState<boolean | null>(null);
 
   const [confirmandoCancelAgendamento, setConfirmandoCancelAgendamento] = useState(false);
   const [cancelandoAgendamento, setCancelandoAgendamento] = useState(false);
@@ -70,7 +85,11 @@ export function AvaliacaoPage() {
 
   function handleConfirmarAprovacao(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (desejaAgendamento && (!dataDesejada || !horarioDesejado)) {
+    if (!opcaoPublicacao) {
+      setActionError('Escolha uma opção de publicação.');
+      return;
+    }
+    if (opcaoPublicacao !== 'proprio_cliente' && (!dataDesejada || !horarioDesejado)) {
       setActionError('Informe a data e o horário desejados.');
       return;
     }
@@ -78,11 +97,15 @@ export function AvaliacaoPage() {
     setActionError(null);
     submitAvaliacao(token, {
       decisao: 'Aprovado',
-      desejaAgendamento: desejaAgendamento ?? false,
-      dataDesejada: desejaAgendamento ? dataDesejada : undefined,
-      horarioDesejado: desejaAgendamento ? horarioDesejado : undefined,
+      opcaoPublicacao,
+      dataDesejada: opcaoPublicacao !== 'proprio_cliente' ? dataDesejada : undefined,
+      horarioDesejado: opcaoPublicacao !== 'proprio_cliente' ? horarioDesejado : undefined,
+      legendaDesejada: opcaoPublicacao !== 'proprio_cliente' ? legendaDesejada.trim() || undefined : undefined,
     })
-      .then(() => {
+      .then((result) => {
+        setAgendamentoAutomaticoCriado(
+          opcaoPublicacao === 'automatico' ? (result.agendamentoAutomaticoCriado ?? false) : null,
+        );
         setSubmittedStatus('Aprovado');
         setView('submitted');
       })
@@ -254,9 +277,11 @@ export function AvaliacaoPage() {
           view !== 'submitted' && (
             <>
               <h1>Avaliação de arte</h1>
-              <p role="alert" className="auth-error">
-                {FRIENDLY_LINK_MESSAGE[preview.state]}
-              </p>
+              <div role="alert" className="auth-error">
+                {FRIENDLY_LINK_MESSAGE[preview.state].map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
             </>
           )}
 
@@ -310,27 +335,43 @@ export function AvaliacaoPage() {
                 onSubmit={handleConfirmarAprovacao}
                 aria-label="Confirmar aprovação"
               >
-                <p>Deseja agendar a publicação da arte agora?</p>
-                <div className="avaliacao-actions">
+                <p>Como você quer que a publicação seja feita?</p>
+                <div className="avaliacao-actions avaliacao-actions--column">
                   <button
                     type="button"
-                    className={desejaAgendamento === true ? 'avaliacao-approve' : ''}
-                    onClick={() => setDesejaAgendamento(true)}
+                    className={opcaoPublicacao === 'automatico' ? 'avaliacao-approve' : ''}
+                    onClick={() => setOpcaoPublicacao('automatico')}
+                    disabled={preview?.clienteInstagramConectado !== true}
                   >
-                    Sim, quero agendar
+                    Agendar automaticamente
+                  </button>
+                  {preview?.clienteInstagramConectado !== true && (
+                    <p className="avaliacao-instagram-hint">
+                      Para usar o agendamento automático, conecte sua conta do Instagram ao DesignHub. Peça o link
+                      de conexão ao designer responsável.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    className={opcaoPublicacao === 'designer_manual' ? 'avaliacao-approve' : ''}
+                    onClick={() => setOpcaoPublicacao('designer_manual')}
+                  >
+                    Designer agendar manualmente
                   </button>
                   <button
                     type="button"
-                    className={desejaAgendamento === false ? 'avaliacao-approve' : ''}
-                    onClick={() => setDesejaAgendamento(false)}
+                    className={opcaoPublicacao === 'proprio_cliente' ? 'avaliacao-approve' : ''}
+                    onClick={() => setOpcaoPublicacao('proprio_cliente')}
                   >
-                    Não, decido depois com o designer
+                    Eu mesmo vou publicar
                   </button>
                 </div>
 
-                {desejaAgendamento && (
+                {(opcaoPublicacao === 'automatico' || opcaoPublicacao === 'designer_manual') && (
                   <>
-                    <label htmlFor="agendamento-data-desejada">Data desejada</label>
+                    <label htmlFor="agendamento-data-desejada">
+                      {opcaoPublicacao === 'automatico' ? 'Data da publicação' : 'Data desejada'}
+                    </label>
                     <input
                       id="agendamento-data-desejada"
                       type="date"
@@ -339,7 +380,9 @@ export function AvaliacaoPage() {
                       required
                     />
 
-                    <label htmlFor="agendamento-horario-desejado">Horário desejado</label>
+                    <label htmlFor="agendamento-horario-desejado">
+                      {opcaoPublicacao === 'automatico' ? 'Horário da publicação' : 'Horário desejado'}
+                    </label>
                     <input
                       id="agendamento-horario-desejado"
                       type="time"
@@ -347,11 +390,19 @@ export function AvaliacaoPage() {
                       onChange={(event) => setHorarioDesejado(event.target.value)}
                       required
                     />
+
+                    <label htmlFor="agendamento-legenda-desejada">Legenda (opcional)</label>
+                    <textarea
+                      id="agendamento-legenda-desejada"
+                      value={legendaDesejada}
+                      onChange={(event) => setLegendaDesejada(event.target.value)}
+                      maxLength={2200}
+                    />
                   </>
                 )}
 
                 <div className="designer-form-actions">
-                  <button type="submit" disabled={submitting || desejaAgendamento === null}>
+                  <button type="submit" disabled={submitting || opcaoPublicacao === null}>
                     {submitting ? 'Enviando…' : 'Confirmar aprovação'}
                   </button>
                   <button type="button" onClick={() => setView('preview')} disabled={submitting}>
@@ -419,6 +470,15 @@ export function AvaliacaoPage() {
           <>
             <h1>Obrigado!</h1>
             <p className="atendimento-success">{SUBMITTED_MESSAGE[submittedStatus]}</p>
+            {agendamentoAutomaticoCriado === true && (
+              <p className="atendimento-success">Publicação agendada automaticamente com sucesso.</p>
+            )}
+            {agendamentoAutomaticoCriado === false && (
+              <p role="alert" className="auth-error">
+                Não foi possível agendar automaticamente (verifique se o Instagram continua conectado). O designer
+                responsável vai agendar manualmente.
+              </p>
+            )}
           </>
         )}
 

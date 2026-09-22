@@ -30,7 +30,9 @@ export function AdminSolicitacaoDetailPage() {
   const [data, setData] = useState<SolicitacaoDetailResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [downloadingVersaoId, setDownloadingVersaoId] = useState<number | null>(null);
+  const [downloadingVersaoAction, setDownloadingVersaoAction] = useState<{ id: number; inline: boolean } | null>(
+    null,
+  );
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [publicacaoDetalhe, setPublicacaoDetalhe] = useState<PublicacaoDetalhe | null>(null);
   const [downloadingComprovante, setDownloadingComprovante] = useState(false);
@@ -53,7 +55,7 @@ export function AdminSolicitacaoDetailPage() {
   }
 
   function handleDownload(idVersao: number, inline: boolean) {
-    setDownloadingVersaoId(idVersao);
+    setDownloadingVersaoAction({ id: idVersao, inline });
     setDownloadError(null);
 
     getVersaoArteDownloadUrl(id, idVersao, inline)
@@ -65,7 +67,7 @@ export function AdminSolicitacaoDetailPage() {
           downloadErr instanceof ApiError ? downloadErr.message : 'Não foi possível gerar o link de download.',
         );
       })
-      .finally(() => setDownloadingVersaoId(null));
+      .finally(() => setDownloadingVersaoAction(null));
   }
 
   useEffect(() => {
@@ -161,16 +163,20 @@ export function AdminSolicitacaoDetailPage() {
                       <button
                         type="button"
                         onClick={() => handleDownload(versao.id_versao, true)}
-                        disabled={downloadingVersaoId === versao.id_versao}
+                        disabled={downloadingVersaoAction?.id === versao.id_versao}
                       >
-                        {downloadingVersaoId === versao.id_versao ? 'Gerando link…' : 'Visualizar'}
+                        {downloadingVersaoAction?.id === versao.id_versao && downloadingVersaoAction.inline
+                          ? 'Carregando versão…'
+                          : 'Visualizar'}
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDownload(versao.id_versao, false)}
-                        disabled={downloadingVersaoId === versao.id_versao}
+                        disabled={downloadingVersaoAction?.id === versao.id_versao}
                       >
-                        {downloadingVersaoId === versao.id_versao ? 'Gerando link…' : 'Baixar'}
+                        {downloadingVersaoAction?.id === versao.id_versao && !downloadingVersaoAction.inline
+                          ? 'Preparando download…'
+                          : 'Baixar'}
                       </button>
                     </span>
                   </li>
@@ -224,7 +230,7 @@ export function AdminSolicitacaoDetailPage() {
               )}
               {publicacaoDetalhe.temComprovante && (
                 <button type="button" onClick={handleDownloadComprovante} disabled={downloadingComprovante}>
-                  {downloadingComprovante ? 'Gerando link…' : 'Ver comprovante'}
+                  {downloadingComprovante ? 'Carregando comprovante…' : 'Ver comprovante'}
                 </button>
               )}
               {comprovanteDownloadError && (

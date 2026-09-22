@@ -12,7 +12,9 @@ import { designerRouter } from './routes/designer.routes.js';
 import { healthRouter } from './routes/health.routes.js';
 import { instagramOAuthRouter } from './routes/instagramOAuth.routes.js';
 import { internalAtendimentoRouter } from './routes/internalAtendimento.routes.js';
+import { internalNotificacaoRouter } from './routes/internalNotificacao.routes.js';
 import { internalPublicacaoRouter } from './routes/internalPublicacao.routes.js';
+import { pushRouter } from './routes/push.routes.js';
 import { solicitacaoRouter } from './routes/solicitacao.routes.js';
 import { whatsappRouter } from './routes/whatsapp.routes.js';
 
@@ -69,6 +71,8 @@ export function createApp() {
   app.use('/api/instagram/oauth', instagramOAuthRouter);
   app.use('/api/internal/publicacoes', internalPublicacaoRouter);
   app.use('/api/internal/atendimentos', internalAtendimentoRouter);
+  app.use('/api/internal/notificacoes', internalNotificacaoRouter);
+  app.use('/api/push', pushRouter);
 
   app.use((_request, response) => {
     response.status(404).json({

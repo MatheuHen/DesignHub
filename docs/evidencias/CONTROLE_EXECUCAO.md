@@ -2606,3 +2606,417 @@ documento oficial e corrigidos. Detalhe completo nos commits; resumo aqui.
 - Nenhuma mudança de código nesta entrada. Nenhum `CRITICAL`/`HIGH` em
   aberto, nenhum bloqueio externo pendente identificado.
 - Próxima etapa: nenhuma tecnicamente obrigatória.
+
+## 2026-09-21/22 — Nova rodada de correções/melhorias (checkpoint parcial, itens 1-8/22)
+
+Nova bateria de testes manuais do usuário gerou uma lista de 22 itens
+ordenados (autorização explícita, autonomia total, sem pausar para
+confirmação). Execução sequencial, um subagente não foi necessário até aqui
+(mudanças diretas, escopo já claro por item). `git status`: nada commitado
+ainda desta rodada (ver lista de arquivos abaixo); aguardando fechar mais
+itens antes de commitar (Quality Gate final, item 19/20 da lista desta
+rodada).
+
+**Itens 1-6 (segurança/UX, sem migration):**
+1. Rota anônima: auditado `ProtectedRoute`/`RootRedirect` (frontend) +
+   `requireAuth`/`requireProfile` (backend) — nenhuma vulnerabilidade de
+   código encontrada (gate correto nos dois lados). Adicionados testes de
+   regressão para o cenário relatado (deep-link `/admin/designers` anônimo,
+   token inválido/expirado).
+2. Admin "Excluir" designer agora executa inativação lógica
+   (`PATCH /:id/status`) em vez do DELETE físico antigo — preserva
+   histórico, permite reativar. DELETE físico mantido só como operação de
+   backend de baixo nível, não mais chamado pela UI. Campo "Status
+   operacional (opcional)" removido do formulário de edição (coluna do DER
+   mantida intocada, só não editável mais pela UI).
+3. RF006 (prazo 5 dias) auditado — já implementado corretamente via
+   trigger/RPC (`sync_designer_bloqueio`), sem mistura com os 2 dias do
+   RN05. Nenhuma mudança necessária.
+4. Cliente/Instagram: removido o campo textual de `@` do
+   formulário de criação/edição; conexão oficial via OAuth continua sendo o
+   único caminho (coluna `Publicação automática` já mostrava
+   Conectado/Não conectado — mantida).
+5. OAuth Instagram: `PUBLIC_BACKEND_URL`/`FRONTEND_URL` agora são
+   normalizados (barra final removida) na leitura do `env.ts` — causa mais
+   provável do "Invalid redirect_uri" relatado (barra dupla no redirect_uri
+   montado). `ClientesPage` agora abre o OAuth em popup no desktop
+   (`window.open` + `postMessage` de volta para a aba original) com
+   fallback automático para redirect de página inteira em mobile/tablet
+   (breakpoint 861px) ou quando o popup é bloqueado. Texto novo informando
+   que a API aceita conta Business ou Creator (não só "empresarial").
+6. Loading states: "Visualizar"/"Baixar"/"Ver comprovante"/"Gerar link de
+   avaliação" tinham o mesmo texto genérico "Gerando link…" e, pior, o
+   mesmo estado compartilhado entre os dois botões de uma mesma linha
+   (clicar Visualizar também "acendia" o botão Baixar). Corrigido nas duas
+   telas (Designer e Admin) com um estado por ação
+   (`{id, inline} | null`). Mensagem de erro do WhatsApp trocada para
+   "Informe o WhatsApp com o código do país, DDD e número." Mensagem de
+   link de avaliação inválido/expirado trocada por texto único e mais útil
+   (orienta a verificar o WhatsApp por um link mais recente antes de
+   contatar o designer) — nunca expõe token/versão.
+
+**Itens 7/8 (fundidos — mesma causa raiz), RF011/RF012/RF014, RN22/RN27/RN29:**
+Bug relatado ("cliente agenda, Dashboard continua Aprovado") era esperado
+pelo desenho anterior (ADR 0004): a aprovação só gravava uma *preferência*
+de agendamento, nunca criava o agendamento real — só o Designer tinha esse
+poder. A rodada autoriza uma automação real quando o cliente tem Instagram
+conectado, então a pergunta binária "Deseja agendar agora?" virou 3 opções
+reais: **automatico** (agenda de verdade na hora, exige
+`clienteInstagramConectado` — novo campo booleano, nunca vaza detalhe do
+token, no preview público `GET /avaliacao/:token`), **designer_manual**
+(igual ao fluxo antigo — preferência de texto, designer confirma depois) e
+**proprio_cliente** (novo — cliente avisa que vai publicar por conta
+própria, nunca cria agendamento nem marca Publicado sozinho).
+
+- Migration nova (NÃO aplicada ainda ao Supabase real):
+  `supabase/migrations/20260921100000_avaliacao_opcao_publicacao_automatica.sql`
+  — colunas `avaliacao.opcao_publicacao`/`legenda_desejada`; `submit_avaliacao`
+  recriado (10 parâmetros, assinatura antiga de 8 removida); nova RPC
+  `create_agendamento_cliente` (mesma lógica atômica do `create_agendamento`
+  do designer — trava a solicitação, valida `Aprovado`, valida futuro,
+  insere `agendamento_publicacao`, atualiza `solicitacao.status='Agendado'`
+  na mesma transação, grava histórico) — só que resolve o dono a partir da
+  própria solicitação em vez de comparar com um caller autenticado (quem
+  chama é sempre o backend, com `id_solicitacao` resolvido a partir do
+  token de avaliação, nunca de parâmetro aberto).
+- Backend: `avaliacao.service.ts` ganhou
+  `tentarAgendamentoAutomaticoBestEffort` (reconfere Instagram na hora —
+  defesa em profundidade mesmo com o frontend já gateando — e cria o
+  agendamento; qualquer falha vira `agendamentoAutomaticoCriado: false` na
+  resposta, NUNCA desfaz a aprovação já confirmada) e
+  `notificarDesignerPosAprovacaoBestEffort` (WhatsApp best-effort para
+  designer_manual/proprio_cliente, mesmo padrão texto→BLOCKED_EXTERNAL já
+  usado no item 8.6 anterior — sem template novo, sem custo).
+- Frontend: `AvaliacaoPage.tsx` com os 3 botões (automático desabilitado +
+  texto explicativo quando `clienteInstagramConectado !== true`); campo de
+  legenda opcional novo para automático/designer_manual;
+  `SolicitacaoDetailPage.tsx` (designer) mostra qual opção o cliente
+  escolheu, incluindo aviso quando o automático foi tentado mas falhou
+  (Instagram desconectado na hora) — nesse caso o designer só precisa
+  preencher o formulário de agendamento manual já pré-exibido logo abaixo.
+- Testes novos: 12 backend (`avaliacao.service.test.ts`: 3 cenários do
+  automático — sucesso, Instagram desconectado, erro inesperado — +
+  designer_manual/proprio_cliente notificando e não quebrando a aprovação
+  em caso de falha; `avaliacao.schemas.test.ts` reescrito para as 3
+  opções), 9 frontend (`AvaliacaoPage.test.tsx`: 4 cenários novos;
+  `SolicitacaoDetailPage.test.tsx`: 2 novos). Backend: **470 testes
+  verdes** (era 458). Frontend: **94 testes verdes** (era 88). Lint,
+  typecheck e build (`tsc`/`vite build`) 100% limpos nos dois workspaces.
+
+**Arquivos alterados até aqui** (ver `git status`): `.env`/`env.test.ts`,
+`avaliacao.{repository,routes,schemas,service}.ts` (+tests),
+`solicitacao.repository.ts`, `cliente.schemas.ts`, `designer.routes.ts`
+(comentário), migration nova; frontend:
+`App.test.tsx`, `admin/designers/*`, `admin/solicitacoes/AdminSolicitacaoDetailPage.tsx`,
+`avaliacao/*`, `designer/clientes/*`, `designer/solicitacoes/*`, `styles.css`.
+
+**Pendências reais desta rodada (não é bloqueio, é ordem de trabalho):**
+1. Migrations `20260921100000`/`20260922100000`/`20260922110000` precisam
+   ser aplicadas ao Supabase real ANTES do próximo deploy de backend (o
+   código novo chama RPCs/tabelas que ainda não existem em produção).
+2. Itens 10-22 da lista original ainda não iniciados.
+3. Nada commitado ainda — commit/push/migration/deploy ficam para o
+   fechamento (Quality Gate final desta rodada, itens finais da lista).
+
+**Item 9 (notificações Dashboard + dispositivo) — concluído:**
+- Dashboard do Designer ganhou seção "Publicações agendadas" (reusa
+  `GET /api/agendamentos?status=Agendado`, já existente) além da seção
+  "prazos próximos" já existente (RF006).
+- Web Push (VAPID) implementado do zero, gratuito, sem serviço pago (lib
+  `web-push`, nova dependência backend): migration
+  `20260922100000_push_subscription_e_alerta_publicacao.sql` (tabela
+  `push_subscription` com RLS own-or-admin + coluna
+  `agendamento_publicacao.notificado_2h` para idempotência) e
+  `20260922110000_notificacoes_publicacao_cron_job.sql` (pg_cron a cada 5
+  min, mesmo padrão do cron de publicação existente). Novo endpoint interno
+  `POST /api/internal/notificacoes/processar` (segredo compartilhado, igual
+  ao de publicação) roda `notificarPublicacoesProximas` — reivindica
+  (UPDATE...RETURNING atômico) agendamentos entre 110-130min à frente e
+  envia push a todas as assinaturas do designer responsável; assinatura
+  expirada (404/410) é removida automaticamente. `POST /api/push/subscribe`
+  e `/unsubscribe` (designer autenticado) + `GET /api/push/vapid-public-key`
+  (pública, sem segredo). Frontend: `public/sw.js` (Service Worker mínimo,
+  só push + click), botão "Ativar notificações" no Dashboard (nunca
+  auto-prompt, degrada silenciosamente se o navegador não suportar ou o
+  backend não tiver as chaves configuradas).
+- Testes novos: 37 backend + 8 frontend. Backend: **507 testes verdes**
+  (era 470). Frontend: **102 testes verdes** (era 94). Lint, typecheck e
+  build limpos nos dois workspaces.
+- Pendência: gerar o par de chaves VAPID (`npx web-push generate-vapid-keys`,
+  gratuito) e configurar `WEB_PUSH_VAPID_PUBLIC_KEY`/`WEB_PUSH_VAPID_PRIVATE_KEY`
+  em produção — sem isso, `webPushConfigStatus.hasVapidKeys=false` e o
+  subsistema fica `BLOCKED_EXTERNAL_CREDENTIAL` (dashboard funciona normalmente
+  sem o botão de notificação aparecer).
+
+**Item 15 (investigar publicação com erro aparecendo como concluída) — concluído, nenhum bug encontrado:**
+- Auditoria de `register_publicacao_falha` (SQL): em falha, insere
+  `publicacao` com `status='falha'` (log RN34/RN35), zera
+  `processamento_iniciado_em` (permite nova tentativa) e grava histórico
+  `Agendado → Agendado` — nunca toca `solicitacao.status` nem
+  `agendamento_publicacao.status`, então uma falha nunca deixa o sistema em
+  `Publicado`.
+- Frontend (`SolicitacaoDetailPage.tsx`/`AdminSolicitacaoDetailPage.tsx`): o
+  bloco "Publicação concluída" é gated por `data.solicitacao.status ===
+  'Publicado'`, onde `data` só é populado por `reload()` →
+  `getSolicitacaoDetail` (GET real ao backend) — não há `setData` otimista
+  em nenhum handler. `registrarPublicacaoManual` só chama `reload()` no
+  `.then()` (sucesso real); no `.catch()` apenas define `publicacaoError` e
+  não recarrega, então um erro nunca produz a tela de "concluída".
+- Conclusão: invariante já estava correta antes deste item; nenhuma mudança
+  de código foi necessária. O relato original provavelmente corresponde ao
+  bug de duplicidade do aviso WhatsApp já corrigido no item 14, ou a um
+  reenvio manual genuinamente bem-sucedido após uma falha anterior.
+
+**Item 16 (IA classificadora de intenção no WhatsApp — Gemini, autorizado nesta rodada) — concluído:**
+- Escopo deliberadamente restrito (ver ADR
+  `docs/decisions/0006-ia-classificadora-confirmacao-whatsapp.md`): Gemini é
+  consultado **somente** como segunda tentativa de classificação da resposta
+  à pergunta de confirmação inicial (RF004/RN08), e **somente** quando a
+  regra determinística já existente (`classificarConfirmacaoRegex`, ex-
+  `classificarConfirmacao`) retorna `indefinido`. Nunca substitui uma
+  classificação determinística já decidida (sim/não seguem 100% regra
+  local), nunca é consultado para as demais perguntas do questionário nem
+  para o detector de intenção de cancelamento (que permanece regex puro,
+  sem evidência de falha).
+- Novo `backend/src/integrations/ai/geminiClient.ts`
+  (`classificarConfirmacaoComGemini`): saída restrita por
+  `responseSchema` (enum sim/nao/indefinido, sem function-calling/tools),
+  texto do cliente isolado em `<mensagem_cliente>` com instrução de sistema
+  fixa tratando qualquer conteúdo ali como dado nunca como comando (defesa
+  contra prompt injection), validação Zod própria do resultado, texto
+  truncado a 500 caracteres (RNF010), timeout de 6s, limite local best-effort
+  de 20 chamadas/min (defesa de custo em profundidade). Nunca lança —
+  qualquer indisponibilidade (sem chave, timeout, erro HTTP, schema
+  inválido, limite excedido) retorna `null` e o fluxo cai no comportamento
+  determinístico idêntico ao existente antes deste item.
+- `env.ts`: `GEMINI_API_KEY` (opcional) + `GEMINI_MODEL` (default
+  `gemini-2.5-flash-lite`, trocável sem deploy) + `geminiConfigStatus`;
+  exposto em `GET /api/health` (`geminiClassifier`). `.env.example`
+  atualizado só com nomes.
+- Testes novos: `geminiClient.test.ts` (8 casos: sem chave, resposta válida,
+  anti-injection, truncamento, erro HTTP, schema inválido, erro de rede,
+  limite local) + 5 casos novos em `atendimento.service.test.ts` (regra
+  clara nunca chama IA; IA resolve para "sim"; IA resolve para "nao"; IA
+  indisponível preserva comportamento atual). Backend: **551 testes
+  verdes** (era 507). Lint, typecheck e build limpos.
+- **Situação de credencial: `GEMINI_API_KEY` não configurada em
+  `.env.local` — `BLOCKED_EXTERNAL_CREDENTIAL: GEMINI_API_KEY`.** Toda a
+  implementação está pronta e testada (com mocks); só falta gerar uma chave
+  gratuita em https://aistudio.google.com/apikey para ativar em produção,
+  sem novo deploy de código. O fluxo RF004 continua 100% funcional sem ela
+  (comportamento idêntico ao pré-existente).
+
+**Item 17 (auditoria segurança/performance da rodada) — concluído, dois subagentes independentes (somente leitura):**
+
+*Performance* — 1 HIGH, 2 MEDIUM, 2 áreas adequadas sem ação:
+- **HIGH corrigido**: classificação Gemini rodava de forma síncrona dentro
+  do processamento do webhook WhatsApp (`handleInboundMessage` →
+  `classificarConfirmacao` → `classificarConfirmacaoComGemini`), com
+  timeout de 6s — pior caso adicionava até 6s à resposta HTTP ao webhook da
+  Meta, risco de reentrega/degradação. Corrigido reduzindo
+  `REQUEST_TIMEOUT_MS` de 6000 para 2500ms em
+  `backend/src/integrations/ai/geminiClient.ts` — timeout e erro já
+  produziam o mesmo resultado observável (`null` → fallback
+  `'indefinido'`), então a mudança não altera nenhum comportamento, só
+  limita o pior caso de latência. Testes e build revalidados.
+- **MEDIUM registrado (não corrigido, risco real baixo)**: loop sequencial
+  não-paralelizado em `publicacaoNotificacao.service.ts` (2 round-trips ao
+  banco por agendamento, em série). Volume esperado por execução do cron
+  (a cada 5 min, janela de 10 min) é tipicamente 0-poucos agendamentos —
+  impacto absoluto hoje é baixo. Registrado como melhoria futura de baixo
+  risco (paralelizar com `Promise.all`), não implementado agora para evitar
+  complexidade sem benefício mensurável no volume real do TFC.
+- **MEDIUM registrado (não corrigido, padrão pré-existente em toda a base)**:
+  notificação WhatsApp síncrona antes de responder ao cancelamento de
+  solicitação pelo designer (`solicitacao.service.ts`). Confirmado que é o
+  mesmo padrão já usado consistentemente em `avaliacao.service.ts`,
+  `publicacao.service.ts` e `atendimento.service.ts` — não é uma regressão
+  introduzida nesta rodada. Mudar exigiria decisão arquitetural
+  (fire-and-forget) afetando todos os fluxos WhatsApp best-effort
+  igualmente, fora do escopo de uma correção pontual.
+- Índices das migrations `20260922100000`/`20260922130000` e o Dashboard do
+  Designer (nova seção "Publicações agendadas") revisados e confirmados
+  adequados, sem N+1, sem ação necessária.
+
+*Segurança* — 0 CRITICAL, 0 HIGH, 3 MEDIUM (todos corrigidos), 4 LOW (documentais/sem ação):
+- **MEDIUM corrigido**: chave da API Gemini ia na query string
+  (`?key=...`) em vez do header `x-goog-api-key` — risco de vazamento em
+  logs de proxy/CDN/APM fora do controle do código. Corrigido em
+  `geminiClient.ts` (header + teste atualizado).
+- **MEDIUM corrigido**: `PATCH /api/designers/:id` e
+  `PATCH /api/designers/:id/status` não tinham rate limit dedicado
+  (ao contrário de `POST /`, `PATCH /:id/senha`). Corrigido aplicando
+  `designerAdminRateLimit` (15/10min por admin) nas duas rotas.
+- **MEDIUM corrigido**: `DELETE /api/designers/:id` (exclusão física,
+  RF001) permanecia sem rate limit apesar de ser operação irreversível de
+  alto impacto. Corrigido aplicando o mesmo `designerAdminRateLimit`. Rota
+  mantida (não removida) porque RF001 exige "exclusão" como capacidade
+  distinta de "inativação" — o botão "Excluir" da interface chama
+  inativação (item 2 desta rodada), mas a capacidade de exclusão física
+  continua disponível como operação administrativa.
+- **LOW, sem ação (documental)**: texto do cliente enviado ao Gemini sai da
+  fronteira de infraestrutura já homologada (Supabase/Meta) — coberto pelo
+  ADR 0006 com autorização explícita do usuário; observação para a
+  Política de Privacidade/aviso RNF010 mencionar o subprocessador quando a
+  chave for ativada em produção (documental, não código).
+- **LOW, sem ação (já reconhecido no código)**: prazo do link de avaliação
+  (7 dias) mais longo que o prazo RN05 de resposta ao WhatsApp (2 dias) —
+  já documentado como escolha técnica sem RN correspondente.
+- **LOW, sem ação (risco prático desprezível)**: rate limit por IP de
+  `POST /:token/cancelar-agendamento` e do callback OAuth Instagram
+  poderia, em teoria, afetar múltiplos usuários atrás do mesmo NAT — token
+  de 256 bits torna exploração inviável; sem ação obrigatória.
+- Todas as demais áreas do escopo (rota anônima RF009, cancelamento pelo
+  designer, idempotência "ARTE PUBLICADA", Web Push, fluxo pós-aprovação 3
+  opções, OAuth Instagram, parser WhatsApp) revisadas com achado explícito
+  de "sem problemas" — ownership sempre por `request.auth!.userId`, RPCs
+  com lock + revoke de `anon`/`authenticated`, RLS correta, segredos nunca
+  expostos.
+- Regressão pós-correções: **551 testes backend verdes**, lint/typecheck/
+  build limpos.
+
+**Resultado do Quality Gate deste item: 0 CRITICAL/HIGH remanescentes.**
+
+**Item 18 (limpeza final — arquivos mortos, deps não usadas) — concluído, nada para remover:**
+- Subagente somente leitura auditou todo `backend/src` e `frontend/src`
+  (não só as mudanças desta rodada) contra o grafo real de imports, ambos
+  `package.json` contra uso real, comentários com código morto e migrations
+  órfãs.
+- **Zero arquivos mortos**: todo `.ts`/`.tsx` (fora de testes) é importado
+  por algo real (rotas em `app.ts`/`AppRouter.tsx`, serviços, repositórios).
+  Os únicos arquivos sem import interno (`server.ts`, `vercelHandler.ts`,
+  `types/express.d.ts`, `vite-env.d.ts`, `main.tsx`) são entry
+  points/ambient types legítimos, confirmados via `package.json`/
+  `tsconfig.json`/`index.html`.
+- **Zero dependências não usadas** em `backend/package.json`/
+  `frontend/package.json` (`dependencies`, não `devDependencies`).
+- **Zero bloco de código comentado morto** — greps por assinatura clássica
+  de código desabilitado (`// const|let|import|export|function|if...`)
+  deram zero resultados; os `//` com pontuação de código são prosa
+  explicativa em português citando RF/RN/RNF, não lógica desativada.
+- **Zero migration órfã** — os 3 `DROP FUNCTION IF EXISTS` encontrados são
+  todos o padrão padrão do Postgres (drop + recreate na mesma migration
+  por mudança de assinatura de parâmetros), nunca uma tabela criada e
+  descartada sem uso.
+- Nenhuma alteração de código foi necessária para este item.
+
+**Item 19 (regressão completa — Quality Gate final) — concluído, 1 bug real encontrado e corrigido:**
+- Rodada completa em ambos os workspaces: lint, typecheck, testes, build.
+- **Bug real encontrado pelo build do frontend** (não pego por
+  `npx tsc --noEmit` isolado — descoberto que, em projeto composite/
+  solution-style, `tsc --noEmit` sem `-b` não checa nada de fato; só
+  `npm run build`, que usa `tsc -b`, é a checagem de typecheck
+  autoritativa do frontend a partir de agora): TS2322 em
+  `frontend/src/features/designer/notifications/NotificationsCta.tsx:69`
+  — `urlBase64ToUint8Array` (em `webPush.ts`) retornava `Uint8Array`
+  genérico (`Uint8Array<ArrayBufferLike>`), incompatível com o tipo
+  `BufferSource`/`ArrayBufferView<ArrayBuffer>` exigido por
+  `applicationServerKey` em `PushSubscriptionOptionsInit` (lib.dom.d.ts).
+  Corrigido anotando o retorno como `Uint8Array<ArrayBuffer>` (correto,
+  pois `new Uint8Array(length)` sempre aloca sobre `ArrayBuffer`, nunca
+  `SharedArrayBuffer`). Puramente um ajuste de tipo — nenhuma mudança de
+  comportamento em runtime.
+- **Resultado final**:
+  - Backend: lint limpo, **551 testes verdes**, `tsc -p tsconfig.json`
+    limpo.
+  - Frontend: lint limpo, **114 testes verdes**, `tsc -b && vite build`
+    limpo (bundle gerado normalmente).
+- Nenhum CRITICAL/HIGH remanescente em todo o codebase desta rodada.
+
+**Item 20 (banco/migrations + deploy Supabase/Vercel) — concluído, autorização explícita do usuário confirmada antes de agir:**
+- Antes de tocar produção, confirmei explicitamente com o usuário (seções 1
+  do CLAUDE.md global e 13 do CLAUDE.md do projeto exigem autorização para
+  deploy/produção/migration mesmo em modo autônomo) — resposta: "Sim,
+  aplicar migrations + deploy".
+- **Achado de isolamento antes de agir**: o conector MCP do Supabase só
+  tinha acesso a 3 projetos de outros sistemas do usuário
+  (`appcontroledevidaxen`, `Divertex`, `DocesMeM`) — nenhum é o
+  `hfwgodzvitinubarwrjm` real do DesignHub (confirmado via
+  `SUPABASE_URL` em `.env.local`). Não usei o MCP nesses projetos alheios;
+  apliquei as migrations via Supabase CLI diretamente com
+  `SUPABASE_DB_URL` de `.env.local`, referenciada só por nome de variável
+  (nunca colada em texto puro).
+- **5 migrations aplicadas ao Supabase real** (`db push`, sem erros):
+  `20260921100000_avaliacao_opcao_publicacao_automatica.sql`,
+  `20260922100000_push_subscription_e_alerta_publicacao.sql`,
+  `20260922110000_notificacoes_publicacao_cron_job.sql`,
+  `20260922120000_cancelar_solicitacao_designer.sql`,
+  `20260922130000_idempotencia_notificacao_arte_publicada.sql`. Verificado
+  com `supabase migration list --db-url` antes (5 pendentes) e depois (0
+  pendentes, local/remoto 100% sincronizados).
+- **Deploy em produção via Vercel CLI** (projetos já linkados,
+  `.vercel/project.json` confirmado batendo com os projetos reais
+  `designhub-backend`/`designhub-frontend` também via MCP): backend
+  (`vercel deploy --prod`) e frontend, ambos `READY`.
+  - Backend: `https://designhub-backend.vercel.app`
+  - Frontend: `https://designhub-frontend-ten.vercel.app`
+- Verificação imediata pós-deploy: `GET /api/health` em produção retornou
+  `geminiClassifier`/`webPushVapidKeys` (confirma que o código novo desta
+  rodada está de fato no ar), ambos `"missing"` como esperado (credenciais
+  não configuradas em nenhum ambiente — `BLOCKED_EXTERNAL_CREDENTIAL`
+  documentado, não é regressão). `supabasePublicClient`,
+  `supabaseAdminClient`, `whatsappSendingClient` e
+  `whatsappWebhookSecurity` todos `"configured"`.
+- Nada foi commitado/enviado ao Git remoto neste item — o deploy via
+  Vercel CLI é independente de `git push` (lê o build local via upload
+  direto), então não tocou a categoria "Git remoto" do CLAUDE.md.
+
+**Item 21 (smoke test de produção) — concluído, todos os checks passaram:**
+Bateria leve e somente leitura (sem criar/alterar dados reais) contra os
+dois domínios de produção:
+- `GET /` do frontend → `200`.
+- `GET /api/designers` e `/api/clientes` sem token → `401 UNAUTHORIZED`
+  com mensagem limpa (sem stack trace).
+- `GET /api/push/vapid-public-key` (VAPID não configurada em produção) →
+  `404 NOT_CONFIGURED`, resposta limpa, sem crash (fail-closed confirmado
+  em produção, igual ao dev).
+- `GET /api/avaliacao/<token de 64 zeros>` (token inválido) →
+  `200 {"state":"invalid"}` — confirma em produção o padrão de segurança
+  já auditado no item 17 (nunca distingue "não existe" de "expirado" para
+  evitar enumeração).
+- `GET /api/does-not-exist` → `404 NOT_FOUND` limpo.
+- Headers de segurança (Helmet) presentes: `Content-Security-Policy`,
+  `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: SAMEORIGIN`.
+- CORS: `Access-Control-Allow-Origin` ecoa exatamente
+  `https://designhub-frontend-ten.vercel.app` (não wildcard), confirmando
+  `FRONTEND_URL` configurada corretamente em produção sem barra final
+  (fix do item 5 desta rodada validado em produção).
+- Bundle de produção do frontend confirmado apontando para o backend de
+  produção correto (`https://designhub-backend.vercel.app`), fechando o
+  loop completo frontend → backend → Supabase.
+- Nenhum erro/crash/vazamento de detalhe interno encontrado em nenhuma
+  chamada.
+
+**Item 22 (relatório final consolidado + checkpoint) — rodada de 22 itens concluída em 2026-09-22:**
+- Todos os 22 itens do pedido concluídos (1-22), sem pular nenhum, sem
+  inventar escopo fora do pedido.
+- Estado final: backend 551 testes verdes, frontend 114 testes verdes,
+  lint/typecheck/build limpos nos dois workspaces, 0 CRITICAL/HIGH
+  remanescente, migrations aplicadas e deploy de produção confirmado via
+  smoke test.
+- **Pendências reais (BLOCKED_EXTERNAL_CREDENTIAL, não impedem o restante
+  do sistema)**:
+  1. `GEMINI_API_KEY` — classificador de IA (item 16) implementado e
+     testado, mas inativo em todos os ambientes até a chave ser gerada em
+     https://aistudio.google.com/apikey.
+  2. `WEB_PUSH_VAPID_PUBLIC_KEY`/`WEB_PUSH_VAPID_PRIVATE_KEY` — Web Push
+     (item 9) implementado e testado, mas inativo até o par de chaves ser
+     gerado (`npx web-push generate-vapid-keys`) e configurado em
+     produção.
+  3. `INTERNAL_JOB_SECRET` no projeto Vercel de produção não pôde ser
+     confirmado (API do Vercel negou listagem de env vars ao MCP —
+     `403 forbidden`, e não tentei decifrar/testar o segredo por
+     segurança). Verificar manualmente no dashboard da Vercel se está
+     configurado — sem ele, os jobs internos de publicação/notificação
+     (`/api/internal/publicacao/...`, `/api/internal/notificacoes/...`)
+     ficam indisponíveis mesmo com o cron do Supabase chamando-os.
+- **Nada commitado/enviado ao Git remoto nesta rodada** — 74 arquivos
+  alterados/novos no working tree, nenhum commit criado (não solicitado
+  explicitamente). `.env.example` é o único arquivo de ambiente tocado
+  (só nomes, sem valores). Commit/push ficam para quando o usuário pedir
+  explicitamente.
+- Migrations 20260921100000-20260922130000 já aplicadas ao Supabase real
+  e deploy de produção já no ar — portanto o próximo `git push` (quando
+  autorizado) apenas sincroniza o histórico do repositório com o estado
+  que já está rodando em produção, sem novo risco.

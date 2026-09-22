@@ -82,7 +82,32 @@ export const SOLICITACAO_STATUS_TRANSITIONS: readonly SolicitacaoStatusTransitio
   {
     from: 'Enviado para avaliação',
     to: 'Cancelado',
-    trigger: 'RF009/RN20 — cliente cancela via link de avaliação',
+    trigger: 'RF009/RN20 — cliente cancela via link de avaliação, ou designer cancela (item 12/30)',
+    implemented: true,
+  },
+  {
+    from: 'Em produção',
+    to: 'Cancelado',
+    trigger: 'Item 12/30 (rodada correções) — designer cancela a própria solicitação',
+    implemented: true,
+  },
+  {
+    from: 'Ajustes',
+    to: 'Cancelado',
+    trigger: 'Item 12/30 (rodada correções) — designer cancela a própria solicitação',
+    implemented: true,
+  },
+  {
+    from: 'Aprovado',
+    to: 'Cancelado',
+    trigger: 'Item 12/30 (rodada correções) — designer cancela a própria solicitação',
+    implemented: true,
+  },
+  {
+    from: 'Agendado',
+    to: 'Cancelado',
+    trigger:
+      'Item 12/30 (rodada correções) — designer cancela a própria solicitação (cancela também o agendamento ativo, sem exigir a janela de 3h do RF013, que protege só o cancelamento isolado do agendamento)',
     implemented: true,
   },
   {

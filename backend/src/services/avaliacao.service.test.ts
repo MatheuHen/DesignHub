@@ -22,6 +22,8 @@ const {
   sendAlertaDesignerTemplateMessageMock,
   getDesignerByIdMock,
   whatsappConfigStatusMock,
+  createAgendamentoClienteMock,
+  getStatusConexaoMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   sendTextMessageMock: vi.fn(),
@@ -43,6 +45,8 @@ const {
   sendAlertaDesignerTemplateMessageMock: vi.fn(),
   getDesignerByIdMock: vi.fn(),
   whatsappConfigStatusMock: { hasAlertaDesignerTemplateConfigured: true },
+  createAgendamentoClienteMock: vi.fn(),
+  getStatusConexaoMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
@@ -74,7 +78,9 @@ vi.mock('../repositories/avaliacao.repository.js', () => ({
   listTrackingHistorico: listTrackingHistoricoMock,
   getTrackingAgendamento: getTrackingAgendamentoMock,
   cancelAgendamentoCliente: cancelAgendamentoClienteMock,
+  createAgendamentoCliente: createAgendamentoClienteMock,
 }));
+vi.mock('../repositories/clienteInstagram.repository.js', () => ({ getStatusConexao: getStatusConexaoMock }));
 vi.mock('../repositories/versaoArte.repository.js', () => ({
   uploadArquivoToStorage: uploadArquivoToStorageMock,
   removeArquivoFromStorageBestEffort: removeArquivoFromStorageBestEffortMock,
@@ -197,6 +203,7 @@ describe('getAvaliacaoPreview (RF009 — leitura pública)', () => {
     listTrackingVersoesMock.mockReset();
     listTrackingHistoricoMock.mockReset();
     getTrackingAgendamentoMock.mockReset();
+    getStatusConexaoMock.mockReset();
   });
 
   it('retorna apenas o estado quando o link não é válido', async () => {
@@ -257,8 +264,10 @@ describe('getAvaliacaoPreview (RF009 — leitura pública)', () => {
       observacoes: null,
       arquivoUrl: 'solicitacoes/10/versoes/x.pdf',
       tema: 'Post promocional',
+      idCliente: 3,
     });
     createVersaoArteDownloadUrlMock.mockResolvedValue('https://exemplo.supabase.co/signed');
+    getStatusConexaoMock.mockResolvedValue({ conectado: true, conectadoEm: '2026-01-01T00:00:00Z', expiraEm: '2026-03-01T00:00:00Z' });
 
     const result = await getAvaliacaoPreview('a'.repeat(64));
 
@@ -270,6 +279,7 @@ describe('getAvaliacaoPreview (RF009 — leitura pública)', () => {
       observacoes: null,
       downloadUrl: 'https://exemplo.supabase.co/signed',
       expiresInSeconds: 300,
+      clienteInstagramConectado: true,
     });
     expect(createVersaoArteDownloadUrlMock).toHaveBeenCalledWith(
       expect.anything(),
@@ -287,6 +297,11 @@ describe('submitAvaliacaoDecisao (RF009/RF010)', () => {
     submitAvaliacaoMock.mockReset();
     uploadArquivoToStorageMock.mockReset().mockResolvedValue(undefined);
     removeArquivoFromStorageBestEffortMock.mockReset().mockResolvedValue(undefined);
+    createAgendamentoClienteMock.mockReset();
+    getStatusConexaoMock.mockReset();
+    getSolicitacaoDetailRepoMock.mockReset();
+    getDesignerByIdMock.mockReset();
+    sendTextMessageMock.mockReset();
   });
 
   it('rejeita quando o link já foi utilizado', async () => {
@@ -391,6 +406,167 @@ describe('submitAvaliacaoDecisao (RF009/RF010)', () => {
     expect(result).toEqual({ idSolicitacao: 10, statusNovo: 'Aprovado' });
     expect(getVersaoArtePreviewMock).not.toHaveBeenCalled();
     expect(uploadArquivoToStorageMock).not.toHaveBeenCalled();
+  });
+
+  describe('rodada correções (itens 7/8/19): opção de publicação ao aprovar', () => {
+    it('opção "automatico": cria o agendamento real na hora e reporta status Agendado quando o Instagram está conectado', async () => {
+      getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'valid', idVersao: 5 });
+      submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado', numeroVersao: 2 });
+      getVersaoArtePreviewMock.mockResolvedValue({
+        idSolicitacao: 10,
+        numeroVersao: 2,
+        formato: 'PDF',
+        observacoes: null,
+        arquivoUrl: 'x',
+        tema: 'Post promocional',
+        idCliente: 3,
+      });
+      getStatusConexaoMock.mockResolvedValue({ conectado: true, conectadoEm: '2026-01-01T00:00:00Z', expiraEm: '2026-03-01T00:00:00Z' });
+      createAgendamentoClienteMock.mockResolvedValue({ idAgendamento: 99 });
+
+      const result = await submitAvaliacaoDecisao('a'.repeat(64), {
+        decisao: 'Aprovado',
+        descricao: undefined,
+        observacoes: undefined,
+        referenciaBuffer: undefined,
+        opcaoPublicacao: 'automatico',
+        dataDesejada: '2026-09-26',
+        horarioDesejado: '12:00',
+        legendaDesejada: 'Confira!',
+      });
+
+      expect(result).toEqual({ idSolicitacao: 10, statusNovo: 'Agendado', agendamentoAutomaticoCriado: true });
+      expect(createAgendamentoClienteMock).toHaveBeenCalledWith(expect.anything(), {
+        idSolicitacao: 10,
+        dataPublicacao: '2026-09-26',
+        horario: '12:00',
+        legenda: 'Confira!',
+      });
+    });
+
+    it('opção "automatico": não cria agendamento e mantém Aprovado quando o Instagram não está mais conectado (defesa em profundidade)', async () => {
+      getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'valid', idVersao: 5 });
+      submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado', numeroVersao: 2 });
+      getVersaoArtePreviewMock.mockResolvedValue({
+        idSolicitacao: 10,
+        numeroVersao: 2,
+        formato: 'PDF',
+        observacoes: null,
+        arquivoUrl: 'x',
+        tema: 'Post promocional',
+        idCliente: 3,
+      });
+      getStatusConexaoMock.mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
+
+      const result = await submitAvaliacaoDecisao('a'.repeat(64), {
+        decisao: 'Aprovado',
+        descricao: undefined,
+        observacoes: undefined,
+        referenciaBuffer: undefined,
+        opcaoPublicacao: 'automatico',
+        dataDesejada: '2026-09-26',
+        horarioDesejado: '12:00',
+      });
+
+      expect(result).toEqual({ idSolicitacao: 10, statusNovo: 'Aprovado', agendamentoAutomaticoCriado: false });
+      expect(createAgendamentoClienteMock).not.toHaveBeenCalled();
+    });
+
+    it('opção "automatico": aprovação permanece válida mesmo se a criação do agendamento falhar por erro inesperado', async () => {
+      getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'valid', idVersao: 5 });
+      submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado', numeroVersao: 2 });
+      getVersaoArtePreviewMock.mockResolvedValue({
+        idSolicitacao: 10,
+        numeroVersao: 2,
+        formato: 'PDF',
+        observacoes: null,
+        arquivoUrl: 'x',
+        tema: 'Post promocional',
+        idCliente: 3,
+      });
+      getStatusConexaoMock.mockResolvedValue({ conectado: true, conectadoEm: null, expiraEm: null });
+      createAgendamentoClienteMock.mockRejectedValue(new Error('erro inesperado de banco'));
+
+      const result = await submitAvaliacaoDecisao('a'.repeat(64), {
+        decisao: 'Aprovado',
+        descricao: undefined,
+        observacoes: undefined,
+        referenciaBuffer: undefined,
+        opcaoPublicacao: 'automatico',
+        dataDesejada: '2026-09-26',
+        horarioDesejado: '12:00',
+      });
+
+      expect(result).toEqual({ idSolicitacao: 10, statusNovo: 'Aprovado', agendamentoAutomaticoCriado: false });
+    });
+
+    it('opção "designer_manual": avisa o designer por WhatsApp sem criar agendamento nenhum', async () => {
+      getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'valid', idVersao: 5 });
+      submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado', numeroVersao: 2 });
+      getSolicitacaoDetailRepoMock.mockResolvedValue({
+        idDesigner: 'designer-1',
+        clienteNome: 'Cliente Teste',
+        tema: 'Post promocional',
+      });
+      getDesignerByIdMock.mockResolvedValue({ whatsapp: '5511999999999' });
+      sendTextMessageMock.mockResolvedValue(undefined);
+
+      const result = await submitAvaliacaoDecisao('a'.repeat(64), {
+        decisao: 'Aprovado',
+        descricao: undefined,
+        observacoes: undefined,
+        referenciaBuffer: undefined,
+        opcaoPublicacao: 'designer_manual',
+        dataDesejada: '2026-09-26',
+        horarioDesejado: '12:00',
+      });
+
+      expect(result).toEqual({ idSolicitacao: 10, statusNovo: 'Aprovado' });
+      expect(createAgendamentoClienteMock).not.toHaveBeenCalled();
+      expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('agende a publicação'));
+    });
+
+    it('opção "proprio_cliente": avisa o designer por WhatsApp que o cliente vai publicar por conta própria', async () => {
+      getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'valid', idVersao: 5 });
+      submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado', numeroVersao: 2 });
+      getSolicitacaoDetailRepoMock.mockResolvedValue({
+        idDesigner: 'designer-1',
+        clienteNome: 'Cliente Teste',
+        tema: 'Post promocional',
+      });
+      getDesignerByIdMock.mockResolvedValue({ whatsapp: '5511999999999' });
+      sendTextMessageMock.mockResolvedValue(undefined);
+
+      const result = await submitAvaliacaoDecisao('a'.repeat(64), {
+        decisao: 'Aprovado',
+        descricao: undefined,
+        observacoes: undefined,
+        referenciaBuffer: undefined,
+        opcaoPublicacao: 'proprio_cliente',
+      });
+
+      expect(result).toEqual({ idSolicitacao: 10, statusNovo: 'Aprovado' });
+      expect(createAgendamentoClienteMock).not.toHaveBeenCalled();
+      expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('conta própria'));
+    });
+
+    it('opção "designer_manual": falha ao notificar o designer nunca desfaz a aprovação já confirmada', async () => {
+      getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'valid', idVersao: 5 });
+      submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado', numeroVersao: 2 });
+      getSolicitacaoDetailRepoMock.mockRejectedValue(new Error('erro inesperado'));
+
+      const result = await submitAvaliacaoDecisao('a'.repeat(64), {
+        decisao: 'Aprovado',
+        descricao: undefined,
+        observacoes: undefined,
+        referenciaBuffer: undefined,
+        opcaoPublicacao: 'designer_manual',
+        dataDesejada: '2026-09-26',
+        horarioDesejado: '12:00',
+      });
+
+      expect(result).toEqual({ idSolicitacao: 10, statusNovo: 'Aprovado' });
+    });
   });
 
   it('remove o objeto do Storage (compensação) quando a RPC falha após enviar a referência', async () => {

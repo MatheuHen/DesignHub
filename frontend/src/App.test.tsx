@@ -114,6 +114,41 @@ describe('App routing por perfil (RF002)', () => {
     expect(screen.queryByRole('link', { name: 'Designers' })).not.toBeInTheDocument();
   });
 
+  it('bloqueia acesso anônimo a uma URL profunda de admin (link copiado sem sessão)', async () => {
+    getSessionMock.mockResolvedValue({ data: { session: null } });
+    window.history.pushState({}, 'Test', '/admin/designers');
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Entrar' })).toBeInTheDocument();
+    expect(screen.queryByText('Designers')).not.toBeInTheDocument();
+  });
+
+  it('bloqueia acesso anônimo a uma URL profunda de designer (link copiado sem sessão)', async () => {
+    getSessionMock.mockResolvedValue({ data: { session: null } });
+    window.history.pushState({}, 'Test', '/designer/clientes');
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Entrar' })).toBeInTheDocument();
+  });
+
+  it('não expõe conteúdo protegido quando o perfil não pôde ser carregado (token inválido/expirado)', async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: { access_token: 'token-expirado', user: { id: 'u1' } } },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 401, json: () => Promise.resolve({}) }),
+    );
+    window.history.pushState({}, 'Test', '/admin/designers');
+
+    render(<App />);
+
+    expect(await screen.findByText(/não foi possível carregar o perfil/i)).toBeInTheDocument();
+    expect(screen.queryByText('Designers')).not.toBeInTheDocument();
+  });
+
   it('mostra o aviso de bloqueio quando o designer está bloqueado por atraso (RF006)', async () => {
     getSessionMock.mockResolvedValue({
       data: { session: { access_token: 'token-designer', user: { id: 'u1' } } },

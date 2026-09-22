@@ -20,6 +20,7 @@ const {
   uploadComprovantePublicacaoMock,
   getComprovanteDownloadUrlMock,
   reenviarNotificacaoPublicacaoMock,
+  cancelSolicitacaoMock,
 } = vi.hoisted(() => ({
   getSolicitacaoDetailMock: vi.fn(),
   updateSolicitacaoMock: vi.fn(),
@@ -36,6 +37,7 @@ const {
   uploadComprovantePublicacaoMock: vi.fn(),
   getComprovanteDownloadUrlMock: vi.fn(),
   reenviarNotificacaoPublicacaoMock: vi.fn(),
+  cancelSolicitacaoMock: vi.fn(),
 }));
 
 vi.mock('./api', async (importOriginal) => {
@@ -57,6 +59,7 @@ vi.mock('./api', async (importOriginal) => {
     uploadComprovantePublicacao: uploadComprovantePublicacaoMock,
     getComprovanteDownloadUrl: getComprovanteDownloadUrlMock,
     reenviarNotificacaoPublicacao: reenviarNotificacaoPublicacaoMock,
+    cancelSolicitacao: cancelSolicitacaoMock,
   };
 });
 
@@ -130,9 +133,91 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     uploadComprovantePublicacaoMock.mockReset();
     getComprovanteDownloadUrlMock.mockReset();
     reenviarNotificacaoPublicacaoMock.mockReset();
+    cancelSolicitacaoMock.mockReset();
     getClienteInstagramStatusMock
       .mockReset()
       .mockResolvedValue({ conectado: true, conectadoEm: '2026-08-20T10:00:00Z', expiraEm: '2026-10-19T10:00:00Z' });
+  });
+
+  describe('rodada correções (item 12/30): Cancelar arte', () => {
+    it.each(['Em produção', 'Enviado para avaliação', 'Ajustes', 'Aprovado', 'Agendado'] as const)(
+      'mostra o botão "Cancelar arte" quando o status é "%s"',
+      async (status) => {
+        getSolicitacaoDetailMock.mockResolvedValue({
+          ...sampleDetail,
+          solicitacao: { ...sampleDetail.solicitacao, status },
+        });
+
+        renderPage();
+
+        expect(await screen.findByRole('button', { name: 'Cancelar arte' })).toBeInTheDocument();
+      },
+    );
+
+    it.each(['Cancelado', 'Publicado'] as const)(
+      'não mostra o botão "Cancelar arte" quando o status já é terminal ("%s")',
+      async (status) => {
+        getSolicitacaoDetailMock.mockResolvedValue({
+          ...sampleDetail,
+          solicitacao: { ...sampleDetail.solicitacao, status },
+        });
+        getPublicacaoDetalheMock.mockResolvedValue({
+          dataPublicada: '2026-09-01T14:00:00Z',
+          tipo: 'manual',
+          permalink: null,
+          numeroVersao: 1,
+          temComprovante: false,
+        });
+
+        renderPage();
+        await screen.findByText(sampleDetail.solicitacao.clienteNome);
+
+        expect(screen.queryByRole('button', { name: 'Cancelar arte' })).not.toBeInTheDocument();
+      },
+    );
+
+    it('exige confirmação antes de cancelar (double-click safe)', async () => {
+      getSolicitacaoDetailMock.mockResolvedValue(sampleDetail);
+      cancelSolicitacaoMock.mockResolvedValue(undefined);
+
+      renderPage();
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar arte' }));
+
+      expect(cancelSolicitacaoMock).not.toHaveBeenCalled();
+      expect(screen.getByText(/Esta ação não pode ser desfeita/)).toBeInTheDocument();
+
+      const confirmBtn = screen.getByRole('button', { name: 'Confirmar cancelamento' });
+      fireEvent.click(confirmBtn);
+      // Segundo clique imediato (antes do primeiro terminar) não deve disparar 2ª chamada.
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => expect(cancelSolicitacaoMock).toHaveBeenCalledTimes(1));
+      expect(cancelSolicitacaoMock).toHaveBeenCalledWith(10);
+    });
+
+    it('permite voltar (cancelar a confirmação) sem chamar a API', async () => {
+      getSolicitacaoDetailMock.mockResolvedValue(sampleDetail);
+
+      renderPage();
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar arte' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
+
+      expect(cancelSolicitacaoMock).not.toHaveBeenCalled();
+      expect(await screen.findByRole('button', { name: 'Cancelar arte' })).toBeInTheDocument();
+    });
+
+    it('mostra a mensagem de erro do backend quando o cancelamento falha', async () => {
+      getSolicitacaoDetailMock.mockResolvedValue(sampleDetail);
+      cancelSolicitacaoMock.mockRejectedValue(
+        new ApiError(409, 'CONFLICT', 'Solicitação não pode mais ser cancelada (status atual: Publicado).'),
+      );
+
+      renderPage();
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar arte' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar cancelamento' }));
+
+      expect(await screen.findByText(/não pode mais ser cancelada/)).toBeInTheDocument();
+    });
   });
 
   it('mostra detalhes, atendimento e histórico', async () => {
@@ -336,6 +421,8 @@ describe('SolicitacaoDetailPage (RF005)', () => {
         desejaAgendamento: true,
         dataDesejada: '2026-08-25',
         horarioDesejado: '20:12:00',
+        opcaoPublicacao: 'designer_manual',
+        legendaDesejada: null,
       },
     });
 
@@ -344,6 +431,47 @@ describe('SolicitacaoDetailPage (RF005)', () => {
 
     expect(screen.getByLabelText('Data')).toHaveValue('2026-08-25');
     expect(screen.getByLabelText('Horário')).toHaveValue('20:12');
+    expect(screen.getByText(/O cliente indicou que deseja agendar para/)).toBeInTheDocument();
+  });
+
+  it('rodada correções (item 8): avisa quando o cliente escolheu publicar por conta própria', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Aprovado' },
+      preferenciaAgendamento: {
+        desejaAgendamento: false,
+        dataDesejada: null,
+        horarioDesejado: null,
+        opcaoPublicacao: 'proprio_cliente',
+        legendaDesejada: null,
+      },
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/vai publicar esta arte por conta própria/),
+    ).toBeInTheDocument();
+  });
+
+  it('rodada correções (item 7/8): avisa quando o agendamento automático não foi possível (Instagram desconectado na hora)', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Aprovado' },
+      preferenciaAgendamento: {
+        desejaAgendamento: true,
+        dataDesejada: '2026-08-25',
+        horarioDesejado: '20:12:00',
+        opcaoPublicacao: 'automatico',
+        legendaDesejada: null,
+      },
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/O cliente escolheu agendar automaticamente, mas isso não foi possível/),
+    ).toBeInTheDocument();
   });
 
   it('avisa quando o Instagram do cliente não está conectado (RF014/ADR 0005)', async () => {
@@ -477,6 +605,41 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     });
   });
 
+  it('rodada correções (item 13/31): mostra "Agendamento cancelado com sucesso." e nunca deixa a mensagem antiga de agendar visível', async () => {
+    getSolicitacaoDetailMock.mockResolvedValueOnce({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Aprovado' },
+    });
+    createAgendamentoMock.mockResolvedValue({ idAgendamento: 1 });
+
+    renderPage();
+    await screen.findByRole('form', { name: 'Agendar publicação' });
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('Horário'), { target: { value: '10:00' } });
+
+    // Após agendar, a solicitação recarrega já como "Agendado".
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Agendado' },
+      agendamento: { idAgendamento: 1, dataPublicacao: '2026-09-01', horario: '10:00:00', legenda: null },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Agendar publicação' }));
+
+    expect(await screen.findByText('Publicação agendada com sucesso.')).toBeInTheDocument();
+
+    // Agora cancela o agendamento recém-criado.
+    cancelAgendamentoMock.mockResolvedValue(undefined);
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Aprovado' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancelar agendamento' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar cancelamento do agendamento' }));
+
+    expect(await screen.findByText('Agendamento cancelado com sucesso.')).toBeInTheDocument();
+    expect(screen.queryByText('Publicação agendada com sucesso.')).not.toBeInTheDocument();
+  });
+
   it('exibe o erro do backend quando o cancelamento é rejeitado pela janela de 3h (RN31)', async () => {
     getSolicitacaoDetailMock.mockResolvedValue({
       ...sampleDetail,
@@ -600,6 +763,52 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       expect(uploadComprovantePublicacaoMock).toHaveBeenCalledWith(10, file);
     });
     expect(await screen.findByText('Comprovante enviado com sucesso.')).toBeInTheDocument();
+  });
+
+  it('rodada correções (item 10): clicar em "Ver comprovante" limpa a mensagem "enviado com sucesso" de um upload anterior na mesma visita', async () => {
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
+    });
+    getPublicacaoDetalheMock.mockResolvedValueOnce({
+      dataPublicada: '2026-09-01T14:00:00Z',
+      tipo: 'manual',
+      permalink: null,
+      numeroVersao: 1,
+      temComprovante: false,
+    });
+    uploadComprovantePublicacaoMock.mockResolvedValue(undefined);
+
+    renderPage();
+    await screen.findByText(/manual/);
+
+    const file = new File(['conteudo'], 'print.png', { type: 'image/png' });
+    fireEvent.change(screen.getByLabelText(/Comprovante\/print/), { target: { files: [file] } });
+    // O reload após o upload passa a devolver temComprovante=true (arquivo já anexado).
+    getPublicacaoDetalheMock.mockResolvedValue({
+      dataPublicada: '2026-09-01T14:00:00Z',
+      tipo: 'manual',
+      permalink: null,
+      numeroVersao: 1,
+      temComprovante: true,
+    });
+    getComprovanteDownloadUrlMock.mockResolvedValue({
+      url: 'https://exemplo.supabase.co/signed-comprovante',
+      expiresInSeconds: 300,
+    });
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar comprovante' }));
+
+    expect(await screen.findByText('Comprovante enviado com sucesso.')).toBeInTheDocument();
+    const verComprovanteBtn = await screen.findByRole('button', { name: 'Ver comprovante' });
+
+    fireEvent.click(verComprovanteBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Comprovante enviado com sucesso.')).not.toBeInTheDocument();
+    });
+
+    openSpy.mockRestore();
   });
 
   it('item 9.3: mostra "Ver comprovante" em vez do formulário de envio quando já existe um anexado', async () => {

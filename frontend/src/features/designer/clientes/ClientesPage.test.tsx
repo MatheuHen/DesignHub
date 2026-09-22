@@ -133,9 +133,19 @@ describe('ClientesPage (RF003)', () => {
       expect(createClienteMock).toHaveBeenCalledWith({
         nome: 'Cliente Teste',
         whatsapp: '5511988887777',
-        instagram: undefined,
       });
     });
+  });
+
+  it('não exibe mais o campo textual de @ do Instagram no formulário (rodada correções: só via Conectar Instagram)', async () => {
+    listClientesMock.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+
+    renderPage();
+    await screen.findByText('Nenhum cliente encontrado.');
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Novo Cliente' }));
+
+    expect(screen.queryByLabelText(/Instagram/)).not.toBeInTheDocument();
   });
 
   it('inicia atendimento e mostra confirmação (RF004)', async () => {
@@ -182,6 +192,50 @@ describe('ClientesPage (RF003)', () => {
       expect(getInstagramAuthorizeUrlMock).toHaveBeenCalledWith(1);
     });
 
+    Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
+  });
+
+  it('rodada correções (item 5/12): em viewport de desktop, abre o OAuth do Instagram em popup e não navega a aba atual', async () => {
+    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
+    getInstagramStatusMock.mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
+    getInstagramAuthorizeUrlMock.mockResolvedValue({ url: 'https://www.instagram.com/oauth/authorize?...' });
+
+    const matchMediaSpy = vi.spyOn(window, 'matchMedia').mockReturnValue({
+      matches: true,
+    } as MediaQueryList);
+    const fakePopup = { closed: false } as unknown as Window;
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakePopup);
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', { value: { ...originalLocation, href: 'http://localhost/designer/clientes' }, writable: true });
+
+    renderPage();
+    await screen.findByText('Cliente Teste');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Conectar Instagram' }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://www.instagram.com/oauth/authorize?...',
+        'designhub-instagram-oauth',
+        'width=500,height=720',
+      );
+    });
+    // Não navegou a aba atual — o fluxo inteiro acontece no popup.
+    expect(window.location.href).toBe('http://localhost/designer/clientes');
+    expect(await screen.findByRole('button', { name: 'Conectando…' })).toBeInTheDocument();
+
+    // Popup termina o OAuth e avisa a aba original via postMessage (mesma origem).
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: { source: 'designhub-instagram-oauth', resultado: 'conectado' },
+      }),
+    );
+
+    expect(await screen.findByText('Instagram conectado com sucesso.')).toBeInTheDocument();
+
+    openSpy.mockRestore();
+    matchMediaSpy.mockRestore();
     Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
   });
 

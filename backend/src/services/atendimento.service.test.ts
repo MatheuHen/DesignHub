@@ -26,6 +26,8 @@ const {
   listRespostasOrdenadasMock,
   completeAtendimentoAndCreateSolicitacaoMock,
   syncDesignerBloqueioMock,
+  getDesignerByIdMock,
+  classificarConfirmacaoComGeminiMock,
 } = vi.hoisted(() => ({
   sendTextMessageMock: vi.fn(),
   sendTemplateMessageMock: vi.fn(),
@@ -51,6 +53,8 @@ const {
   listRespostasOrdenadasMock: vi.fn(),
   completeAtendimentoAndCreateSolicitacaoMock: vi.fn(),
   syncDesignerBloqueioMock: vi.fn(),
+  getDesignerByIdMock: vi.fn(),
+  classificarConfirmacaoComGeminiMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({
@@ -94,6 +98,14 @@ vi.mock('../repositories/solicitacao.repository.js', () => ({
   syncDesignerBloqueio: syncDesignerBloqueioMock,
 }));
 
+vi.mock('../repositories/designer.repository.js', () => ({
+  getDesignerById: getDesignerByIdMock,
+}));
+
+vi.mock('../integrations/ai/geminiClient.js', () => ({
+  classificarConfirmacaoComGemini: classificarConfirmacaoComGeminiMock,
+}));
+
 const { iniciarAtendimento, processInboundWebhook } = await import('./atendimento.service.js');
 
 function inboundMessage(
@@ -132,6 +144,7 @@ describe('iniciarAtendimento (RF004/RN02/RN03, RF006)', () => {
     sendTextMessageMock.mockReset();
     sendTemplateMessageMock.mockReset();
     syncDesignerBloqueioMock.mockReset().mockResolvedValue(false);
+    getDesignerByIdMock.mockReset().mockResolvedValue({ id: 'designer-1', nomeCompleto: 'Dora Designer' });
   });
 
   it('lança NotFoundError quando o cliente não pertence ao designer (ownership via RLS)', async () => {
@@ -184,6 +197,34 @@ describe('iniciarAtendimento (RF004/RN02/RN03, RF006)', () => {
     expect(sendTemplateMessageMock).toHaveBeenCalledWith('5511999999999');
     expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.any(String));
     expect(deleteAtendimentoMock).not.toHaveBeenCalled();
+  });
+
+  it('rodada correções (item 27): a pergunta de confirmação identifica o designer responsável pelo nome', async () => {
+    findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    findActiveAtendimentoByClienteIdMock.mockResolvedValue(null);
+    createAtendimentoMock.mockResolvedValue({ id: 42 });
+    sendTemplateMessageMock.mockResolvedValue({ wamid: 'wamid.out.1' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid.out.2' });
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-1', nomeCompleto: 'Dora Designer' });
+
+    await iniciarAtendimento({} as never, 'designer-1', 1);
+
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Dora Designer'));
+    expect(sendTextMessageMock).not.toHaveBeenCalledWith('5511999999999', expect.stringContaining('@'));
+  });
+
+  it('rodada correções (item 27): cai para o texto genérico se o nome do designer não puder ser resolvido', async () => {
+    findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    findActiveAtendimentoByClienteIdMock.mockResolvedValue(null);
+    createAtendimentoMock.mockResolvedValue({ id: 42 });
+    sendTemplateMessageMock.mockResolvedValue({ wamid: 'wamid.out.1' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid.out.2' });
+    getDesignerByIdMock.mockResolvedValue(null);
+
+    const result = await iniciarAtendimento({} as never, 'designer-1', 1);
+
+    expect(result).toEqual({ idAtendimento: 42 });
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Vamos iniciar o atendimento'));
   });
 
   it('compensa (remove o atendimento) quando o envio do template de abertura falha', async () => {
@@ -239,6 +280,7 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     sendTextMessageMock.mockReset().mockResolvedValue({ wamid: 'wamid.out' });
     downloadMediaFromWhatsAppMock.mockReset();
     uploadArquivoToStorageMock.mockReset().mockResolvedValue(undefined);
+    classificarConfirmacaoComGeminiMock.mockReset().mockResolvedValue(null);
   });
 
   it('ignora reentrega do mesmo evento (idempotência)', async () => {
@@ -396,6 +438,111 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
   });
 
+  it('rodada correções (item 28): figurinha (sticker) não é aceita como resposta a uma pergunta livre — não avança nem insere', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(1); // pergunta "tema"
+
+    await processInboundWebhook(
+      webhookPayload(inboundMessage({ type: 'sticker', text: undefined })),
+    );
+
+    expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+    expect(insertRespostaMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledWith(
+      '5511999999999',
+      expect.stringContaining('Não consegui entender esse conteúdo'),
+    );
+  });
+
+  it('rodada correções (item 28): reação (reaction) não é aceita como resposta a uma pergunta livre', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(1);
+
+    await processInboundWebhook(
+      webhookPayload(inboundMessage({ type: 'reaction', text: undefined })),
+    );
+
+    expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledWith(
+      '5511999999999',
+      expect.stringContaining('Não consegui entender esse conteúdo'),
+    );
+  });
+
+  it('rodada correções (item 28): áudio não é aceito como resposta a uma pergunta livre', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(1);
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ type: 'audio', text: undefined })));
+
+    expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+  });
+
+  it('rodada correções (item 28): emoji isolado (sem letra/número) não satisfaz automaticamente uma pergunta estruturada', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(1);
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: '👍👍👍' } })));
+
+    expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledWith(
+      '5511999999999',
+      expect.stringContaining('Não consegui entender esse conteúdo'),
+    );
+  });
+
+  it('rodada correções (item 28): texto normal contendo emoji continua sendo aceito normalmente', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(1);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 2 });
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'Rosa e dourado 🎨' } })));
+
+    expect(registerRespostaEAvancarMock).toHaveBeenCalledWith(
+      expect.anything(),
+      1,
+      expect.any(Array),
+      'Rosa e dourado 🎨',
+    );
+  });
+
+  it('rodada correções (item 28): figurinha na pergunta de referência recebe orientação específica (aceita imagem/PDF ou texto)', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(4); // pergunta "referência"
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ type: 'sticker', text: undefined })));
+
+    expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledWith(
+      '5511999999999',
+      expect.stringContaining('Envie uma imagem/PDF'),
+    );
+  });
+
+  it('rodada correções (item 28): figurinha na pergunta de confirmação não conta como "sim" (comportamento já correto, regressão)', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(0); // pergunta "confirmação"
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ type: 'sticker', text: undefined })));
+
+    expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Não entendi sua resposta'));
+  });
+
   it('baixa e armazena a imagem de referência via Media API quando a pergunta atual é a última (item 14)', async () => {
     listActiveAtendimentosMock.mockResolvedValue([
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
@@ -482,6 +629,62 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     countRespostasMock.mockResolvedValue(0);
 
     await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'talvez' } })));
+
+    expect(classificarConfirmacaoComGeminiMock).toHaveBeenCalledWith('talvez');
+    expect(insertRespostaMock).not.toHaveBeenCalled();
+    expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Não entendi'));
+  });
+
+  it('item 16: regra determinística inequívoca ("Sim, pode continuar") nunca consulta a IA', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
+    ]);
+    countRespostasMock.mockResolvedValue(0);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 1 });
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'Sim, pode continuar' } })));
+
+    expect(classificarConfirmacaoComGeminiMock).not.toHaveBeenCalled();
+    expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
+  });
+
+  it('item 16: quando a regra determinística fica indefinida, usa a classificação da IA para avançar ("sim")', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
+    ]);
+    countRespostasMock.mockResolvedValue(0);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 1 });
+    classificarConfirmacaoComGeminiMock.mockResolvedValue({ confirmacao: 'sim' });
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'por mim tudo certo, pode seguir' } })));
+
+    expect(classificarConfirmacaoComGeminiMock).toHaveBeenCalledWith('por mim tudo certo, pode seguir');
+    expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
+    expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
+  });
+
+  it('item 16: quando a regra determinística fica indefinida, usa a classificação da IA para recusar ("nao")', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
+    ]);
+    countRespostasMock.mockResolvedValue(0);
+    classificarConfirmacaoComGeminiMock.mockResolvedValue({ confirmacao: 'nao' });
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'acho que não quero fazer isso agora' } })));
+
+    expect(markAtendimentoRecusadoMock).toHaveBeenCalledWith(expect.anything(), 1);
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('não vamos continuar'));
+  });
+
+  it('item 16: IA indisponível (erro/timeout/sem chave) preserva o comportamento atual — pede esclarecimento', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
+    ]);
+    countRespostasMock.mockResolvedValue(0);
+    classificarConfirmacaoComGeminiMock.mockResolvedValue(null);
+
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'sei la' } })));
 
     expect(insertRespostaMock).not.toHaveBeenCalled();
     expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();

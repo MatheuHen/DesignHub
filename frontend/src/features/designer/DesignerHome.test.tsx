@@ -3,14 +3,20 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthContextValue } from '../auth/auth-context';
 
-const { listSolicitacoesMock, useAuthMock } = vi.hoisted(() => ({
+const { listSolicitacoesMock, listAgendamentosMock, useAuthMock } = vi.hoisted(() => ({
   listSolicitacoesMock: vi.fn(),
+  listAgendamentosMock: vi.fn(),
   useAuthMock: vi.fn(),
 }));
 
 vi.mock('./solicitacoes/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./solicitacoes/api')>();
   return { ...actual, listSolicitacoes: listSolicitacoesMock };
+});
+
+vi.mock('./agendamentos/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./agendamentos/api')>();
+  return { ...actual, listAgendamentos: listAgendamentosMock };
 });
 
 vi.mock('../auth/useAuth', () => ({ useAuth: useAuthMock }));
@@ -56,6 +62,7 @@ function mockCounts(overrides: Partial<Record<string, number>> = {}, emProducaoI
 describe('DesignerHome — Dashboard (RF005/RF011/RN13-RN14, FIGURA 7/15/22)', () => {
   beforeEach(() => {
     listSolicitacoesMock.mockReset();
+    listAgendamentosMock.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
     useAuthMock.mockReset().mockReturnValue(baseAuth);
   });
 
@@ -108,6 +115,43 @@ describe('DesignerHome — Dashboard (RF005/RF011/RN13-RN14, FIGURA 7/15/22)', (
     renderPage();
 
     expect(await screen.findByText('Não foi possível carregar o dashboard.')).toBeInTheDocument();
+  });
+
+  it('rodada correções (item 9): mostra publicações agendadas com link para a solicitação', async () => {
+    mockCounts();
+    listAgendamentosMock.mockResolvedValue({
+      items: [
+        {
+          idAgendamento: 5,
+          idSolicitacao: 99,
+          tema: 'Post promocional',
+          clienteNome: 'Maria Souza',
+          dataPublicacao: '2026-09-26',
+          horario: '12:00:00',
+          legenda: null,
+          status: 'Agendado',
+          createdAt: '2026-09-20T00:00:00Z',
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+
+    renderPage();
+
+    const link = await screen.findByRole('link', { name: 'Maria Souza' });
+    expect(link).toHaveAttribute('href', '/designer/solicitacoes/99');
+    expect(screen.getByText('12:00')).toBeInTheDocument();
+  });
+
+  it('não mostra a seção de publicações agendadas quando não há nenhuma', async () => {
+    mockCounts();
+
+    renderPage();
+    await screen.findByText('Nenhum prazo próximo no momento.');
+
+    expect(screen.queryByText('Publicações agendadas')).not.toBeInTheDocument();
   });
 
   it('mostra o aviso de bloqueio (RF006) quando o designer está bloqueado', async () => {

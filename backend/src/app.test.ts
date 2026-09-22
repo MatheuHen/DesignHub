@@ -10,6 +10,8 @@ interface HealthResponseBody {
     supabaseAdminClient: 'configured' | 'missing';
     whatsappSendingClient: 'configured' | 'missing';
     whatsappWebhookSecurity: 'configured' | 'missing';
+    webPushVapidKeys: 'configured' | 'missing';
+    geminiClassifier: 'configured' | 'missing';
   };
 }
 
@@ -28,6 +30,8 @@ describe('GET /api/health', () => {
       supabaseAdminClient: expect.stringMatching(/^(configured|missing)$/) as unknown,
       whatsappSendingClient: expect.stringMatching(/^(configured|missing)$/) as unknown,
       whatsappWebhookSecurity: expect.stringMatching(/^(configured|missing)$/) as unknown,
+      webPushVapidKeys: expect.stringMatching(/^(configured|missing)$/) as unknown,
+      geminiClassifier: expect.stringMatching(/^(configured|missing)$/) as unknown,
     });
   });
 });

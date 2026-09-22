@@ -60,9 +60,10 @@ avaliacaoRouter.post(
         descricao: body.descricao,
         observacoes: body.observacoes,
         referenciaBuffer: request.file?.buffer,
-        desejaAgendamento: body.desejaAgendamento,
+        opcaoPublicacao: body.opcaoPublicacao,
         dataDesejada: body.dataDesejada,
         horarioDesejado: body.horarioDesejado,
+        legendaDesejada: body.legendaDesejada,
       });
       response.status(200).json(result);
     } catch (error) {

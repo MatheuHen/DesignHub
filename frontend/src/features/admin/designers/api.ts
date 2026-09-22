@@ -35,7 +35,6 @@ export interface CreateDesignerInput {
 export interface UpdateDesignerInput {
   nomeCompleto?: string;
   whatsapp?: string;
-  statusOperacional?: string | null;
 }
 
 /** RF001/RF015: lista/pesquisa designers por nome, e-mail e status. */
@@ -81,14 +80,6 @@ export function updateDesignerPassword(
     method: 'PATCH',
     body: JSON.stringify({ novaSenha, confirmarSenha }),
   });
-}
-
-/**
- * RF001/item 2.4: exclusão física, ADITIVA ao Ativo/Inativo. O backend
- * rejeita (409) quando há cliente/solicitação vinculados — reatribua antes.
- */
-export function deleteDesigner(id: string): Promise<void> {
-  return apiRequest<void>(`/api/designers/${id}`, { method: 'DELETE' });
 }
 
 /**

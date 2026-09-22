@@ -6,7 +6,6 @@ import { statusSlug } from '../../../lib/statusStyle';
 import { SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from '../../designer/solicitacoes/api';
 import {
   createDesigner,
-  deleteDesigner,
   listDesigners,
   listSolicitacoesAdmin,
   reassignSolicitacao,
@@ -111,7 +110,6 @@ export function DesignersPage() {
     await updateDesigner(designer.id, {
       nomeCompleto: values.nomeCompleto,
       whatsapp: values.whatsapp,
-      statusOperacional: values.statusOperacional || null,
     });
     reload();
 
@@ -141,11 +139,15 @@ export function DesignersPage() {
       .finally(() => setTogglingId(null));
   }
 
-  /** RF001/item 2.4: exclusão ADITIVA ao Ativo/Inativo — bloqueada pelo backend quando há histórico vinculado. */
+  /**
+   * "Excluir" na interface é inativação lógica (não apaga o registro):
+   * preserva histórico, clientes, solicitações, versões e publicações do
+   * designer, e permite reativação futura pelo botão "Ativar".
+   */
   function handleConfirmarExclusao(designer: Designer) {
     setExcluindoSaving(true);
     setRowError(null);
-    deleteDesigner(designer.id)
+    setDesignerStatus(designer.id, 'inativo')
       .then(() => {
         setExcluindoId(null);
         reload();
@@ -248,44 +250,47 @@ export function DesignersPage() {
                   <button type="button" onClick={() => setPanel({ mode: 'edit', designer })}>
                     Editar
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleStatus(designer)}
-                    disabled={togglingId === designer.id}
-                  >
-                    {togglingId === designer.id
-                      ? 'Atualizando…'
-                      : designer.status === 'ativo'
-                        ? 'Inativar'
-                        : 'Ativar'}
-                  </button>
-                  {excluindoId === designer.id ? (
-                    <>
-                      <span role="alert">Excluir permanentemente {designer.nomeCompleto}?</span>
+                  {designer.status === 'inativo' && (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStatus(designer)}
+                      disabled={togglingId === designer.id}
+                    >
+                      {togglingId === designer.id ? 'Atualizando…' : 'Ativar'}
+                    </button>
+                  )}
+                  {designer.status === 'ativo' &&
+                    (excluindoId === designer.id ? (
+                      <>
+                        <span role="alert">
+                          Excluir {designer.nomeCompleto}? O designer será inativado (não apagado): histórico,
+                          clientes, solicitações, versões e publicações são preservados, e a conta pode ser
+                          reativada depois.
+                        </span>
+                        <button
+                          type="button"
+                          className="designer-action-danger"
+                          disabled={excluindoSaving}
+                          onClick={() => handleConfirmarExclusao(designer)}
+                        >
+                          {excluindoSaving ? 'Excluindo…' : 'Confirmar exclusão'}
+                        </button>
+                        <button type="button" disabled={excluindoSaving} onClick={() => setExcluindoId(null)}>
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
                       <button
                         type="button"
                         className="designer-action-danger"
-                        disabled={excluindoSaving}
-                        onClick={() => handleConfirmarExclusao(designer)}
+                        onClick={() => {
+                          setRowError(null);
+                          setExcluindoId(designer.id);
+                        }}
                       >
-                        {excluindoSaving ? 'Excluindo…' : 'Confirmar exclusão'}
+                        Excluir
                       </button>
-                      <button type="button" disabled={excluindoSaving} onClick={() => setExcluindoId(null)}>
-                        Cancelar
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="designer-action-danger"
-                      onClick={() => {
-                        setRowError(null);
-                        setExcluindoId(designer.id);
-                      }}
-                    >
-                      Excluir
-                    </button>
-                  )}
+                    ))}
                   {rowError?.id === designer.id && (
                     <p role="alert" className="auth-error">
                       {rowError.message}
