@@ -6,6 +6,7 @@ import {
   createCliente,
   deleteCliente,
   desconectarInstagram,
+  enviarLinkInstagram,
   getInstagramAuthorizeUrl,
   getInstagramStatus,
   iniciarAtendimento,
@@ -172,6 +173,9 @@ export function ClientesPage() {
   useEffect(() => stopWatchingOAuthPopup, []);
 
   function handleConectarInstagram(cliente: Cliente) {
+    // Bug 2 (rodada correções): guarda contra clique duplo — evita gerar dois states
+    // OAuth concorrentes e abrir dois popups para o mesmo cliente.
+    if (connectingInstagramId !== null) return;
     setInstagramFeedback(null);
     setConnectingInstagramId(cliente.id);
     getInstagramAuthorizeUrl(cliente.id)
@@ -203,6 +207,31 @@ export function ClientesPage() {
         });
         setConnectingInstagramId(null);
       });
+  }
+
+  /** Item 4 (rodada correções Instagram): envia o link de conexão ao cliente via WhatsApp, sem exigir credenciais. */
+  function handleEnviarLinkInstagram(cliente: Cliente) {
+    if (connectingInstagramId !== null) return;
+    setInstagramFeedback(null);
+    setConnectingInstagramId(cliente.id);
+    enviarLinkInstagram(cliente.id)
+      .then((result) => {
+        setInstagramFeedback({
+          id: cliente.id,
+          type: result.whatsappNotified ? 'success' : 'error',
+          message: result.whatsappNotified
+            ? 'Link de conexão enviado ao cliente via WhatsApp.'
+            : `Não foi possível enviar via WhatsApp${result.whatsappError ? ` (${result.whatsappError})` : ''}. Copie e envie manualmente: ${result.url}`,
+        });
+      })
+      .catch((sendError: unknown) => {
+        setInstagramFeedback({
+          id: cliente.id,
+          type: 'error',
+          message: sendError instanceof ApiError ? sendError.message : 'Não foi possível gerar o link de conexão.',
+        });
+      })
+      .finally(() => setConnectingInstagramId(null));
   }
 
   function handleDesconectarInstagram(cliente: Cliente) {
@@ -334,7 +363,6 @@ export function ClientesPage() {
               <th scope="col">Nome</th>
               <th scope="col">WhatsApp</th>
               <th scope="col">Instagram</th>
-              <th scope="col">Publicação automática</th>
               <th scope="col">Ações</th>
             </tr>
           </thead>
@@ -343,8 +371,8 @@ export function ClientesPage() {
               <tr key={cliente.id}>
                 <td>{cliente.nome}</td>
                 <td>{cliente.whatsapp}</td>
-                <td>{cliente.instagram ?? '—'}</td>
                 <td>
+                  {/* Item 9 (rodada correções): status real de conexão persistida — nunca o @ digitado manualmente. */}
                   {instagramStatus[cliente.id]?.conectado ? (
                     <>
                       <span>Conectado</span>{' '}
@@ -362,9 +390,16 @@ export function ClientesPage() {
                       <button
                         type="button"
                         onClick={() => handleConectarInstagram(cliente)}
-                        disabled={connectingInstagramId === cliente.id}
+                        disabled={connectingInstagramId !== null}
                       >
                         {connectingInstagramId === cliente.id ? 'Conectando…' : 'Conectar Instagram'}
+                      </button>{' '}
+                      <button
+                        type="button"
+                        onClick={() => handleEnviarLinkInstagram(cliente)}
+                        disabled={connectingInstagramId !== null}
+                      >
+                        Enviar link ao cliente
                       </button>
                     </>
                   )}

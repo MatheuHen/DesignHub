@@ -162,7 +162,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
           solicitacao: { ...sampleDetail.solicitacao, status },
         });
         getPublicacaoDetalheMock.mockResolvedValue({
-          dataPublicada: '2026-09-01T14:00:00Z',
+          dataPublicada: '2030-06-15T14:00:00Z',
           tipo: 'manual',
           permalink: null,
           numeroVersao: 1,
@@ -521,14 +521,14 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     renderPage();
     await screen.findByRole('form', { name: 'Agendar publicação' });
 
-    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2030-06-15' } });
     fireEvent.change(screen.getByLabelText('Horário'), { target: { value: '10:00' } });
     fireEvent.change(screen.getByLabelText('Legenda (opcional)'), { target: { value: 'Nova arte no ar!' } });
     fireEvent.click(screen.getByRole('button', { name: 'Agendar publicação' }));
 
     await waitFor(() => {
       expect(createAgendamentoMock).toHaveBeenCalledWith(10, {
-        dataPublicacao: '2026-09-01',
+        dataPublicacao: '2030-06-15',
         horario: '10:00',
         legenda: 'Nova arte no ar!',
       });
@@ -549,13 +549,13 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     const legendaInput = screen.getByLabelText('Legenda (opcional)');
     expect(legendaInput).not.toBeRequired();
 
-    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2030-06-15' } });
     fireEvent.change(screen.getByLabelText('Horário'), { target: { value: '10:00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Agendar publicação' }));
 
     await waitFor(() => {
       expect(createAgendamentoMock).toHaveBeenCalledWith(10, {
-        dataPublicacao: '2026-09-01',
+        dataPublicacao: '2030-06-15',
         horario: '10:00',
         legenda: '',
       });
@@ -566,7 +566,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     getSolicitacaoDetailMock.mockResolvedValue({
       ...sampleDetail,
       solicitacao: { ...sampleDetail.solicitacao, status: 'Agendado' },
-      agendamento: { idAgendamento: 1, dataPublicacao: '2026-09-01', horario: '10:00:00', legenda: 'Post' },
+      agendamento: { idAgendamento: 1, dataPublicacao: '2030-06-15', horario: '10:00:00', legenda: 'Post' },
     });
     updateAgendamentoMock.mockResolvedValue(undefined);
 
@@ -579,7 +579,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
 
     await waitFor(() => {
       expect(updateAgendamentoMock).toHaveBeenCalledWith(10, {
-        dataPublicacao: '2026-09-01',
+        dataPublicacao: '2030-06-15',
         horario: '10:00',
         legenda: 'Post',
       });
@@ -590,7 +590,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     getSolicitacaoDetailMock.mockResolvedValue({
       ...sampleDetail,
       solicitacao: { ...sampleDetail.solicitacao, status: 'Agendado' },
-      agendamento: { idAgendamento: 1, dataPublicacao: '2026-09-01', horario: '10:00:00', legenda: null },
+      agendamento: { idAgendamento: 1, dataPublicacao: '2030-06-15', horario: '10:00:00', legenda: null },
     });
     cancelAgendamentoMock.mockResolvedValue(undefined);
 
@@ -614,14 +614,14 @@ describe('SolicitacaoDetailPage (RF005)', () => {
 
     renderPage();
     await screen.findByRole('form', { name: 'Agendar publicação' });
-    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2030-06-15' } });
     fireEvent.change(screen.getByLabelText('Horário'), { target: { value: '10:00' } });
 
     // Após agendar, a solicitação recarrega já como "Agendado".
     getSolicitacaoDetailMock.mockResolvedValue({
       ...sampleDetail,
       solicitacao: { ...sampleDetail.solicitacao, status: 'Agendado' },
-      agendamento: { idAgendamento: 1, dataPublicacao: '2026-09-01', horario: '10:00:00', legenda: null },
+      agendamento: { idAgendamento: 1, dataPublicacao: '2030-06-15', horario: '10:00:00', legenda: null },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Agendar publicação' }));
 
@@ -644,7 +644,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     getSolicitacaoDetailMock.mockResolvedValue({
       ...sampleDetail,
       solicitacao: { ...sampleDetail.solicitacao, status: 'Agendado' },
-      agendamento: { idAgendamento: 1, dataPublicacao: '2026-09-01', horario: '10:00:00', legenda: null },
+      agendamento: { idAgendamento: 1, dataPublicacao: '2030-06-15', horario: '10:00:00', legenda: null },
     });
     cancelAgendamentoMock.mockRejectedValue(
       new ApiError(409, 'CONFLICT', 'Cancelamento não permitido: faltam menos de 3 horas para a publicação.'),
@@ -661,7 +661,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     getSolicitacaoDetailMock.mockResolvedValue({
       ...sampleDetail,
       solicitacao: { ...sampleDetail.solicitacao, status: 'Agendado' },
-      agendamento: { idAgendamento: 1, dataPublicacao: '2026-09-01', horario: '10:00:00', legenda: null },
+      agendamento: { idAgendamento: 1, dataPublicacao: '2030-06-15', horario: '10:00:00', legenda: null },
     });
     registrarPublicacaoManualMock.mockResolvedValue(undefined);
 
@@ -679,7 +679,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     getSolicitacaoDetailMock.mockResolvedValue({
       ...sampleDetail,
       solicitacao: { ...sampleDetail.solicitacao, status: 'Agendado' },
-      agendamento: { idAgendamento: 1, dataPublicacao: '2026-09-01', horario: '10:00:00', legenda: null },
+      agendamento: { idAgendamento: 1, dataPublicacao: '2030-06-15', horario: '10:00:00', legenda: null },
     });
     registrarPublicacaoManualMock.mockRejectedValue(
       new ApiError(409, 'CONFLICT', 'Solicitação não está aguardando publicação (status atual: Publicado).'),
@@ -698,7 +698,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
     });
     getPublicacaoDetalheMock.mockResolvedValue({
-      dataPublicada: '2026-09-01T14:00:00Z',
+      dataPublicada: '2030-06-15T14:00:00Z',
       tipo: 'automatica',
       permalink: 'https://www.instagram.com/p/abc123/',
       numeroVersao: 2,
@@ -721,7 +721,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
     });
     getPublicacaoDetalheMock.mockResolvedValue({
-      dataPublicada: '2026-09-01T14:00:00Z',
+      dataPublicada: '2030-06-15T14:00:00Z',
       tipo: 'automatica',
       permalink: null,
       numeroVersao: 2,
@@ -744,7 +744,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
     });
     getPublicacaoDetalheMock.mockResolvedValue({
-      dataPublicada: '2026-09-01T14:00:00Z',
+      dataPublicada: '2030-06-15T14:00:00Z',
       tipo: 'manual',
       permalink: null,
       numeroVersao: 1,
@@ -771,7 +771,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
     });
     getPublicacaoDetalheMock.mockResolvedValueOnce({
-      dataPublicada: '2026-09-01T14:00:00Z',
+      dataPublicada: '2030-06-15T14:00:00Z',
       tipo: 'manual',
       permalink: null,
       numeroVersao: 1,
@@ -786,7 +786,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     fireEvent.change(screen.getByLabelText(/Comprovante\/print/), { target: { files: [file] } });
     // O reload após o upload passa a devolver temComprovante=true (arquivo já anexado).
     getPublicacaoDetalheMock.mockResolvedValue({
-      dataPublicada: '2026-09-01T14:00:00Z',
+      dataPublicada: '2030-06-15T14:00:00Z',
       tipo: 'manual',
       permalink: null,
       numeroVersao: 1,
@@ -817,7 +817,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
     });
     getPublicacaoDetalheMock.mockResolvedValue({
-      dataPublicada: '2026-09-01T14:00:00Z',
+      dataPublicada: '2030-06-15T14:00:00Z',
       tipo: 'manual',
       permalink: null,
       numeroVersao: 1,

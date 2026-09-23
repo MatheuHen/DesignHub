@@ -202,7 +202,7 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Aprovar' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Designer agendar manualmente' }));
-    fireEvent.change(screen.getByLabelText('Data desejada'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('Data desejada'), { target: { value: '2030-06-15' } });
     fireEvent.change(screen.getByLabelText('Horário desejado'), { target: { value: '14:30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar aprovação' }));
 
@@ -210,7 +210,7 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
       expect(submitAvaliacaoMock).toHaveBeenCalledWith(TOKEN, {
         decisao: 'Aprovado',
         opcaoPublicacao: 'designer_manual',
-        dataDesejada: '2026-09-01',
+        dataDesejada: '2030-06-15',
         horarioDesejado: '14:30',
         legendaDesejada: undefined,
       });

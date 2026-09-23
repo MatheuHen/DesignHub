@@ -11,6 +11,7 @@ const {
   getStatusConexaoMock,
   deleteConexaoMock,
   upsertConexaoMock,
+  sendTextMessageMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   getClienteByIdMock: vi.fn(),
@@ -21,6 +22,7 @@ const {
   getStatusConexaoMock: vi.fn(),
   deleteConexaoMock: vi.fn(),
   upsertConexaoMock: vi.fn(),
+  sendTextMessageMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
@@ -30,6 +32,7 @@ vi.mock('../integrations/instagram/instagramOAuth.js', () => ({
   buildAuthorizeUrl: buildAuthorizeUrlMock,
   exchangeCodeForLongLivedToken: exchangeCodeForLongLivedTokenMock,
 }));
+vi.mock('../integrations/whatsapp/whatsappClient.js', () => ({ sendTextMessage: sendTextMessageMock }));
 vi.mock('../repositories/clienteInstagram.repository.js', () => ({
   createOAuthState: createOAuthStateMock,
   consumeOAuthState: consumeOAuthStateMock,
@@ -43,6 +46,7 @@ const {
   getInstagramStatus,
   removerInstagramConexao,
   processarCallbackInstagram,
+  enviarLinkConexaoInstagram,
 } = await import('./clienteInstagram.service.js');
 
 describe('gerarAutorizacaoInstagramUrl (RF014/ADR 0005)', () => {
@@ -107,6 +111,52 @@ describe('getInstagramStatus/removerInstagramConexao (ownership)', () => {
     getClienteByIdMock.mockResolvedValue({ id: 1, idDesigner: 'designer-1' });
     await removerInstagramConexao({} as never, 1);
     expect(deleteConexaoMock).toHaveBeenCalledWith(expect.anything(), 1);
+  });
+});
+
+describe('enviarLinkConexaoInstagram (item 4 — rodada correções Instagram)', () => {
+  beforeEach(() => {
+    getClienteByIdMock.mockReset();
+    createOAuthStateMock.mockReset().mockResolvedValue(undefined);
+    buildAuthorizeUrlMock.mockReset().mockReturnValue('https://www.instagram.com/oauth/authorize?state=abc');
+    sendTextMessageMock.mockReset();
+  });
+
+  it('rejeita quando o cliente não pertence ao designer', async () => {
+    getClienteByIdMock.mockResolvedValue(null);
+
+    await expect(enviarLinkConexaoInstagram({} as never, 1, 'designer-1')).rejects.toBeInstanceOf(NotFoundError);
+    expect(createOAuthStateMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('gera o link e envia por WhatsApp com sucesso', async () => {
+    getClienteByIdMock.mockResolvedValue({ id: 1, idDesigner: 'designer-1', whatsapp: '5511988887777' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid-1' });
+
+    const result = await enviarLinkConexaoInstagram({} as never, 1, 'designer-1');
+
+    expect(result).toEqual({ url: 'https://www.instagram.com/oauth/authorize?state=abc', whatsappNotified: true });
+    expect(sendTextMessageMock).toHaveBeenCalledWith(
+      '5511988887777',
+      expect.stringContaining('https://www.instagram.com/oauth/authorize?state=abc'),
+    );
+    // Reforça a garantia da seção 5/10: a mensagem tranquiliza o cliente, nunca pede a senha dele.
+    expect(sendTextMessageMock).toHaveBeenCalledWith(
+      '5511988887777',
+      expect.stringContaining('não solicita sua senha'),
+    );
+  });
+
+  it('nunca mascara falha de envio via WhatsApp — devolve o link mesmo assim', async () => {
+    getClienteByIdMock.mockResolvedValue({ id: 1, idDesigner: 'designer-1', whatsapp: '5511988887777' });
+    sendTextMessageMock.mockRejectedValue(new Error('Falha ao enviar mensagem'));
+
+    const result = await enviarLinkConexaoInstagram({} as never, 1, 'designer-1');
+
+    expect(result.whatsappNotified).toBe(false);
+    expect(result.url).toBe('https://www.instagram.com/oauth/authorize?state=abc');
+    expect(result.whatsappError).toContain('Falha ao enviar mensagem');
   });
 });
 

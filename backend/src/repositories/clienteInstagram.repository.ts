@@ -7,7 +7,15 @@ import { z } from 'zod';
  * (service_role); as tabelas não têm policy para anon/authenticated.
  */
 
-const OAUTH_STATE_TTL_SECONDS = 10 * 60;
+/**
+ * Item 4 (rodada correções Instagram): o mesmo state agora também é usado
+ * pelo fluxo "enviar link ao cliente" via WhatsApp — o cliente pode demorar
+ * para abrir a mensagem, diferente do clique do designer que abre o popup
+ * imediatamente. 24h dá folga real de uso sem abrir mão de state opaco de
+ * uso único + verificação de expiração (mesma garantia de segurança de
+ * antes, só a janela de validade mudou).
+ */
+const OAUTH_STATE_TTL_SECONDS = 24 * 60 * 60;
 
 interface OAuthStateRow {
   id_cliente: number;

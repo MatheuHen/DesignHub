@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { env } from '../config/env.js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import { buildAuthorizeUrl, exchangeCodeForLongLivedToken } from '../integrations/instagram/instagramOAuth.js';
+import { sendTextMessage } from '../integrations/whatsapp/whatsappClient.js';
 import { generateOpaqueToken, hashOpaqueToken } from '../lib/tokens.js';
 import { BlockedExternalCredentialError, ConflictError, NotFoundError } from '../lib/errors.js';
 import { getClienteById } from '../repositories/cliente.repository.js';
@@ -38,6 +39,56 @@ export async function gerarAutorizacaoInstagramUrl(
   await createOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId });
 
   return { url: buildAuthorizeUrl(raw) };
+}
+
+export interface EnviarLinkInstagramResult {
+  url: string;
+  whatsappNotified: boolean;
+  whatsappError?: string;
+}
+
+/**
+ * Item 4 (rodada correções Instagram): mesmo link de autorização de
+ * `gerarAutorizacaoInstagramUrl`, mas para o cliente abrir no PRÓPRIO
+ * dispositivo — o designer nunca precisa das credenciais do Instagram do
+ * cliente. Reaproveita o mesmo state opaco de uso único (ownership já
+ * validado por `assertOwnedCliente`); a falha ao notificar via WhatsApp
+ * nunca é mascarada (mesmo padrão de `gerarLinkAvaliacao`), o link em si
+ * continua válido para o designer copiar e enviar manualmente.
+ */
+export async function enviarLinkConexaoInstagram(
+  userClient: SupabaseClient,
+  idCliente: number,
+  callerId: string,
+): Promise<EnviarLinkInstagramResult> {
+  const cliente = await getClienteById(userClient, idCliente);
+  if (!cliente) throw new NotFoundError('Cliente não encontrado.');
+
+  const { raw, hash } = generateOpaqueToken();
+  const adminClient = getSupabaseAdminClient();
+  await createOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId });
+  const url = buildAuthorizeUrl(raw);
+
+  const message =
+    'Para habilitar a publicação pelo DesignHub, conecte sua conta do Instagram pelo link abaixo:\n\n' +
+    `${url}\n\n` +
+    'A autorização é feita diretamente pela Meta. O DesignHub não solicita sua senha.';
+
+  let whatsappNotified = true;
+  let whatsappError: string | undefined;
+  try {
+    await sendTextMessage(cliente.whatsapp, message);
+  } catch (error) {
+    whatsappNotified = false;
+    // Nunca loga `message`/`url` (contêm o token bruto) — só o erro do SDK/HTTP, truncado.
+    whatsappError = error instanceof Error ? error.message.slice(0, 200) : 'Erro desconhecido.';
+    console.error('[designhub:instagram] falha ao enviar link de conexão via WhatsApp', {
+      idCliente,
+      message: whatsappError,
+    });
+  }
+
+  return { url, whatsappNotified, ...(whatsappError ? { whatsappError } : {}) };
 }
 
 /** RF014: status de conexão do cliente para exibição ao designer — nunca o token. */

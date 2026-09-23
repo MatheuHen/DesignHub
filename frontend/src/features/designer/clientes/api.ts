@@ -77,6 +77,17 @@ export function getInstagramAuthorizeUrl(id: number): Promise<{ url: string }> {
   return apiRequest<{ url: string }>(`/api/clientes/${id}/instagram/authorize-url`, { method: 'POST' });
 }
 
+export interface EnviarLinkInstagramResult {
+  url: string;
+  whatsappNotified: boolean;
+  whatsappError?: string;
+}
+
+/** Item 4 (rodada correções Instagram): envia o link de conexão do Instagram ao cliente via WhatsApp. */
+export function enviarLinkInstagram(id: number): Promise<EnviarLinkInstagramResult> {
+  return apiRequest<EnviarLinkInstagramResult>(`/api/clientes/${id}/instagram/enviar-link`, { method: 'POST' });
+}
+
 /** RF014/ADR 0005: desconecta o Instagram deste cliente. */
 export function desconectarInstagram(id: number): Promise<void> {
   return apiRequest<void>(`/api/clientes/${id}/instagram/conexao`, { method: 'DELETE' });

@@ -18,6 +18,7 @@ import {
   updateCliente,
 } from '../services/cliente.service.js';
 import {
+  enviarLinkConexaoInstagram,
   gerarAutorizacaoInstagramUrl,
   getInstagramStatus,
   removerInstagramConexao,
@@ -27,6 +28,20 @@ export const clienteRouter = Router();
 
 /** RF003: cadastro/gestão de clientes é responsabilidade do Designer. */
 clienteRouter.use(requireAuth, attachProfile, requireProfile('designer'));
+
+/**
+ * Item 4 (rodada correções Instagram) + seção 12.3: envia o link de
+ * autorização do Instagram ao cliente via WhatsApp — dispara envio a um
+ * serviço externo (Meta), limite dedicado por designer, mesmo padrão de
+ * `linkAvaliacaoRateLimit` (solicitacao.routes.ts).
+ */
+const enviarLinkInstagramRateLimit = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (request) => request.auth?.userId ?? ipKeyGenerator(request.ip ?? 'unknown'),
+});
 
 clienteRouter.get('/', async (request, response, next) => {
   try {
@@ -105,6 +120,22 @@ clienteRouter.post('/:id/instagram/authorize-url', async (request, response, nex
     const { id } = clienteIdParamSchema.parse(request.params);
     const client = getSupabaseUserClient(request.auth!.accessToken);
     const result = await gerarAutorizacaoInstagramUrl(client, id, request.auth!.userId);
+    response.status(200).json(result);
+  } catch (error) {
+    next(toAppError(error));
+  }
+});
+
+/**
+ * Item 4 (rodada correções Instagram): gera o mesmo link de autorização e
+ * tenta enviá-lo ao cliente via WhatsApp, para o cliente conectar a própria
+ * conta do Instagram sem o designer precisar de suas credenciais.
+ */
+clienteRouter.post('/:id/instagram/enviar-link', enviarLinkInstagramRateLimit, async (request, response, next) => {
+  try {
+    const { id } = clienteIdParamSchema.parse(request.params);
+    const client = getSupabaseUserClient(request.auth!.accessToken);
+    const result = await enviarLinkConexaoInstagram(client, id, request.auth!.userId);
     response.status(200).json(result);
   } catch (error) {
     next(toAppError(error));

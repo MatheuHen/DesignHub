@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { FilePreviewPicker } from '../../../components/FilePreviewPicker';
 import { ApiError } from '../../../lib/apiClient';
+import { getSaoPauloNow, isDataHorarioPassadoSaoPaulo } from '../../../lib/saoPauloDate';
 import { statusSlug } from '../../../lib/statusStyle';
 import {
   cancelAgendamento,
@@ -278,9 +279,13 @@ export function SolicitacaoDetailPage() {
 
   function handleAgendamentoSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setAgendSaving(true);
     setAgendError(null);
     setAgendSuccess(null);
+    if (isDataHorarioPassadoSaoPaulo(agendData, agendHorario)) {
+      setAgendError('A data e o horário do agendamento devem estar no futuro.');
+      return;
+    }
+    setAgendSaving(true);
     // Rodada correções (item 13/31/32): um agendamento novo/editado nunca
     // deve deixar visível uma mensagem de cancelamento de uma ação anterior.
     setCancelAgendSuccess(false);
@@ -782,6 +787,7 @@ export function SolicitacaoDetailPage() {
                   id="agendamento-data"
                   type="date"
                   value={agendData}
+                  min={getSaoPauloNow().date}
                   onChange={(event) => setAgendData(event.target.value)}
                   required
                 />

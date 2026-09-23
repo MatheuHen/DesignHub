@@ -26,16 +26,23 @@ vi.mock('../services/cliente.service.js', () => ({
   removeCliente: vi.fn(),
 }));
 
-const { gerarAutorizacaoInstagramUrlMock, getInstagramStatusMock, removerInstagramConexaoMock } = vi.hoisted(() => ({
+const {
+  gerarAutorizacaoInstagramUrlMock,
+  getInstagramStatusMock,
+  removerInstagramConexaoMock,
+  enviarLinkConexaoInstagramMock,
+} = vi.hoisted(() => ({
   gerarAutorizacaoInstagramUrlMock: vi.fn(),
   getInstagramStatusMock: vi.fn(),
   removerInstagramConexaoMock: vi.fn(),
+  enviarLinkConexaoInstagramMock: vi.fn(),
 }));
 
 vi.mock('../services/clienteInstagram.service.js', () => ({
   gerarAutorizacaoInstagramUrl: gerarAutorizacaoInstagramUrlMock,
   getInstagramStatus: getInstagramStatusMock,
   removerInstagramConexao: removerInstagramConexaoMock,
+  enviarLinkConexaoInstagram: enviarLinkConexaoInstagramMock,
 }));
 
 const { createApp } = await import('../app.js');
@@ -86,6 +93,7 @@ describe('/api/clientes/:id/instagram/* (RF014/ADR 0005)', () => {
     gerarAutorizacaoInstagramUrlMock.mockReset();
     getInstagramStatusMock.mockReset();
     removerInstagramConexaoMock.mockReset();
+    enviarLinkConexaoInstagramMock.mockReset();
   });
 
   it('POST /:id/instagram/authorize-url é exclusivo do designer — administrador recebe 403', async () => {
@@ -110,6 +118,36 @@ describe('/api/clientes/:id/instagram/* (RF014/ADR 0005)', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ url: 'https://www.instagram.com/oauth/authorize?state=abc' });
     expect(gerarAutorizacaoInstagramUrlMock).toHaveBeenCalledWith(expect.anything(), 1, 'user-1');
+  });
+
+  it('POST /:id/instagram/enviar-link é exclusivo do designer — administrador recebe 403', async () => {
+    mockAuthenticatedUser('administrador');
+
+    const response = await request(createApp())
+      .post('/api/clientes/1/instagram/enviar-link')
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(403);
+    expect(enviarLinkConexaoInstagramMock).not.toHaveBeenCalled();
+  });
+
+  it('POST /:id/instagram/enviar-link permite designer, delega ao service e nunca vaza o token na resposta', async () => {
+    mockAuthenticatedUser('designer');
+    enviarLinkConexaoInstagramMock.mockResolvedValue({
+      url: 'https://www.instagram.com/oauth/authorize?state=abc',
+      whatsappNotified: true,
+    });
+
+    const response = await request(createApp())
+      .post('/api/clientes/1/instagram/enviar-link')
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      url: 'https://www.instagram.com/oauth/authorize?state=abc',
+      whatsappNotified: true,
+    });
+    expect(enviarLinkConexaoInstagramMock).toHaveBeenCalledWith(expect.anything(), 1, 'user-1');
   });
 
   it('GET /:id/instagram/status permite designer e devolve o status sem token', async () => {

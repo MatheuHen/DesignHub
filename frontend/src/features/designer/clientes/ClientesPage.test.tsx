@@ -12,6 +12,7 @@ const {
   getInstagramStatusMock,
   getInstagramAuthorizeUrlMock,
   desconectarInstagramMock,
+  enviarLinkInstagramMock,
 } = vi.hoisted(() => ({
   listClientesMock: vi.fn(),
   createClienteMock: vi.fn(),
@@ -20,6 +21,7 @@ const {
   getInstagramStatusMock: vi.fn(),
   getInstagramAuthorizeUrlMock: vi.fn(),
   desconectarInstagramMock: vi.fn(),
+  enviarLinkInstagramMock: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
@@ -31,6 +33,7 @@ vi.mock('./api', () => ({
   getInstagramStatus: getInstagramStatusMock,
   getInstagramAuthorizeUrl: getInstagramAuthorizeUrlMock,
   desconectarInstagram: desconectarInstagramMock,
+  enviarLinkInstagram: enviarLinkInstagramMock,
 }));
 
 vi.mock('../../auth/useAuth', () => ({
@@ -78,6 +81,7 @@ describe('ClientesPage (RF003)', () => {
     getInstagramStatusMock.mockReset().mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
     getInstagramAuthorizeUrlMock.mockReset();
     desconectarInstagramMock.mockReset();
+    enviarLinkInstagramMock.mockReset();
   });
 
   it('lista os clientes retornados pela API', async () => {
@@ -237,6 +241,43 @@ describe('ClientesPage (RF003)', () => {
     openSpy.mockRestore();
     matchMediaSpy.mockRestore();
     Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
+  });
+
+  it('item 4 (rodada correções Instagram): envia o link de conexão ao cliente via WhatsApp', async () => {
+    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
+    getInstagramStatusMock.mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
+    enviarLinkInstagramMock.mockResolvedValue({
+      url: 'https://www.instagram.com/oauth/authorize?state=xyz',
+      whatsappNotified: true,
+    });
+
+    renderPage();
+    await screen.findByText('Cliente Teste');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar link ao cliente' }));
+
+    await waitFor(() => {
+      expect(enviarLinkInstagramMock).toHaveBeenCalledWith(1);
+    });
+    expect(await screen.findByText('Link de conexão enviado ao cliente via WhatsApp.')).toBeInTheDocument();
+  });
+
+  it('item 4: quando o WhatsApp falha, mostra o link para copiar manualmente em vez de mascarar o erro', async () => {
+    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
+    getInstagramStatusMock.mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
+    enviarLinkInstagramMock.mockResolvedValue({
+      url: 'https://www.instagram.com/oauth/authorize?state=xyz',
+      whatsappNotified: false,
+      whatsappError: 'Falha ao enviar mensagem',
+    });
+
+    renderPage();
+    await screen.findByText('Cliente Teste');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar link ao cliente' }));
+
+    expect(await screen.findByText(/Copie e envie manualmente/)).toBeInTheDocument();
+    expect(screen.getByText(/https:\/\/www\.instagram\.com\/oauth\/authorize\?state=xyz/)).toBeInTheDocument();
   });
 
   it('mostra "Conectado" e permite desconectar o Instagram (RF014/ADR 0005)', async () => {

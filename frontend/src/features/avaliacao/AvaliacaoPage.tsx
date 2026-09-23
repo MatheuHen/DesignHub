@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { FilePreviewPicker } from '../../components/FilePreviewPicker';
+import { getSaoPauloNow, isDataHorarioPassadoSaoPaulo } from '../../lib/saoPauloDate';
 import {
   PublicApiError,
   cancelarAgendamentoCliente,
@@ -91,6 +92,13 @@ export function AvaliacaoPage() {
     }
     if (opcaoPublicacao !== 'proprio_cliente' && (!dataDesejada || !horarioDesejado)) {
       setActionError('Informe a data e o horário desejados.');
+      return;
+    }
+    if (
+      opcaoPublicacao !== 'proprio_cliente' &&
+      isDataHorarioPassadoSaoPaulo(dataDesejada, horarioDesejado)
+    ) {
+      setActionError('A data e o horário do agendamento devem estar no futuro.');
       return;
     }
     setSubmitting(true);
@@ -376,6 +384,7 @@ export function AvaliacaoPage() {
                       id="agendamento-data-desejada"
                       type="date"
                       value={dataDesejada}
+                      min={getSaoPauloNow().date}
                       onChange={(event) => setDataDesejada(event.target.value)}
                       required
                     />
