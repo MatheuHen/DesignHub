@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import { statusSlug } from '../../../lib/statusStyle';
+import { useAutoDismiss } from '../../../lib/useAutoDismiss';
 import { SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from '../../designer/solicitacoes/api';
 import {
   createDesigner,
@@ -31,6 +32,8 @@ export function DesignersPage() {
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelState>({ mode: 'closed' });
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
+  // Correção de UX: aviso de erro (ex.: "possui clientes ou solicitações vinculados") some sozinho após 10s.
+  useAutoDismiss(rowError, () => setRowError(null));
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [excluindoSaving, setExcluindoSaving] = useState(false);
@@ -263,9 +266,8 @@ export function DesignersPage() {
                     (excluindoId === designer.id ? (
                       <>
                         <span role="alert">
-                          Excluir {designer.nomeCompleto}? O designer será inativado (não apagado): histórico,
-                          clientes, solicitações, versões e publicações são preservados, e a conta pode ser
-                          reativada depois.
+                          Excluir {designer.nomeCompleto}? O designer será inativado (não apagado) e pode ser
+                          reativado depois.
                         </span>
                         <button
                           type="button"

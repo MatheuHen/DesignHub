@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
+import { useAutoDismiss } from '../../../lib/useAutoDismiss';
 import {
   createCliente,
   deleteCliente,
@@ -53,6 +54,12 @@ export function ClientesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const oauthPopupRef = useRef<Window | null>(null);
   const oauthPopupPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Correção de UX: avisos de erro/sucesso não ficam mais presos na tela —
+  // somem sozinhos após 10s (o usuário pode repetir a ação para vê-los de novo).
+  useAutoDismiss(rowError, () => setRowError(null));
+  useAutoDismiss(atendimentoFeedback, () => setAtendimentoFeedback(null));
+  useAutoDismiss(instagramFeedback, () => setInstagramFeedback(null));
 
   // Auditoria (achado MEDIUM — N+1 + ausência de debounce): sem isso, cada
   // tecla digitada disparava `listClientes` + 1 chamada de status do
@@ -373,36 +380,38 @@ export function ClientesPage() {
                 <td>{cliente.whatsapp}</td>
                 <td>
                   {/* Item 9 (rodada correções): status real de conexão persistida — nunca o @ digitado manualmente. */}
-                  {instagramStatus[cliente.id]?.conectado ? (
-                    <>
-                      <span>Conectado</span>{' '}
-                      <button
-                        type="button"
-                        onClick={() => handleDesconectarInstagram(cliente)}
-                        disabled={connectingInstagramId === cliente.id}
-                      >
-                        Desconectar
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <span>Não conectado</span>{' '}
-                      <button
-                        type="button"
-                        onClick={() => handleConectarInstagram(cliente)}
-                        disabled={connectingInstagramId !== null}
-                      >
-                        {connectingInstagramId === cliente.id ? 'Conectando…' : 'Conectar Instagram'}
-                      </button>{' '}
-                      <button
-                        type="button"
-                        onClick={() => handleEnviarLinkInstagram(cliente)}
-                        disabled={connectingInstagramId !== null}
-                      >
-                        Enviar link ao cliente
-                      </button>
-                    </>
-                  )}
+                  <div className="cliente-instagram-cell">
+                    {instagramStatus[cliente.id]?.conectado ? (
+                      <>
+                        <span className="cliente-instagram-status">Conectado</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDesconectarInstagram(cliente)}
+                          disabled={connectingInstagramId === cliente.id}
+                        >
+                          Desconectar
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="cliente-instagram-status">Não conectado</span>
+                        <button
+                          type="button"
+                          onClick={() => handleConectarInstagram(cliente)}
+                          disabled={connectingInstagramId !== null}
+                        >
+                          {connectingInstagramId === cliente.id ? 'Conectando…' : 'Conectar Instagram'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEnviarLinkInstagram(cliente)}
+                          disabled={connectingInstagramId !== null}
+                        >
+                          Enviar link ao cliente
+                        </button>
+                      </>
+                    )}
+                  </div>
                   {instagramFeedback?.id === cliente.id && (
                     <p
                       role={instagramFeedback.type === 'error' ? 'alert' : 'status'}

@@ -62,11 +62,6 @@ export function ClienteFormPanel(props: ClienteFormPanelProps) {
         onChange={(event) => setWhatsapp(event.target.value)}
       />
 
-      <p className="cliente-form-instagram-hint">
-        Instagram (opcional): conecte a conta oficial do cliente depois de salvar, na listagem de
-        Clientes ("Conectar Instagram").
-      </p>
-
       {error && (
         <p role="alert" className="auth-error">
           {error}

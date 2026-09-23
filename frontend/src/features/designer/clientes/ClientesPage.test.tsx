@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../../lib/apiClient';
@@ -116,6 +116,33 @@ describe('ClientesPage (RF003)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
 
     expect(await screen.findByText(/possui solicitações vinculadas/)).toBeInTheDocument();
+  });
+
+  it('correção de UX: o erro de exclusão some sozinho após 10s', async () => {
+    vi.useFakeTimers();
+    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
+    deleteClienteMock.mockRejectedValue(
+      new ApiError(409, 'CONFLICT', 'Não é possível excluir: cliente possui solicitações vinculadas.'),
+    );
+
+    renderPage();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(screen.getByText(/possui solicitações vinculadas/)).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(screen.queryByText(/possui solicitações vinculadas/)).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it('cria um novo cliente a partir do formulário', async () => {

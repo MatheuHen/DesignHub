@@ -333,6 +333,27 @@ p {
   font-size: 0.82rem;
 }
 
+/** Correção de UX: status + botões do Instagram ficavam colados numa linha só. */
+.cliente-instagram-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.cliente-instagram-cell button {
+  padding: 6px 10px;
+  border: 1px solid #d9d5e3;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.cliente-instagram-status {
+  font-weight: 600;
+}
+
 .designer-status--ativo {
   color: #27805c;
   font-weight: 600;

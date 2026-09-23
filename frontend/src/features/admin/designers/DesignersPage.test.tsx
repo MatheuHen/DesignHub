@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Designer } from './api';
@@ -141,6 +141,32 @@ describe('DesignersPage (RF001/RF015)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
 
     expect(await screen.findByText('Não foi possível atualizar o status.')).toBeInTheDocument();
+  });
+
+  it('correção de UX: o erro de exclusão some sozinho após 10s', async () => {
+    vi.useFakeTimers();
+    listDesignersMock.mockResolvedValue({ items: [sampleDesigner], total: 1, page: 1, pageSize: 20 });
+    const { ApiError } = await import('../../../lib/apiClient');
+    setDesignerStatusMock.mockRejectedValue(new ApiError(500, 'INTERNAL', 'Não foi possível atualizar o status.'));
+
+    renderPage();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(screen.getByText('Não foi possível atualizar o status.')).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(screen.queryByText('Não foi possível atualizar o status.')).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it('item 2.1: admin altera a senha do designer a partir do formulário de edição', async () => {
