@@ -4,6 +4,8 @@ import { useAuth } from './useAuth';
 import { ConfigErrorNotice } from './StatusScreens';
 import { PasswordInput } from '../../components/PasswordInput';
 
+const INACTIVITY_LOGOUT_STORAGE_KEY = 'designhub:logout-reason';
+
 export function LoginPage() {
   const { status, signIn } = useAuth();
   const location = useLocation();
@@ -12,13 +14,29 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  /**
+   * Correção de segurança (item 7): mensagem exibida após logout automático
+   * por inatividade (1h). Usa `sessionStorage` (não `location.state`)
+   * porque o redirecionamento para /login pode ter sido disparado pelo
+   * `ProtectedRoute` assim que a sessão caiu, antes da navegação imperativa
+   * do próprio timer de inatividade rodar — `location.state` perderia a
+   * corrida nesse caso. Consumida uma única vez (removida logo em seguida)
+   * para não reaparecer em um login manual futuro.
+   */
+  const [inactivityMessage] = useState<string | null>(() => {
+    if (sessionStorage.getItem(INACTIVITY_LOGOUT_STORAGE_KEY) !== 'inactivity') return null;
+    sessionStorage.removeItem(INACTIVITY_LOGOUT_STORAGE_KEY);
+    return 'Sua sessão expirou por inatividade.';
+  });
+
+  const locationState = location.state as { from?: { pathname: string } } | null;
+
   if (status === 'config-error') {
     return <ConfigErrorNotice />;
   }
 
   if (status === 'signed-in') {
-    const from = (location.state as { from?: { pathname: string } } | null)?.from;
-    return <Navigate to={from?.pathname ?? '/'} replace />;
+    return <Navigate to={locationState?.from?.pathname ?? '/'} replace />;
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -36,6 +54,12 @@ export function LoginPage() {
       <form className="auth-card" onSubmit={handleSubmit} aria-labelledby="login-title">
         <span className="eyebrow">DesignHub</span>
         <h1 id="login-title">Entrar</h1>
+
+        {inactivityMessage && (
+          <p role="status" className="auth-error">
+            {inactivityMessage}
+          </p>
+        )}
 
         <label htmlFor="login-email">E-mail</label>
         <input

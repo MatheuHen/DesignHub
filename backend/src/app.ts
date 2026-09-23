@@ -30,6 +30,14 @@ export function createApp() {
 
   app.disable('x-powered-by');
   app.use(helmet());
+  // Correção de segurança (botão voltar/cache): respostas da API nunca
+  // podem ser reaproveitadas pelo cache HTTP do navegador — sem isso, um
+  // "voltar" após logout poderia reexibir dados protegidos servidos de
+  // uma resposta cacheada em vez de ir à rede (que devolveria 401/403).
+  app.use((_request, response, next) => {
+    response.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use(
     cors({
       origin: env.FRONTEND_URL,

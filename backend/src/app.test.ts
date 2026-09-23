@@ -35,3 +35,18 @@ describe('GET /api/health', () => {
     });
   });
 });
+
+describe('Correção de segurança — botão voltar/cache não pode reexibir dados protegidos', () => {
+  it('toda resposta da API inclui Cache-Control: no-store', async () => {
+    const response = await request(createApp()).get('/api/health');
+
+    expect(response.headers['cache-control']).toBe('no-store');
+  });
+
+  it('inclui no-store mesmo em respostas de erro (401 sem token)', async () => {
+    const response = await request(createApp()).get('/api/clientes');
+
+    expect(response.status).toBe(401);
+    expect(response.headers['cache-control']).toBe('no-store');
+  });
+});

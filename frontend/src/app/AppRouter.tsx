@@ -17,8 +17,8 @@ import { SolicitacoesPage } from '../features/designer/solicitacoes/Solicitacoes
 
 export function AppRouter() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <BrowserRouter>
+      <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/esqueci-senha" element={<ForgotPasswordPage />} />
@@ -53,7 +53,7 @@ export function AppRouter() {
           <Route path="/" element={<RootRedirect />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
