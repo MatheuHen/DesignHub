@@ -125,7 +125,7 @@ describe('insertResposta (seção 12.4 — corrida entre mensagens concorrentes)
 describe('registerRespostaEAvancar (item N.5.6 — decisão + insert atômicos sob lock do atendimento)', () => {
   it('retorna inserted=true e a contagem devolvida pela RPC', async () => {
     const client = rpcClient([{ inserted: true, answered_count: 3 }], null);
-    await expect(registerRespostaEAvancar(client, 1, ['p1', 'p2', 'p3'], 'resposta')).resolves.toEqual({
+    await expect(registerRespostaEAvancar(client, 1, ['p1', 'p2', 'p3'], 'resposta', 'wamid.TESTE')).resolves.toEqual({
       inserted: true,
       answeredCount: 3,
     });
@@ -133,7 +133,7 @@ describe('registerRespostaEAvancar (item N.5.6 — decisão + insert atômicos s
 
   it('retorna inserted=false quando a RPC indica que o questionário já estava completo', async () => {
     const client = rpcClient([{ inserted: false, answered_count: 3 }], null);
-    await expect(registerRespostaEAvancar(client, 1, ['p1', 'p2', 'p3'], 'resposta')).resolves.toEqual({
+    await expect(registerRespostaEAvancar(client, 1, ['p1', 'p2', 'p3'], 'resposta', 'wamid.TESTE')).resolves.toEqual({
       inserted: false,
       answeredCount: 3,
     });
@@ -141,7 +141,7 @@ describe('registerRespostaEAvancar (item N.5.6 — decisão + insert atômicos s
 
   it('propaga erro da RPC', async () => {
     const client = rpcClient(null, { message: 'connection lost' });
-    await expect(registerRespostaEAvancar(client, 1, ['p1'], 'resposta')).rejects.toThrow(
+    await expect(registerRespostaEAvancar(client, 1, ['p1'], 'resposta', 'wamid.TESTE')).rejects.toThrow(
       'Falha ao registrar resposta do atendimento',
     );
   });

@@ -731,6 +731,8 @@ describe('uploadComprovantePublicacao (item 9.3 — correções 13/09/2026)', ()
     uploadArquivoToStorageMock.mockReset().mockResolvedValue(undefined);
     setPublicacaoComprovanteMock.mockReset().mockResolvedValue(undefined);
     removeArquivoFromStorageBestEffortMock.mockReset().mockResolvedValue(undefined);
+    findClienteByIdMock.mockReset().mockResolvedValue({ whatsapp: '5511988887777' });
+    sendTextMessageMock.mockReset().mockResolvedValue(undefined);
   });
 
   it('rejeita quando o callerId não é o dono da solicitação', async () => {
@@ -780,6 +782,51 @@ describe('uploadComprovantePublicacao (item 9.3 — correções 13/09/2026)', ()
       1,
       expect.stringMatching(/^solicitacoes\/10\/publicacao\/.+\.png$/),
     );
+  });
+
+  /**
+   * Item 11.3: o cliente é avisado SÓ depois do comprovante persistido — nunca
+   * antes, para não anunciar algo que a gravação ainda poderia rejeitar.
+   */
+  it('avisa o cliente por WhatsApp somente após o comprovante ser persistido', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Publicado',
+      idCliente: 7,
+      tema: 'Post promocional',
+    });
+    getPublicacaoBySolicitacaoMock.mockResolvedValue({ idPublicacao: 1 });
+    const ordem: string[] = [];
+    setPublicacaoComprovanteMock.mockImplementation(() => {
+      ordem.push('persistiu');
+      return Promise.resolve();
+    });
+    sendTextMessageMock.mockImplementation(() => {
+      ordem.push('avisou');
+      return Promise.resolve();
+    });
+
+    await uploadComprovantePublicacao({} as never, 10, 'designer-1', PNG_BYTES);
+
+    expect(ordem).toEqual(['persistiu', 'avisou']);
+    expect(sendTextMessageMock).toHaveBeenCalledWith('5511988887777', expect.stringContaining('comprovante'));
+  });
+
+  /** Item 11.3: falha de WhatsApp nunca desfaz o upload nem a publicação. */
+  it('mantém o comprovante quando o aviso por WhatsApp falha', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Publicado',
+      idCliente: 7,
+      tema: 'Post promocional',
+    });
+    getPublicacaoBySolicitacaoMock.mockResolvedValue({ idPublicacao: 1 });
+    sendTextMessageMock.mockRejectedValue(new Error('Meta indisponivel'));
+
+    await expect(uploadComprovantePublicacao({} as never, 10, 'designer-1', PNG_BYTES)).resolves.toBeUndefined();
+
+    expect(setPublicacaoComprovanteMock).toHaveBeenCalledOnce();
+    expect(removeArquivoFromStorageBestEffortMock).not.toHaveBeenCalled();
   });
 
   it('remove o objeto do Storage (compensação) quando vincular o comprovante falha', async () => {

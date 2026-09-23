@@ -252,16 +252,24 @@ export async function insertResposta(
  */
 const respostaAvancoRowSchema = z.object({ inserted: z.boolean(), answered_count: z.number() });
 
+/**
+ * Item 15: `idEvento` é o `wamid` da mensagem que originou esta resposta. Sem
+ * ele, o reprocessamento de um evento reentregue pela Meta recalculava a
+ * pergunta alvo a partir da contagem JÁ incrementada e gravava o mesmo texto
+ * na pergunta seguinte. Com o vínculo, reprocessar o mesmo evento é um no-op.
+ */
 export async function registerRespostaEAvancar(
   adminClient: SupabaseClient,
   idAtendimento: number,
   perguntas: string[],
   resposta: string,
+  idEvento: string | null,
 ): Promise<{ inserted: boolean; answeredCount: number }> {
   const result: unknown = await adminClient.rpc('register_resposta_atendimento_e_avancar', {
     p_id_atendimento: idAtendimento,
     p_perguntas: perguntas,
     p_resposta: resposta,
+    p_id_evento: idEvento,
   });
   const { data, error } = result as { data: unknown; error: { message: string } | null };
   if (error) throw new Error(`Falha ao registrar resposta do atendimento: ${error.message}`);

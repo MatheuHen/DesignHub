@@ -507,6 +507,9 @@ async function handleInboundMessage(
     match.id,
     ATENDIMENTO_QUESTIONS.map((q) => q.prompt),
     answerText,
+    // Item 15: `wamid` da mensagem — reprocessar o mesmo evento reentregue
+    // pela Meta vira no-op em vez de gravar este texto na pergunta seguinte.
+    message.id,
   );
   if (!inserted) return; // questionário já concluído (mensagem espontânea) ou nada a fazer
 

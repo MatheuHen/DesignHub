@@ -356,6 +356,55 @@ export async function uploadComprovantePublicacao(
     await removeArquivoFromStorageBestEffort(adminClient, path);
     throw error;
   }
+
+  /**
+   * Item 11.3 (rodada correções): só DEPOIS do comprovante persistido com
+   * sucesso o cliente é avisado — nunca antes, para não anunciar um
+   * comprovante que a gravação poderia ainda rejeitar. Melhor esforço, mesmo
+   * padrão texto→template→`BLOCKED_EXTERNAL_WHATSAPP_TEMPLATE` do aviso de
+   * publicação: uma falha de WhatsApp (janela de 24h fechada, template não
+   * aprovado, erro da Meta) nunca desfaz o upload nem a publicação.
+   */
+  await notificarClienteComprovanteBestEffort(adminClient, idSolicitacao);
+}
+
+/** Item 11.3: avisa o cliente que o comprovante da publicação foi anexado. Nunca lança. */
+async function notificarClienteComprovanteBestEffort(
+  adminClient: SupabaseClient,
+  idSolicitacao: number,
+): Promise<void> {
+  try {
+    const solicitacao = await getSolicitacaoDetailRepo(adminClient, idSolicitacao);
+    if (!solicitacao) return;
+
+    const cliente = await findClienteById(adminClient, solicitacao.idCliente);
+    if (!cliente) return;
+
+    const artLabel = solicitacao.tema ? `a arte "${solicitacao.tema}"` : 'sua arte';
+    const message =
+      `O comprovante da publicação de ${artLabel} foi registrado no DesignHub. ` +
+      'Fale com o seu designer se quiser recebê-lo.';
+
+    try {
+      await sendTextMessage(cliente.whatsapp, message);
+    } catch (sendError) {
+      if (!(sendError instanceof WhatsAppReengagementRequiredError)) throw sendError;
+
+      if (!whatsappConfigStatus.hasPublicacaoTemplateConfigured) {
+        console.warn(
+          '[designhub:publicacao] BLOCKED_EXTERNAL_WHATSAPP_TEMPLATE: janela de 24h fechada e nenhum template aprovado configurado (WHATSAPP_TEMPLATE_NAME_PUBLICACAO) — comprovante permanece registrado, aviso não enviado',
+          { idSolicitacao },
+        );
+        return;
+      }
+      await sendPublicacaoTemplateMessage(cliente.whatsapp, [artLabel]);
+    }
+  } catch (error) {
+    console.error('[designhub:publicacao] falha ao notificar cliente via WhatsApp (comprovante)', {
+      idSolicitacao,
+      message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
+    });
+  }
 }
 
 /**

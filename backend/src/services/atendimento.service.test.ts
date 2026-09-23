@@ -517,6 +517,9 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       1,
       expect.any(Array),
       'Rosa e dourado 🎨',
+      // Item 15: o `wamid` precisa chegar à RPC — é o que torna o
+      // reprocessamento do mesmo evento da Meta um no-op.
+      expect.any(String),
     );
   });
 
@@ -569,6 +572,9 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       1,
       expect.any(Array),
       expect.stringMatching(/^atendimentos\/1\/referencias\/.+\.png$/),
+      // Item 15: o `wamid` precisa chegar à RPC — é o que torna o
+      // reprocessamento do mesmo evento da Meta um no-op.
+      expect.any(String),
     );
   });
 
@@ -594,6 +600,9 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       1,
       expect.any(Array),
       '[referência enviada, mas não foi possível processar o arquivo]',
+      // Item 15: o `wamid` precisa chegar à RPC — é o que torna o
+      // reprocessamento do mesmo evento da Meta um no-op.
+      expect.any(String),
     );
     expect(completeAtendimentoAndCreateSolicitacaoMock).toHaveBeenCalledOnce();
   });
