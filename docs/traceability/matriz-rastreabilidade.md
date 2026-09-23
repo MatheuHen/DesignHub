@@ -124,7 +124,7 @@ credencial/aprovação externa (Meta) para o teste real acontecer.
 | Serviço/Repo | `publicacao.service.ts`, `integrations/instagram/instagramClient.ts` |
 | Banco | `publicacao` (`20260816120600_...`), RPCs em `20260816190000_publicacao_functions.sql`, job `pg_cron` (`20260819110000_publicacao_cron_job.sql`) |
 | Teste | `publicacao.service.test.ts`, `instagramClient.test.ts` |
-| Status | **OK — validado em produção real em 2026-08-19** (post real publicado, `publicacao.status='sucesso'` confirmado no banco). Fallback manual disponível quando token ausente/inválido. Desde 13/09/2026: badge com data/versão/tipo/permalink (melhor esforço via Graph API), comprovante/print opcional (`publicacao.comprovante_url`) e aviso "ARTE PUBLICADA!" ao cliente via WhatsApp (automática e manual, melhor esforço, idempotente). |
+| Status | **OK — validado em produção real em 2026-08-19** (post real publicado, `publicacao.status='sucesso'` confirmado no banco). Fallback manual disponível quando token ausente/inválido. Desde 13/09/2026: badge com data/versão/tipo/permalink (melhor esforço via Graph API), comprovante/print opcional (`publicacao.comprovante_url`) e aviso "ARTE PUBLICADA!" ao cliente via WhatsApp (automática e manual, melhor esforço, idempotente). Desde 23/09/2026: além do designer conectar o Instagram do cliente no próprio navegador, também pode enviar o link de autorização ao cliente via WhatsApp (`POST /api/clientes/:id/instagram/enviar-link`) para o cliente conectar do próprio dispositivo, sem o designer usar credencial do cliente. |
 
 ## RF015/RF016 — Gerenciar Designers e Reatribuir Solicitações
 
@@ -267,5 +267,43 @@ backend (`vercel build --prod` + `vercel deploy --prebuilt --prod`,
 deploy) e frontend (`vercel deploy --prod`) — ambos re-publicados; smoke
 test `GET /api/health` → Supabase/WhatsApp `configured`. Commits `514131d`,
 `03eef98`, `ce64343` — pushados para `origin/main`.
+
+Sem bloqueios externos novos nesta rodada.
+
+## Rodada 23/09/2026 — link de conexão Instagram para o cliente + validação de data + fix Gemini
+
+| Melhoria | RF relacionada | Documento atualizado | Impacto | Teste |
+|---|---|---|---|---|
+| Designer envia link de conexão do Instagram ao cliente via WhatsApp (cliente conecta do próprio dispositivo, sem repassar credencial) | RF014/ADR 0005 | `clienteInstagram.service.ts`, `cliente.routes.ts`, `ClientesPage.tsx`, `api.ts` | Aditivo (mecanismo de entrega, não novo estado/fluxo) | `clienteInstagram.service.test.ts`, `cliente.routes.test.ts`, `ClientesPage.test.tsx` |
+| TTL do state OAuth do Instagram ampliado (10min → 24h) para sobreviver ao tempo real de entrega via WhatsApp | RF014/ADR 0005 | `clienteInstagram.repository.ts` | Não funcional (parâmetro técnico, mesma garantia de uso único) | `clienteInstagram.repository.test.ts` |
+| Coluna "Instagram" da listagem de Clientes passa a mostrar status real de conexão persistida (não mais o `@` digitado manualmente) | RF003/RF014 | `ClientesPage.tsx` | Correção de bug de UX | `ClientesPage.test.tsx` |
+| Guarda contra duplo clique em "Conectar Instagram" (evita states/popups concorrentes) | RF014/ADR 0005 | `ClientesPage.tsx` | Correção de bug | `ClientesPage.test.tsx` |
+| Validação de data/horário futuro (America/Sao_Paulo) também no frontend dos formulários de agendamento (cliente e designer) | RF012/RN27 | `frontend/src/lib/saoPauloDate.ts`, `AvaliacaoPage.tsx`, `SolicitacaoDetailPage.tsx` | Correção de bug (backend já validava via RPC `P0004`) | `saoPauloDate.test.ts`, `AvaliacaoPage.test.tsx`, `SolicitacaoDetailPage.test.tsx` |
+
+### Fix crítico em produção — modelo Gemini descontinuado
+
+Durante validação das integrações recém-ativadas (`GEMINI_API_KEY`,
+`WEB_PUSH_VAPID_*`, `INTERNAL_JOB_SECRET` configuradas pelo usuário no
+Vercel), logs de produção mostraram `[designhub:ia] falha ao chamar Gemini
+{ status: 404 }` em tráfego real. Diagnóstico confirmou que o Google
+descontinuou `gemini-2.5-flash-lite` para chaves novas ("no longer
+available to new users"); `gemini-3.5-flash-lite` (sugerido pela própria
+mensagem de erro do Google) foi validado com uma chamada real
+(`generateContent`, texto "por mim pode ser") retornando 200 dentro do
+schema esperado. Corrigido o default de `GEMINI_MODEL` em
+`backend/src/config/env.ts`/`.env.example`/`geminiClient.test.ts`/ADR
+`0006`. `INTERNAL_JOB_SECRET` validado via observação dos logs reais do
+pg_cron (200 consistente, sem tocar no segredo), sem necessidade de chamada
+forjada. As 3 pendências `BLOCKED_EXTERNAL_CREDENTIAL` do checkpoint
+anterior (Gemini, Web Push, Internal Job) estão **resolvidas**.
+
+Validação: backend 556/556 testes, frontend 118/118 testes,
+lint/typecheck/build limpos nos dois workspaces. Commits `7adfb97`
+(Instagram) e `dea49ae` (fix Gemini), push `origin/main`, deploy backend +
+frontend via Vercel CLI (ambos `READY`), smoke test confirmado.
+
+Não verificado nesta rodada (registrar para não esquecer, fora do pedido):
+publicação automática real no Instagram ponta a ponta com uma arte real —
+só a conexão OAuth e o agendamento foram exercitados.
 
 Sem bloqueios externos novos nesta rodada.

@@ -3020,3 +3020,106 @@ dois domínios de produção:
   e deploy de produção já no ar — portanto o próximo `git push` (quando
   autorizado) apenas sincroniza o histórico do repositório com o estado
   que já está rodando em produção, sem novo risco.
+
+## 2026-09-23 — Correções Instagram (link p/ cliente, status, data passada) + fix crítico do Gemini em produção
+
+**Parte 1 — RF014/ADR 0005, pacote de correções pontuais (não foi auditoria geral):**
+- Item 4: novo endpoint `POST /api/clientes/:id/instagram/enviar-link` +
+  botão "Enviar link ao cliente" no frontend — reaproveita
+  `gerarAutorizacaoInstagramUrl`/`buildAuthorizeUrl` já existentes e envia a
+  URL via `sendTextMessage` (WhatsApp), padrão idêntico ao já usado em
+  `gerarLinkAvaliacao` (nunca mascara falha de WhatsApp — devolve o link
+  para copiar manualmente). Designer nunca vê/usa credencial do cliente.
+- TTL do `instagram_oauth_state` ampliado de 10min → 24h
+  (`clienteInstagram.repository.ts`) — o mesmo state agora também precisa
+  sobreviver ao tempo real de entrega/abertura da mensagem de WhatsApp;
+  continua opaco, hasheado e de uso único (`consumeOAuthState` inalterado).
+- Item 9: tabela de Clientes — coluna "Instagram" passou a mostrar o status
+  real de conexão persistida (via `getStatusConexao`) em vez do `@` digitado
+  manualmente; coluna redundante "Publicação automática" removida (o status
+  real já cobre isso).
+- Guarda contra duplo clique em "Conectar Instagram" (`connectingInstagramId
+  !== null` bloqueia nova tentativa concorrente).
+- Item 8: validação de data/horário futuro (America/Sao_Paulo) adicionada
+  também no frontend (`frontend/src/lib/saoPauloDate.ts`, `min` nos inputs
+  de data + checagem antes do submit) nos dois formulários de agendamento
+  (avaliação do cliente e agendamento manual do designer). O backend já
+  validava isso via RPC (`create_agendamento`/`create_agendamento_cliente`,
+  errcode `P0004` → `ValidationError` 400) — item 6/7 (checagem real de
+  conexão Instagram antes de agendar automaticamente e formulário do
+  designer pré-preenchido com a preferência do cliente) já estavam
+  corretamente implementados de uma rodada anterior; revisão de código
+  confirmou, não precisou de mudança.
+- Testes novos: `enviarLinkConexaoInstagram` (service, 3 casos: ownership,
+  sucesso, falha de WhatsApp não mascarada), rota `/enviar-link` (403
+  admin, 200 designer sem vazar token), frontend (botão "Enviar link ao
+  cliente" sucesso/falha), `saoPauloDate.test.ts`. Datas de teste antigas
+  (`2026-09-01`, no passado em relação à data atual) corrigidas para
+  `2030-06-15` nos testes de agendamento que agora passam pela validação
+  de futuro.
+- Validação: backend 556/556, frontend 118/118, lint+typecheck+build limpos
+  nos dois workspaces. Commit `7adfb97`, push `origin/main`, deploy backend
+  + frontend via Vercel CLI (ambos `READY`), smoke test (`/api/health` 200,
+  novo endpoint 401 sem auth, `vapid-public-key` 200).
+- Não alterado fora do pedido: nenhuma tela nova, nenhum estado novo,
+  nenhuma regra de negócio nova — só o mecanismo de entrega do link OAuth e
+  validação de data já exigida pelo RF012/RN27.
+
+**Parte 2 — Validação das integrações recém-ativadas (Gemini/Web
+Push/Internal Job) a pedido do usuário, após ele configurar
+`GEMINI_API_KEY`, `WEB_PUSH_VAPID_*` como Sensitive no Vercel:**
+- `DEPLOYMENT`: `READY`. `HEALTH`: `200`, todas as dependências
+  `"configured"`.
+- `WEB PUSH`: ativo — `GET /api/push/vapid-public-key` → 200 (chave nunca
+  reproduzida no relatório); `POST /api/push/subscribe` sem token → 401
+  (protegido, como esperado).
+- `INTERNAL JOB`: validado **sem tocar no segredo** — em vez de forjar uma
+  chamada, inspecionei os logs reais de produção (Vercel) e confirmei que o
+  pg_cron/pg_net do Supabase está chamando `/api/internal/publicacoes/processar`,
+  `/api/internal/notificacoes/processar` e `/api/internal/atendimentos/processar`
+  a cada 5 min, sempre `200`, inclusive já no deployment mais novo — só é
+  possível se o `INTERNAL_JOB_SECRET` do Vault bater com o do backend.
+- **CRITICAL encontrado e corrigido — Gemini 404 em produção**: logs
+  mostraram `[designhub:ia] falha ao chamar Gemini { status: 404 }` em
+  tráfego real (webhook do WhatsApp) num deployment anterior. Diagnóstico
+  passo a passo, sem nunca imprimir a chave (só usada via variável de shell
+  não ecoada): (1) chave testada isoladamente contra a API do Google →
+  válida; (2) requisição real reproduzida exatamente como o código faz, com
+  `gemini-2.5-flash-lite` → mesmo 404, com a mensagem do Google confirmando
+  a causa: **modelo descontinuado para chaves novas** ("no longer available
+  to new users... use models/gemini-3.5-flash-lite"); (3) mesma requisição
+  com `gemini-3.5-flash-lite` e o texto real "por mim pode ser" → `200`,
+  `{"confirmacao":"sim"}`, dentro do schema esperado (fecha os itens
+  "chamada real" e "resposta dentro do schema" pedidos pelo usuário).
+  Corrigido o default de `GEMINI_MODEL` em `backend/src/config/env.ts`,
+  `.env.example`, teste (`geminiClient.test.ts`) e ADR `0006`. Backend
+  556/556 testes, typecheck/lint/build limpos. Commit `dea49ae`, push,
+  redeploy do backend (`READY`), `/api/health` confirmado.
+- **Incidente registrado (transparência exigida pela seção 3.6 do
+  CLAUDE.md)**: durante o diagnóstico, um comando de "mascaramento"
+  (`sed`/`awk` malformado) falhou e expôs no output da ferramenta um trecho
+  bruto do `.env.local` contendo o valor real de `GEMINI_API_KEY` (o
+  arquivo tinha o valor colado num formato não padrão, `GEMINI_API_KEY:...`
+  em vez de `GEMINI_API_KEY=...`, junto de um snippet de exemplo copiado do
+  Google AI Studio). Reconhecido para o usuário no mesmo turno; recomendada
+  a rotação da chave em https://aistudio.google.com/apikey como mitigação
+  real (não há como apagar mensagens já enviadas na conversa). **Usuário
+  optou explicitamente por não rotacionar agora** ("deixa quieto") — risco
+  aceito e registrado, não uma pendência técnica do sistema.
+- `NOVOS ERROS 5XX`: não — nenhuma resposta 5xx do próprio DesignHub nos
+  logs analisados; o único erro é a resposta 404 que o Gemini devolveu ao
+  nosso backend (tratada internamente, nunca virou 5xx para o cliente).
+
+**Pendências reais ao final desta rodada:**
+- As 3 pendências `BLOCKED_EXTERNAL_CREDENTIAL` do checkpoint anterior
+  (item 22, GEMINI_API_KEY/WEB_PUSH_VAPID/INTERNAL_JOB_SECRET) estão
+  **resolvidas** — todas confirmadas ativas em produção nesta rodada.
+- Nenhum CRITICAL/HIGH remanescente nas áreas tocadas.
+- Não verificado nesta rodada (fora do pedido do usuário, registrar para
+  não esquecer): publicação automática real no Instagram ponta a ponta
+  (RF014, `instagramClient.ts`) com uma conta/arte real — só a conexão
+  OAuth e o agendamento foram exercitados; a próxima mensagem real de
+  cliente pelo WhatsApp vai ser o primeiro teste de verdade do classificador
+  Gemini corrigido em produção (nada a fazer agora, só monitorar).
+- Chave `GEMINI_API_KEY` local (`.env.local`) permanece com o valor exposto
+  no histórico desta sessão — decisão do usuário foi manter sem rotacionar.
