@@ -1,0 +1,24 @@
+{
+  // Projeto TypeScript exclusivo da suíte Playwright (item 10).
+  //
+  // Deliberadamente NÃO referenciado por `tsconfig.json`: `npm run build`
+  // roda `tsc -b` no projeto raiz e a Vercel builda a pasta `frontend`
+  // isolada — incluir os testes E2E ali acrescentaria @playwright/test ao
+  // caminho crítico do deploy de produção sem nenhum ganho. O ESLint aponta
+  // para este arquivo explicitamente (ver eslint.config.js).
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+}

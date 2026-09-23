@@ -30,5 +30,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Item 10: a suíte Playwright (`e2e/`) casa com o padrão padrão de
+    // `*.spec.ts` do Vitest, mas roda em navegador real com outro runner —
+    // coletá-la aqui quebra `npm test` com erro de import.
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 });
