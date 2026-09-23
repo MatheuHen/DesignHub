@@ -328,11 +328,6 @@ export function ClientesPage() {
           + Novo Cliente
         </button>
       </div>
-      <p className="cliente-form-instagram-hint">
-        "Publicação automática" exige conectar uma conta profissional do Instagram (Business ou
-        Creator) — a conexão é feita pelo próprio cliente ao clicar em "Conectar Instagram".
-      </p>
-
       <div className="designer-filters">
         <label htmlFor="cliente-search">Buscar</label>
         <input

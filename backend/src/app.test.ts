@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp } from './app.js';
+import { env } from './config/env.js';
 
 interface HealthResponseBody {
   status: string;
@@ -12,6 +13,8 @@ interface HealthResponseBody {
     whatsappWebhookSecurity: 'configured' | 'missing';
     webPushVapidKeys: 'configured' | 'missing';
     geminiClassifier: 'configured' | 'missing';
+    instagramOAuthClient: 'configured' | 'missing';
+    instagramTokenEncryption: 'configured' | 'missing';
   };
 }
 
@@ -32,7 +35,25 @@ describe('GET /api/health', () => {
       whatsappWebhookSecurity: expect.stringMatching(/^(configured|missing)$/) as unknown,
       webPushVapidKeys: expect.stringMatching(/^(configured|missing)$/) as unknown,
       geminiClassifier: expect.stringMatching(/^(configured|missing)$/) as unknown,
+      instagramOAuthClient: expect.stringMatching(/^(configured|missing)$/) as unknown,
+      instagramTokenEncryption: expect.stringMatching(/^(configured|missing)$/) as unknown,
     });
+  });
+
+  /**
+   * Rodada correções (item 3.1/3.3): o `redirect_uri` precisa bater byte a
+   * byte com o cadastrado no App da Meta. Expor o valor efetivo é o que
+   * permite conferir a correspondência sem adivinhar a variável de ambiente
+   * — e este teste garante que ele continue sendo derivado do backend
+   * público, no path realmente montado em `app.ts`.
+   */
+  it('expõe o redirect_uri efetivo do OAuth do Instagram para conferência na Meta', async () => {
+    const response = await request(createApp()).get('/api/health');
+    const body = response.body as HealthResponseBody & { instagramOAuthRedirectUri?: string };
+
+    expect(response.status).toBe(200);
+    expect(body.instagramOAuthRedirectUri).toBe(`${env.PUBLIC_BACKEND_URL}/api/instagram/oauth/callback`);
+    expect(body.instagramOAuthRedirectUri).not.toMatch(/\/\/api\//);
   });
 });
 

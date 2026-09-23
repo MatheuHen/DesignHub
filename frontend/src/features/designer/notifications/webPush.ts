@@ -6,8 +6,12 @@
  * exige especificamente esse tipo para `applicationServerKey`.
  */
 export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  // Rodada correções (item 10.2): espaço/quebra de linha acidental no valor
+  // configurado desalinha o cálculo de padding (`length % 4`) e faz `atob`
+  // lançar `InvalidCharacterError` — o que virava "navegador não suportado".
+  const normalized = base64String.trim();
+  const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
+  const base64 = (normalized + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);
   const outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; i += 1) {

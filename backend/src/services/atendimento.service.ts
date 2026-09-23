@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
-import { classificarConfirmacaoComGemini } from '../integrations/ai/geminiClient.js';
+import {
+  classificarConfirmacaoComGemini,
+  classificarRespostaPerguntaComGemini,
+} from '../integrations/ai/geminiClient.js';
 import {
   downloadMediaFromWhatsApp,
   sendTemplateMessage,
@@ -49,6 +52,7 @@ import {
   CLOSING_MESSAGE,
   CONFIRMACAO_INVALIDA_MESSAGE,
   RECUSA_MESSAGE,
+  RESPOSTA_NAO_PERTINENTE_MESSAGE,
   TIPO_MENSAGEM_NAO_SUPORTADA_MESSAGE,
   TIPO_MENSAGEM_NAO_SUPORTADA_REFERENCIA_MESSAGE,
   buildConfirmacaoPromptComDesigner,
@@ -217,7 +221,11 @@ const NO_PATTERN = /^(nao|n|no|nunca|negativo)\b/;
  * questionário. Regex propositalmente restrita a termos inequívocos de
  * cancelamento — nunca dispara para respostas normais de tema/cores/etc.
  */
-const CANCEL_INTENT_PATTERN = /cancelar|cancela\b|encerrar atendimento/;
+// Item 12.3: ancorado no início — antes, um tema legítimo contendo a palavra
+// ("post sobre cancelar assinatura") disparava o fluxo de cancelamento. A
+// linguagem natural fora deste padrão é coberta pelo classificador de IA.
+const CANCEL_INTENT_PATTERN =
+  /^(cancelar|cancela|quero cancelar|desejo cancelar|pode cancelar|quero encerrar|encerrar atendimento)\b/;
 const CANCEL_CONFIRM_PATTERN = /^(cancelar|confirmar|confirmo|sim)\b/;
 
 type ConfirmacaoClassificacao = 'sim' | 'nao' | 'indefinido';
@@ -254,6 +262,70 @@ async function classificarConfirmacao(message: WhatsAppInboundMessage): Promise<
 
 function textoBrutoDaMensagem(message: WhatsAppInboundMessage): string | null {
   return message.type === 'text' && message.text ? message.text.body : null;
+}
+
+/** Ausência declarada de preferência — as perguntas de cores/observações/referência sugerem literalmente "não tenho". */
+const SEM_PREFERENCIA_PATTERN =
+  /^(nao tenho|nao|n tenho|nenhuma|nenhum|tanto faz|sem preferencia|voce escolhe|vc escolhe|fica a seu criterio|qualquer uma|qualquer um)\b/;
+
+/** Pedido explícito de retomar de onde parou (item 13). */
+const CONTINUAR_INTENT_PATTERN = /^(continuar|continua|seguir|prosseguir|vamos continuar|pode continuar)\b/;
+
+/**
+ * Rodada correções (item 12.3): heurística determinística usada quando o
+ * classificador de IA está indisponível. Cobre exatamente o sintoma
+ * relatado — o cliente PERGUNTA em vez de responder ("Você já está com a IA
+ * nesse chat?", "Oq vc quer q eu falo?") e o texto era gravado como tema/
+ * cores/observação. Propositalmente conservadora: só barra texto com marca
+ * clara de pergunta, para que uma indisponibilidade da IA nunca impeça um
+ * cliente de responder normalmente (RNF005).
+ */
+const PERGUNTA_DO_CLIENTE_PATTERN = /\?\s*$|^(o que|oq|que|qual|quais|como|quando|onde|por que|porque|pq|quem|vc|voce)\b.*\?/;
+
+type PertinenciaDecisao = 'aceitar' | 'esclarecer' | 'cancelar' | 'reenviar_pergunta';
+
+/**
+ * Rodada correções (item 12.2/12.3): antes, QUALQUER texto com ao menos um
+ * caractere alfanumérico era gravado como a resposta da pergunta corrente —
+ * perguntas do próprio cliente viravam o tema da arte e pedidos de ajuda
+ * viravam as observações, corrompendo a solicitação criada no fim do
+ * atendimento (RN09).
+ *
+ * Ordem de decisão (a IA é sempre a SEGUNDA camada, nunca a primeira):
+ * 1. regras determinísticas inequívocas ("não tenho", "continuar");
+ * 2. classificador Gemini para linguagem natural ambígua — fail closed em
+ *    dúvida, texto fora de contexto ou confiança baixa: pede esclarecimento
+ *    e NÃO avança o questionário;
+ * 3. IA indisponível (sem chave, timeout, erro, limite): heurística
+ *    determinística acima. Bloquear todo o fluxo durante uma queda do
+ *    provedor externo seria uma regressão de disponibilidade pior que o bug
+ *    original, então só o padrão claro de pergunta é barrado.
+ */
+async function avaliarPertinenciaResposta(
+  question: QuestionDefinition,
+  texto: string,
+): Promise<PertinenciaDecisao> {
+  const normalized = normalizeText(texto);
+
+  if (CONTINUAR_INTENT_PATTERN.test(normalized)) return 'reenviar_pergunta';
+  // "não tenho" é resposta legítima para cores/observações/referência (o
+  // próprio prompt a sugere), mas não diz nada sobre o TEMA da arte.
+  if (SEM_PREFERENCIA_PATTERN.test(normalized)) {
+    return question.key === 'tema' ? 'esclarecer' : 'aceitar';
+  }
+
+  const ia = await classificarRespostaPerguntaComGemini(question.prompt, texto);
+  if (ia === null) {
+    return PERGUNTA_DO_CLIENTE_PATTERN.test(normalized) ? 'esclarecer' : 'aceitar';
+  }
+  if (ia.classificacao === 'cancelar') return 'cancelar';
+  if (ia.classificacao === 'continuar') return 'reenviar_pergunta';
+  if (ia.confianca === 'baixa') return 'esclarecer';
+  if (ia.classificacao === 'duvida' || ia.classificacao === 'fora_de_contexto') return 'esclarecer';
+  if (ia.classificacao === 'sem_preferencia') {
+    return question.key === 'tema' ? 'esclarecer' : 'aceitar';
+  }
+  return 'aceitar';
 }
 
 /** RN08/item 28: uma resposta só de emoji/símbolo (sem letra nem número) não carrega informação real. */
@@ -390,6 +462,39 @@ async function handleInboundMessage(
       question.key === 'referencia' ? TIPO_MENSAGEM_NAO_SUPORTADA_REFERENCIA_MESSAGE : TIPO_MENSAGEM_NAO_SUPORTADA_MESSAGE;
     await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, naoSuportadaMessage);
     return;
+  }
+
+  /**
+   * Item 12.2/12.3: só agora — depois de garantir que o tipo da mensagem é
+   * aceitável — avalia se o TEXTO de fato responde à pergunta. Sem esta
+   * etapa, uma pergunta do cliente era gravada como tema/cores/observação.
+   * Não se aplica à confirmação (já classificada acima) nem a referência
+   * enviada como imagem/documento (o arquivo é a resposta).
+   */
+  const textoResposta = textoBrutoDaMensagem(message);
+  if (question.key !== 'confirmacao' && textoResposta !== null) {
+    const decisao = await avaliarPertinenciaResposta(question, textoResposta);
+    if (decisao === 'cancelar') {
+      await markAtendimentoAguardandoCancelamento(adminClient, match.id);
+      await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, CANCELAMENTO_CONFIRMACAO_PROMPT);
+      return;
+    }
+    if (decisao === 'reenviar_pergunta') {
+      await sendTextMessageBestEffort(
+        match.id,
+        match.clienteWhatsapp,
+        `${CANCELAMENTO_ABORTADO_MESSAGE} ${question.prompt}`,
+      );
+      return;
+    }
+    if (decisao === 'esclarecer') {
+      await sendTextMessageBestEffort(
+        match.id,
+        match.clienteWhatsapp,
+        `${RESPOSTA_NAO_PERTINENTE_MESSAGE} ${question.prompt}`,
+      );
+      return;
+    }
   }
 
   // Item N.5.6: a decisão de qual pergunta esta resposta corresponde e o

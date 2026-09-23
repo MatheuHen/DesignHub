@@ -28,6 +28,7 @@ const {
   syncDesignerBloqueioMock,
   getDesignerByIdMock,
   classificarConfirmacaoComGeminiMock,
+  classificarRespostaPerguntaComGeminiMock,
 } = vi.hoisted(() => ({
   sendTextMessageMock: vi.fn(),
   sendTemplateMessageMock: vi.fn(),
@@ -55,6 +56,7 @@ const {
   syncDesignerBloqueioMock: vi.fn(),
   getDesignerByIdMock: vi.fn(),
   classificarConfirmacaoComGeminiMock: vi.fn(),
+  classificarRespostaPerguntaComGeminiMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({
@@ -104,6 +106,7 @@ vi.mock('../repositories/designer.repository.js', () => ({
 
 vi.mock('../integrations/ai/geminiClient.js', () => ({
   classificarConfirmacaoComGemini: classificarConfirmacaoComGeminiMock,
+  classificarRespostaPerguntaComGemini: classificarRespostaPerguntaComGeminiMock,
 }));
 
 const { iniciarAtendimento, processInboundWebhook } = await import('./atendimento.service.js');
@@ -281,6 +284,7 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     downloadMediaFromWhatsAppMock.mockReset();
     uploadArquivoToStorageMock.mockReset().mockResolvedValue(undefined);
     classificarConfirmacaoComGeminiMock.mockReset().mockResolvedValue(null);
+    classificarRespostaPerguntaComGeminiMock.mockReset().mockResolvedValue(null);
   });
 
   it('ignora reentrega do mesmo evento (idempotência)', async () => {

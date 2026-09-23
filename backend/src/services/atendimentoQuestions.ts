@@ -96,3 +96,13 @@ export const TIPO_MENSAGEM_NAO_SUPORTADA_REFERENCIA_MESSAGE =
   'Não consegui usar esse conteúdo como referência (figurinha, reação, áudio, vídeo ou outro tipo não suportado). Envie uma imagem/PDF, ou responda em texto.';
 
 export const CANCELAMENTO_ABORTADO_MESSAGE = 'Certo, vamos continuar de onde paramos.';
+
+/**
+ * Rodada correções (item 12.3): o cliente escreveu algo que não responde à
+ * pergunta corrente (uma dúvida, um pedido de ajuda, um texto fora de
+ * contexto). O sistema NÃO grava esse texto como dado da arte e repete a
+ * pergunta — fail closed, porque um tema/cor/observação errado contamina a
+ * solicitação inteira (RN09).
+ */
+export const RESPOSTA_NAO_PERTINENTE_MESSAGE =
+  'Ainda não consegui identificar sua resposta para esta pergunta. Vamos tentar de novo:';

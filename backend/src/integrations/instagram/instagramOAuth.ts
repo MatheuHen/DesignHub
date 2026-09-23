@@ -17,8 +17,23 @@ const REQUEST_TIMEOUT_MS = 15_000;
 /** Escopos mínimos necessários para publicar mídia via Content Publishing API. */
 const OAUTH_SCOPES = ['instagram_business_basic', 'instagram_business_content_publish'].join(',');
 
-function redirectUri(): string {
+/**
+ * Rodada correções (item 3.1): a Meta exige que este valor bata BYTE A BYTE
+ * com o "Valid OAuth Redirect URI" cadastrado no App — qualquer divergência
+ * (host, esquema, path, barra final) devolve "Invalid redirect_uri" na tela
+ * de autorização, sem detalhe utilizável. Como é gerado a partir de uma
+ * variável de ambiente, o valor efetivo em produção precisa ser observável
+ * para conferência (é público por construção: aparece na barra de endereços
+ * do próprio usuário durante o OAuth) — ver `instagramOAuthRedirectUri` em
+ * `/api/health`. Uma única função monta o URI, garantindo que authorize e
+ * token exchange usem exatamente a mesma string.
+ */
+export function getInstagramRedirectUri(): string {
   return `${env.PUBLIC_BACKEND_URL}/api/instagram/oauth/callback`;
+}
+
+function redirectUri(): string {
+  return getInstagramRedirectUri();
 }
 
 function assertOAuthClientConfigured(): void {
