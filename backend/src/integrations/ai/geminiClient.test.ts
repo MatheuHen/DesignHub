@@ -50,7 +50,7 @@ describe('integrations/ai/geminiClient — classificarConfirmacaoComGemini', () 
     expect(resultado).toEqual({ confirmacao: 'sim' });
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('gemini-2.5-flash-lite');
+    expect(url).toContain('gemini-3.5-flash-lite');
     expect(url).not.toContain('key=');
     expect((init.headers as Record<string, string>)['x-goog-api-key']).toBe('test-key');
   });

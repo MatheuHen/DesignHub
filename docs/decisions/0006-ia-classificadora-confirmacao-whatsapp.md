@@ -60,8 +60,11 @@ linguagem natural reconheceria com segurança.
    caracteres antes do envio; nenhum dado além do texto da própria resposta
    (sem nome, WhatsApp, e-mail ou qualquer outro campo pessoal) é enviado à
    API externa.
-6. **Controle de custo**: modelo da família Flash (`gemini-2.5-flash-lite`
-   por padrão, configurável via `GEMINI_MODEL` sem novo deploy), camada
+6. **Controle de custo**: modelo da família Flash (`gemini-3.5-flash-lite`
+   por padrão desde 23/09/2026 — `gemini-2.5-flash-lite` foi descontinuado
+   pelo Google para chaves novas, API respondia 404 NOT_FOUND, confirmado
+   em produção; troca só de valor, configurável via `GEMINI_MODEL` sem novo
+   deploy), camada
    gratuita do Google AI Studio, sem billing habilitado. Limite local
    best-effort de 20 chamadas/minuto por instância do processo (defesa em
    profundidade sobre o limite autoritativo da própria API, que responde

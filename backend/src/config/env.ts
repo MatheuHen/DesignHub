@@ -115,9 +115,14 @@ const schema = z.object({
    * Modelo Gemini da família Flash (rápido/barato, adequado a uma tarefa de
    * classificação fechada). Configurável por env para permitir troca sem
    * deploy de código caso a Google descontinue a versão atual — nunca
-   * hardcoded sem alternativa.
+   * hardcoded sem alternativa. `gemini-2.5-flash-lite` foi descontinuado
+   * pelo Google para chaves novas (API responde 404 NOT_FOUND — "no longer
+   * available to new users", confirmado em produção nesta rodada);
+   * `gemini-3.5-flash-lite` é o substituto indicado pela própria mensagem
+   * de erro do Google e foi validado com uma chamada real ao
+   * `generateContent` retornando 200 dentro do schema esperado.
    */
-  GEMINI_MODEL: z.string().min(1).default('gemini-2.5-flash-lite'),
+  GEMINI_MODEL: z.string().min(1).default('gemini-3.5-flash-lite'),
 });
 
 // Aceita nomes de convenção alternativa (ex.: NEXT_PUBLIC_*) apenas como
