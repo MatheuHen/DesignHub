@@ -366,8 +366,16 @@ export async function submitAvaliacaoDecisao(
     };
   }
 
-  if (opcaoPublicacao === 'designer_manual' || opcaoPublicacao === 'proprio_cliente') {
-    await notificarDesignerPosAprovacaoBestEffort(adminClient, result.idSolicitacao, opcaoPublicacao);
+  /**
+   * Item 8.3/16 (regra final): "eu mesmo vou publicar" ENCERRA a solicitação
+   * como `Publicado` dentro da própria RPC — não existe mais pendência a
+   * comunicar. A mensagem antiga ("registre a publicação manual no DesignHub
+   * quando ela ocorrer") pedia ao designer uma ação que a regra atual não
+   * exige mais, então deixa de ser enviada. Só o caminho `designer_manual`
+   * ainda gera trabalho para o designer e, portanto, aviso.
+   */
+  if (opcaoPublicacao === 'designer_manual') {
+    await notificarDesignerPosAprovacaoBestEffort(adminClient, result.idSolicitacao);
   }
 
   return { idSolicitacao: result.idSolicitacao, statusNovo: result.statusNovo };
@@ -416,17 +424,20 @@ async function tentarAgendamentoAutomaticoBestEffort(
 }
 
 /**
- * Item 8 (opções 2/3): avisa o designer por WhatsApp que o cliente aprovou
- * e escolheu "designer agendar manualmente" ou "eu mesmo vou publicar" —
- * melhor esforço, mesmo padrão texto→BLOCKED_EXTERNAL já usado no
- * cancelamento (item 8.6). O canal confiável é sempre o histórico da
- * solicitação (gravado pela RPC `submit_avaliacao`) e a própria tela de
- * detalhe, que qualquer designer autenticado sempre pode consultar.
+ * Item 8.2: avisa o designer por WhatsApp que o cliente aprovou e prefere que
+ * o designer agende a publicação — melhor esforço, mesmo padrão
+ * texto→BLOCKED_EXTERNAL já usado no cancelamento (item 8.6). O canal
+ * confiável é sempre o histórico da solicitação (gravado pela RPC
+ * `submit_avaliacao`) e a própria tela de detalhe, que qualquer designer
+ * autenticado sempre pode consultar.
+ *
+ * Item 8.3/16: a opção "eu mesmo vou publicar" NÃO passa mais por aqui — ela
+ * encerra a solicitação como `Publicado` e não deixa nenhuma pendência que
+ * justifique avisar o designer.
  */
 async function notificarDesignerPosAprovacaoBestEffort(
   adminClient: SupabaseClient,
   idSolicitacao: number,
-  opcaoPublicacao: 'designer_manual' | 'proprio_cliente',
 ): Promise<void> {
   try {
     const solicitacao = await getSolicitacaoDetailRepo(adminClient, idSolicitacao);
@@ -436,9 +447,8 @@ async function notificarDesignerPosAprovacaoBestEffort(
     if (!designer?.whatsapp) return;
 
     const message =
-      opcaoPublicacao === 'designer_manual'
-        ? `O cliente ${solicitacao.clienteNome} aprovou a arte "${solicitacao.tema}" e prefere que você agende a publicação. Confira a preferência de data/horário no DesignHub.`
-        : `O cliente ${solicitacao.clienteNome} aprovou a arte "${solicitacao.tema}" e informou que vai publicar por conta própria. Registre a publicação manual no DesignHub quando ela ocorrer.`;
+      `O cliente ${solicitacao.clienteNome} aprovou a arte "${solicitacao.tema}" e prefere que você agende a publicação. ` +
+      'Confira a preferência de data/horário no DesignHub.';
 
     await sendTextMessage(designer.whatsapp, message);
   } catch (error) {

@@ -526,9 +526,17 @@ describe('submitAvaliacaoDecisao (RF009/RF010)', () => {
       expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('agende a publicação'));
     });
 
-    it('opção "proprio_cliente": avisa o designer por WhatsApp que o cliente vai publicar por conta própria', async () => {
+    /**
+     * Item 8.3/16 (REGRA FINAL, substitui o comportamento anterior): "eu mesmo
+     * vou publicar" encerra a solicitação como `Publicado` dentro da própria
+     * RPC. Não há pendência a registrar depois, então o designer NÃO recebe
+     * mais a mensagem pedindo que registre a publicação manualmente — a
+     * mensagem antiga inclusive chegava ao cliente em ambiente de teste, onde
+     * designer e cliente compartilham o número verificado da Meta.
+     */
+    it('opção "proprio_cliente": encerra como Publicado e não manda pendência ao designer', async () => {
       getAvaliacaoLinkStateMock.mockResolvedValue({ state: 'valid', idVersao: 5 });
-      submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Aprovado', numeroVersao: 2 });
+      submitAvaliacaoMock.mockResolvedValue({ idSolicitacao: 10, statusNovo: 'Publicado', numeroVersao: 2 });
       getSolicitacaoDetailRepoMock.mockResolvedValue({
         idDesigner: 'designer-1',
         clienteNome: 'Cliente Teste',
@@ -545,9 +553,9 @@ describe('submitAvaliacaoDecisao (RF009/RF010)', () => {
         opcaoPublicacao: 'proprio_cliente',
       });
 
-      expect(result).toEqual({ idSolicitacao: 10, statusNovo: 'Aprovado' });
+      expect(result).toEqual({ idSolicitacao: 10, statusNovo: 'Publicado' });
       expect(createAgendamentoClienteMock).not.toHaveBeenCalled();
-      expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('conta própria'));
+      expect(sendTextMessageMock).not.toHaveBeenCalled();
     });
 
     it('opção "designer_manual": falha ao notificar o designer nunca desfaz a aprovação já confirmada', async () => {

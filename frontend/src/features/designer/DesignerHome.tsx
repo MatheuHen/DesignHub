@@ -186,20 +186,36 @@ export function DesignerHome() {
             <thead>
               <tr>
                 <th scope="col">Cliente</th>
+                <th scope="col">Arte</th>
                 <th scope="col">Data</th>
                 <th scope="col">Horário</th>
               </tr>
             </thead>
             <tbody>
-              {agendamentos.map((agendamento) => (
-                <tr key={agendamento.idAgendamento}>
-                  <td>
-                    <Link to={`/designer/solicitacoes/${agendamento.idSolicitacao}`}>{agendamento.clienteNome}</Link>
-                  </td>
-                  <td>{new Date(`${agendamento.dataPublicacao}T00:00:00`).toLocaleDateString('pt-BR')}</td>
-                  <td>{agendamento.horario.slice(0, 5)}</td>
-                </tr>
-              ))}
+              {agendamentos.map((agendamento) => {
+                /**
+                 * Rodada correções (item 9): um agendamento continua `Agendado`
+                 * quando o job de publicação falhou ou ainda não rodou. Sem
+                 * marcação, ele aparecia no TOPO da lista (ordem crescente de
+                 * data) indistinguível de uma publicação futura — o designer
+                 * lia "agendada" para algo que já deveria estar no ar.
+                 */
+                const atrasada =
+                  new Date(`${agendamento.dataPublicacao}T${agendamento.horario}`).getTime() < Date.now();
+                return (
+                  <tr key={agendamento.idAgendamento}>
+                    <td>
+                      <Link to={`/designer/solicitacoes/${agendamento.idSolicitacao}`}>{agendamento.clienteNome}</Link>
+                    </td>
+                    <td>{agendamento.tema ?? '—'}</td>
+                    <td>
+                      {new Date(`${agendamento.dataPublicacao}T00:00:00`).toLocaleDateString('pt-BR')}
+                      {atrasada && <span className="dashboard-prazo-atrasado"> (atrasada)</span>}
+                    </td>
+                    <td>{agendamento.horario.slice(0, 5)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </section>

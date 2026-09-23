@@ -810,6 +810,12 @@ p {
   color: #5f5b69;
 }
 
+/* Item 9: agendamento cujo horário já passou e ainda não foi publicado. */
+.dashboard-prazo-atrasado {
+  color: #a1341f;
+  font-weight: 600;
+}
+
 .dashboard-prazos table {
   width: 100%;
   border-collapse: collapse;

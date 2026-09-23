@@ -58,6 +58,7 @@ export function AvaliacaoPage() {
   const [horarioDesejado, setHorarioDesejado] = useState('');
   const [legendaDesejada, setLegendaDesejada] = useState('');
   const [agendamentoAutomaticoCriado, setAgendamentoAutomaticoCriado] = useState<boolean | null>(null);
+  const [publicouPorContaPropria, setPublicouPorContaPropria] = useState(false);
 
   const [confirmandoCancelAgendamento, setConfirmandoCancelAgendamento] = useState(false);
   const [cancelandoAgendamento, setCancelandoAgendamento] = useState(false);
@@ -114,6 +115,10 @@ export function AvaliacaoPage() {
         setAgendamentoAutomaticoCriado(
           opcaoPublicacao === 'automatico' ? (result.agendamentoAutomaticoCriado ?? false) : null,
         );
+        // Item 8.3: "eu mesmo vou publicar" encerra a solicitação como
+        // `Publicado` no backend — o cliente precisa ver que não sobrou nada
+        // pendente para ele nem para o designer.
+        setPublicouPorContaPropria(opcaoPublicacao === 'proprio_cliente');
         setSubmittedStatus('Aprovado');
         setView('submitted');
       })
@@ -486,6 +491,12 @@ export function AvaliacaoPage() {
               <p role="alert" className="auth-error">
                 Não foi possível agendar automaticamente (verifique se o Instagram continua conectado). O designer
                 responsável vai agendar manualmente.
+              </p>
+            )}
+            {publicouPorContaPropria && (
+              <p className="atendimento-success">
+                Registramos que você mesmo vai publicar. Esta solicitação foi concluída e não há mais nenhuma
+                pendência.
               </p>
             )}
           </>
