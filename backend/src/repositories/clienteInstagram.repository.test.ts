@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   consumeOAuthState,
+  createDataDeletionRequest,
   createOAuthState,
   deleteConexao,
+  deleteConexaoByInstagramUserId,
   getConexaoAtiva,
+  getDataDeletionRequestStatus,
   getStatusConexao,
   upsertConexao,
 } from './clienteInstagram.repository.js';
@@ -189,5 +192,83 @@ describe('upsertConexao/deleteConexao (RF014/ADR 0005, item N.5.5 — token cifr
     const client = { from: () => ({ delete: () => ({ eq: () => Promise.resolve({ error: null }) }) }) } as unknown as AnyClient;
 
     await expect(deleteConexao(client, 1)).resolves.toBeUndefined();
+  });
+});
+
+describe('deleteConexaoByInstagramUserId (item A1/A2 — Deauthorize/Data Deletion)', () => {
+  it('retorna true quando encontrou e removeu uma conexão', async () => {
+    const client = {
+      from: () => ({
+        delete: () => ({ eq: () => ({ select: () => Promise.resolve({ data: [{ id_cliente: 1 }], error: null }) }) }),
+      }),
+    } as unknown as AnyClient;
+
+    await expect(deleteConexaoByInstagramUserId(client, 'ig-user-1')).resolves.toBe(true);
+  });
+
+  it('retorna false (idempotente) quando não havia conexão para aquele instagram_user_id', async () => {
+    const client = {
+      from: () => ({
+        delete: () => ({ eq: () => ({ select: () => Promise.resolve({ data: [], error: null }) }) }),
+      }),
+    } as unknown as AnyClient;
+
+    await expect(deleteConexaoByInstagramUserId(client, 'ig-user-inexistente')).resolves.toBe(false);
+  });
+
+  it('propaga erro do banco', async () => {
+    const client = {
+      from: () => ({
+        delete: () => ({ eq: () => ({ select: () => Promise.resolve({ data: null, error: { message: 'falhou' } }) }) }),
+      }),
+    } as unknown as AnyClient;
+
+    await expect(deleteConexaoByInstagramUserId(client, 'ig-user-1')).rejects.toThrow(/falhou/);
+  });
+});
+
+describe('createDataDeletionRequest/getDataDeletionRequestStatus (item A2)', () => {
+  it('createDataDeletionRequest insere o registro do pedido', async () => {
+    const insert = (payload: unknown) => {
+      expect(payload).toMatchObject({
+        confirmation_code: 'codigo-1',
+        instagram_user_id: 'ig-user-1',
+        conexao_removida: true,
+      });
+      return Promise.resolve({ error: null });
+    };
+    const client = { from: () => ({ insert }) } as unknown as AnyClient;
+
+    await expect(
+      createDataDeletionRequest(client, { confirmationCode: 'codigo-1', instagramUserId: 'ig-user-1', conexaoRemovida: true }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('createDataDeletionRequest propaga erro do banco', async () => {
+    const client = { from: () => ({ insert: () => Promise.resolve({ error: { message: 'falhou' } }) }) } as unknown as AnyClient;
+
+    await expect(
+      createDataDeletionRequest(client, { confirmationCode: 'codigo-1', instagramUserId: 'ig-user-1', conexaoRemovida: false }),
+    ).rejects.toThrow(/falhou/);
+  });
+
+  it('getDataDeletionRequestStatus retorna "concluido" quando o pedido existe', async () => {
+    const client = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({ maybeSingle: () => Promise.resolve({ data: { completed_at: '2026-09-24T00:00:00Z' }, error: null }) }),
+        }),
+      }),
+    } as unknown as AnyClient;
+
+    await expect(getDataDeletionRequestStatus(client, 'codigo-1')).resolves.toBe('concluido');
+  });
+
+  it('getDataDeletionRequestStatus retorna "nao_encontrado" quando o confirmation_code não existe', async () => {
+    const client = {
+      from: () => ({ select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) }),
+    } as unknown as AnyClient;
+
+    await expect(getDataDeletionRequestStatus(client, 'codigo-inexistente')).resolves.toBe('nao_encontrado');
   });
 });

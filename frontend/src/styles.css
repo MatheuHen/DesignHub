@@ -333,25 +333,58 @@ p {
   font-size: 0.82rem;
 }
 
-/** Correção de UX: status + botões do Instagram ficavam colados numa linha só. */
+/**
+ * Correção de layout (rodada 24/09): status e botões do Instagram ficavam
+ * colados numa linha só, com tamanhos inconsistentes. Status em sua própria
+ * linha, botões abaixo, cada um com altura/padding consistentes.
+ */
 .cliente-instagram-cell {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .cliente-instagram-cell button {
-  padding: 6px 10px;
+  padding: 7px 12px;
+  min-height: 36px;
   border: 1px solid #d9d5e3;
   border-radius: 8px;
   background: #fff;
   cursor: pointer;
   font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.cliente-instagram-cell button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .cliente-instagram-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
+}
+
+/* Decorativo — o status nunca depende só da cor: o texto "Conectado"/"Não conectado" já diferencia (B12). */
+.cliente-instagram-status::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.cliente-instagram-status--conectado {
+  color: #1f6b45;
+}
+
+.cliente-instagram-status--nao-conectado {
+  color: #6b6478;
 }
 
 .designer-status--ativo {
@@ -960,4 +993,205 @@ p {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+/* ===== Clientes — layout responsivo (rodada correções 24/09) =====
+   Todas as classes abaixo são exclusivas de /designer/clientes — não alteram
+   .designer-table/.designer-actions/.table-scroll usados por outras páginas
+   (Solicitações, Agendamentos, Designers). Desktop/notebook usa a tabela;
+   abaixo de 860px (mesmo breakpoint já usado pelo AppShell) cada linha vira
+   um card, via a técnica "responsive table" — mesmo DOM, só CSS reorganiza. */
+
+.clientes-empty {
+  padding: 48px 24px;
+  text-align: center;
+  border: 1px dashed #d9d5e3;
+  border-radius: 14px;
+  background: #fff;
+  color: #6b6478;
+  font-size: 0.95rem;
+}
+
+.clientes-search input {
+  width: min(360px, 100%);
+}
+
+/* Nome não pode quebrar sem necessidade nem ultrapassar a coluna — trunca com
+   reticências e disponibiliza o texto completo via title (tooltip nativo). */
+.clientes-table td.clientes-cell-nome {
+  max-width: 280px;
+}
+
+.clientes-nome-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.clientes-cell-whatsapp {
+  white-space: nowrap;
+}
+
+/* Ações agrupadas: "Iniciar atendimento" (principal) separado de Editar/Excluir (secundárias). */
+.clientes-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.clientes-actions-primary,
+.clientes-actions-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.clientes-actions button {
+  white-space: nowrap;
+  min-height: 36px;
+}
+
+/*
+ * Duas classes (não uma), mesmo padrão já usado por
+ * `.designer-actions .designer-action-danger`: `.designer-actions button`
+ * é um seletor composto (classe + elemento) com especificidade maior que uma
+ * única classe — um seletor de uma classe só aqui perderia o cascade e o
+ * botão renderizaria com texto branco sobre o fundo branco padrão (invisível).
+ */
+.designer-actions .clientes-action-primary {
+  background: #6545a4;
+  border-color: #6545a4;
+  color: #fff;
+  font-weight: 600;
+}
+
+.designer-actions .clientes-action-primary:hover:not(:disabled) {
+  background: #55368c;
+}
+
+.designer-actions .clientes-action-primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+@media (max-width: 860px) {
+  /* B8: busca ocupa a largura toda, label acima do campo. */
+  .clientes-search {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .clientes-search input {
+    width: 100%;
+  }
+
+  /* A rolagem horizontal da tabela deixa de fazer sentido — o conteúdo vira cards de largura total. */
+  .clientes-table-scroll {
+    overflow-x: visible;
+  }
+
+  .clientes-table {
+    min-width: 0;
+    width: 100%;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  /* Cabeçalho continua no DOM/árvore de acessibilidade (clip, não display:none) — só some visualmente. */
+  .clientes-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .clientes-table,
+  .clientes-table tbody,
+  .clientes-table tr,
+  .clientes-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .clientes-table tbody tr {
+    margin-bottom: 16px;
+    border: 1px solid #e7e4ef;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 6px 20px rgb(34 20 70 / 5%);
+  }
+
+  .clientes-table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .clientes-table td {
+    max-width: none;
+    padding: 14px 16px;
+    border-bottom: 1px solid #f0eef5;
+    font-size: 0.95rem;
+  }
+
+  .clientes-table td:last-child {
+    border-bottom: none;
+  }
+
+  /* Rótulo visual do campo — o texto real do dado já está no próprio conteúdo do <td>. */
+  .clientes-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #6545a4;
+  }
+
+  /* Nome vira o título do card — sem rótulo, maior, pode quebrar em duas linhas em vez de truncar. */
+  .clientes-cell-nome {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #2d2440;
+  }
+
+  .clientes-nome-text {
+    max-width: 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* Botões maiores para toque (mínimo confortável de área clicável) e ocupando a largura disponível. */
+  .clientes-actions-primary button,
+  .clientes-actions-secondary button,
+  .cliente-instagram-cell button {
+    flex: 1 1 auto;
+    min-height: 44px;
+    padding: 11px 14px;
+    font-size: 0.92rem;
+  }
+
+  .clientes-actions-primary button {
+    width: 100%;
+  }
+
+  .cliente-instagram-cell {
+    width: 100%;
+  }
+
+  .cliente-instagram-cell button {
+    width: 100%;
+  }
 }

@@ -326,4 +326,61 @@ describe('ClientesPage (RF003)', () => {
       expect(desconectarInstagramMock).toHaveBeenCalledWith(1);
     });
   });
+
+  /**
+   * Item B11 (rodada correções — layout): o print reportado mostrava duas
+   * linhas visualmente idênticas. Este teste prova que a renderização em si
+   * não duplica — para 2 clientes reais vindos da API, exatamente 2 linhas
+   * (2 botões "Iniciar atendimento") aparecem, nunca 4.
+   */
+  it('item B11: não duplica a renderização — dois clientes reais geram exatamente duas linhas', async () => {
+    const outroCliente: Cliente = {
+      id: 2,
+      idDesigner: 'designer-1',
+      nome: 'Cliente Teste',
+      whatsapp: '5511977776666',
+      instagram: null,
+    };
+    listClientesMock.mockResolvedValue({ items: [sampleCliente, outroCliente], total: 2, page: 1, pageSize: 20 });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Cliente Teste')).toHaveLength(2);
+    });
+    expect(screen.getAllByRole('button', { name: 'Iniciar atendimento' })).toHaveLength(2);
+    expect(screen.getByText('5511988887777')).toBeInTheDocument();
+    expect(screen.getByText('5511977776666')).toBeInTheDocument();
+  });
+
+  /** Item B10: estado vazio usa mensagem central e profissional (classe dedicada), não um parágrafo solto. */
+  it('item B10: lista vazia usa o estado visual dedicado', async () => {
+    listClientesMock.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+
+    renderPage();
+
+    const empty = await screen.findByText('Nenhum cliente encontrado.');
+    expect(empty).toHaveClass('clientes-empty');
+  });
+
+  /** Item B1/B9: o nome completo fica disponível via title (tooltip) mesmo quando truncado visualmente por CSS. */
+  it('item B1: o nome do cliente expõe o texto completo via atributo title', async () => {
+    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
+
+    renderPage();
+
+    const nome = await screen.findByTitle('Cliente Teste');
+    expect(nome).toHaveTextContent('Cliente Teste');
+  });
+
+  /** Item B2: "Iniciar atendimento" (ação principal) é visualmente distinto de Editar/Excluir (secundárias). */
+  it('item B2: "Iniciar atendimento" tem a classe de ação principal', async () => {
+    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
+
+    renderPage();
+
+    const primary = await screen.findByRole('button', { name: 'Iniciar atendimento' });
+    expect(primary).toHaveClass('clientes-action-primary');
+    expect(screen.getByRole('button', { name: 'Excluir' })).toHaveClass('designer-action-danger');
+  });
 });

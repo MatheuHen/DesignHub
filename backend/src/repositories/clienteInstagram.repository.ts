@@ -158,3 +158,58 @@ export async function deleteConexao(adminClient: SupabaseClient, idCliente: numb
   const { error } = result as { error: { message: string } | null };
   if (error) throw new Error(`Falha ao remover conexão do Instagram: ${error.message}`);
 }
+
+/**
+ * Item A1/A2 (Deauthorize/Data Deletion): os callbacks da Meta identificam a
+ * conexão pelo `instagram_user_id` do `signed_request`, nunca por um
+ * `id_cliente` vindo de fora. `.select('id_cliente')` no delete devolve as
+ * linhas removidas — é o que torna a chamada idempotente e observável: uma
+ * segunda entrega do mesmo callback (a Meta reentrega em caso de timeout)
+ * não encontra nada para apagar e retorna array vazio, sem erro.
+ */
+export async function deleteConexaoByInstagramUserId(
+  adminClient: SupabaseClient,
+  instagramUserId: string,
+): Promise<boolean> {
+  const result: unknown = await adminClient
+    .from('cliente_instagram_conexao')
+    .delete()
+    .eq('instagram_user_id', instagramUserId)
+    .select('id_cliente');
+  const { data, error } = result as { data: unknown[] | null; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao remover conexão do Instagram: ${error.message}`);
+  return Boolean(data && data.length > 0);
+}
+
+/** Item A2: registra o pedido de exclusão de dados para responder depois ao endpoint de status. */
+export async function createDataDeletionRequest(
+  adminClient: SupabaseClient,
+  params: { confirmationCode: string; instagramUserId: string; conexaoRemovida: boolean },
+): Promise<void> {
+  const result: unknown = await adminClient.from('instagram_data_deletion_request').insert({
+    confirmation_code: params.confirmationCode,
+    instagram_user_id: params.instagramUserId,
+    conexao_removida: params.conexaoRemovida,
+  });
+  const { error } = result as { error: { message: string } | null };
+  if (error) throw new Error(`Falha ao registrar pedido de exclusão de dados: ${error.message}`);
+}
+
+const dataDeletionStatusRowSchema = z.object({ completed_at: z.string() });
+
+/** Item A2: status para o endpoint público de acompanhamento — nunca dado pessoal, só se está concluído. */
+export async function getDataDeletionRequestStatus(
+  adminClient: SupabaseClient,
+  confirmationCode: string,
+): Promise<'concluido' | 'nao_encontrado'> {
+  const result: unknown = await adminClient
+    .from('instagram_data_deletion_request')
+    .select('completed_at')
+    .eq('confirmation_code', confirmationCode)
+    .maybeSingle();
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao consultar status de exclusão de dados: ${error.message}`);
+  if (!data) return 'nao_encontrado';
+  dataDeletionStatusRowSchema.parse(data);
+  return 'concluido';
+}

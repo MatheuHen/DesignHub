@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BlockedExternalCredentialError, ConflictError, NotFoundError } from '../lib/errors.js';
+import { BlockedExternalCredentialError, ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 
 const {
   getSupabaseAdminClientMock,
@@ -10,8 +10,12 @@ const {
   consumeOAuthStateMock,
   getStatusConexaoMock,
   deleteConexaoMock,
+  deleteConexaoByInstagramUserIdMock,
+  createDataDeletionRequestMock,
+  getDataDeletionRequestStatusMock,
   upsertConexaoMock,
   sendTextMessageMock,
+  verifyInstagramSignedRequestMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   getClienteByIdMock: vi.fn(),
@@ -21,16 +25,25 @@ const {
   consumeOAuthStateMock: vi.fn(),
   getStatusConexaoMock: vi.fn(),
   deleteConexaoMock: vi.fn(),
+  deleteConexaoByInstagramUserIdMock: vi.fn(),
+  createDataDeletionRequestMock: vi.fn(),
+  getDataDeletionRequestStatusMock: vi.fn(),
   upsertConexaoMock: vi.fn(),
   sendTextMessageMock: vi.fn(),
+  verifyInstagramSignedRequestMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
-vi.mock('../config/env.js', () => ({ env: { INSTAGRAM_TOKEN_ENC_KEY: 'chave-de-teste-com-32-caracteres' } }));
+vi.mock('../config/env.js', () => ({
+  env: { INSTAGRAM_TOKEN_ENC_KEY: 'chave-de-teste-com-32-caracteres', PUBLIC_BACKEND_URL: 'https://api.designhub.test' },
+}));
 vi.mock('../repositories/cliente.repository.js', () => ({ getClienteById: getClienteByIdMock }));
 vi.mock('../integrations/instagram/instagramOAuth.js', () => ({
   buildAuthorizeUrl: buildAuthorizeUrlMock,
   exchangeCodeForLongLivedToken: exchangeCodeForLongLivedTokenMock,
+}));
+vi.mock('../integrations/instagram/instagramSignedRequest.js', () => ({
+  verifyInstagramSignedRequest: verifyInstagramSignedRequestMock,
 }));
 vi.mock('../integrations/whatsapp/whatsappClient.js', () => ({ sendTextMessage: sendTextMessageMock }));
 vi.mock('../repositories/clienteInstagram.repository.js', () => ({
@@ -38,6 +51,9 @@ vi.mock('../repositories/clienteInstagram.repository.js', () => ({
   consumeOAuthState: consumeOAuthStateMock,
   getStatusConexao: getStatusConexaoMock,
   deleteConexao: deleteConexaoMock,
+  deleteConexaoByInstagramUserId: deleteConexaoByInstagramUserIdMock,
+  createDataDeletionRequest: createDataDeletionRequestMock,
+  getDataDeletionRequestStatus: getDataDeletionRequestStatusMock,
   upsertConexao: upsertConexaoMock,
 }));
 
@@ -47,6 +63,9 @@ const {
   removerInstagramConexao,
   processarCallbackInstagram,
   enviarLinkConexaoInstagram,
+  processarDeauthorizeInstagram,
+  processarSolicitacaoExclusaoInstagram,
+  getStatusExclusaoInstagram,
 } = await import('./clienteInstagram.service.js');
 
 describe('gerarAutorizacaoInstagramUrl (RF014/ADR 0005)', () => {
@@ -209,5 +228,99 @@ describe('processarCallbackInstagram (RF014/ADR 0005 — callback público)', ()
     } finally {
       (env as { INSTAGRAM_TOKEN_ENC_KEY: string | undefined }).INSTAGRAM_TOKEN_ENC_KEY = originalKey;
     }
+  });
+});
+
+describe('processarDeauthorizeInstagram (item A1 — Deauthorize Callback exigido pela Meta)', () => {
+  beforeEach(() => {
+    verifyInstagramSignedRequestMock.mockReset();
+    deleteConexaoByInstagramUserIdMock.mockReset().mockResolvedValue(true);
+  });
+
+  it('rejeita assinatura inválida sem tocar em nenhuma conexão', async () => {
+    verifyInstagramSignedRequestMock.mockReturnValue(null);
+
+    await expect(processarDeauthorizeInstagram('lixo.qualquer')).rejects.toBeInstanceOf(ValidationError);
+    expect(deleteConexaoByInstagramUserIdMock).not.toHaveBeenCalled();
+  });
+
+  it('remove a conexão pelo instagram_user_id do payload validado', async () => {
+    verifyInstagramSignedRequestMock.mockReturnValue({ algorithm: 'HMAC-SHA256', user_id: 'ig-user-7' });
+
+    await processarDeauthorizeInstagram('assinatura.payload');
+
+    expect(deleteConexaoByInstagramUserIdMock).toHaveBeenCalledWith(expect.anything(), 'ig-user-7');
+  });
+
+  it('idempotente: chamada repetida para o mesmo user_id não lança mesmo sem conexão remanescente', async () => {
+    verifyInstagramSignedRequestMock.mockReturnValue({ algorithm: 'HMAC-SHA256', user_id: 'ig-user-7' });
+    deleteConexaoByInstagramUserIdMock.mockResolvedValue(false);
+
+    await expect(processarDeauthorizeInstagram('assinatura.payload')).resolves.toBeUndefined();
+  });
+
+  it('payload válido sem user_id não chama a remoção (nada a fazer)', async () => {
+    verifyInstagramSignedRequestMock.mockReturnValue({ algorithm: 'HMAC-SHA256' });
+
+    await processarDeauthorizeInstagram('assinatura.payload');
+
+    expect(deleteConexaoByInstagramUserIdMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('processarSolicitacaoExclusaoInstagram (item A2 — Data Deletion Request Callback)', () => {
+  beforeEach(() => {
+    verifyInstagramSignedRequestMock.mockReset();
+    deleteConexaoByInstagramUserIdMock.mockReset().mockResolvedValue(true);
+    createDataDeletionRequestMock.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('rejeita assinatura inválida sem registrar pedido de exclusão', async () => {
+    verifyInstagramSignedRequestMock.mockReturnValue(null);
+
+    await expect(processarSolicitacaoExclusaoInstagram('lixo.qualquer')).rejects.toBeInstanceOf(ValidationError);
+    expect(createDataDeletionRequestMock).not.toHaveBeenCalled();
+    expect(deleteConexaoByInstagramUserIdMock).not.toHaveBeenCalled();
+  });
+
+  it('remove a conexão, registra o pedido e devolve confirmation_code + url no formato da Meta', async () => {
+    verifyInstagramSignedRequestMock.mockReturnValue({ algorithm: 'HMAC-SHA256', user_id: 'ig-user-9' });
+
+    const result = await processarSolicitacaoExclusaoInstagram('assinatura.payload');
+
+    expect(deleteConexaoByInstagramUserIdMock).toHaveBeenCalledWith(expect.anything(), 'ig-user-9');
+    expect(createDataDeletionRequestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ instagramUserId: 'ig-user-9', conexaoRemovida: true, confirmationCode: result.confirmationCode }),
+    );
+    expect(result.confirmationCode).toMatch(/^[0-9a-f]{32}$/);
+    expect(result.url).toBe(
+      `https://api.designhub.test/api/instagram/oauth/data-deletion/status?id=${result.confirmationCode}`,
+    );
+  });
+
+  it('gera confirmation_code diferente a cada chamada (nunca reaproveita)', async () => {
+    verifyInstagramSignedRequestMock.mockReturnValue({ algorithm: 'HMAC-SHA256', user_id: 'ig-user-9' });
+
+    const primeiro = await processarSolicitacaoExclusaoInstagram('assinatura.payload');
+    const segundo = await processarSolicitacaoExclusaoInstagram('assinatura.payload');
+
+    expect(primeiro.confirmationCode).not.toBe(segundo.confirmationCode);
+  });
+});
+
+describe('getStatusExclusaoInstagram (item A2 — endpoint de status)', () => {
+  beforeEach(() => {
+    getDataDeletionRequestStatusMock.mockReset();
+  });
+
+  it('devolve "concluido" quando o pedido existe', async () => {
+    getDataDeletionRequestStatusMock.mockResolvedValue('concluido');
+    await expect(getStatusExclusaoInstagram('codigo-valido')).resolves.toBe('concluido');
+  });
+
+  it('devolve "nao_encontrado" quando o confirmation_code não existe', async () => {
+    getDataDeletionRequestStatusMock.mockResolvedValue('nao_encontrado');
+    await expect(getStatusExclusaoInstagram('codigo-inexistente')).resolves.toBe('nao_encontrado');
   });
 });

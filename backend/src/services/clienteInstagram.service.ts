@@ -1,15 +1,20 @@
+import { randomBytes } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { env } from '../config/env.js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import { buildAuthorizeUrl, exchangeCodeForLongLivedToken } from '../integrations/instagram/instagramOAuth.js';
+import { verifyInstagramSignedRequest } from '../integrations/instagram/instagramSignedRequest.js';
 import { sendTextMessage } from '../integrations/whatsapp/whatsappClient.js';
 import { generateOpaqueToken, hashOpaqueToken } from '../lib/tokens.js';
-import { BlockedExternalCredentialError, ConflictError, NotFoundError } from '../lib/errors.js';
+import { BlockedExternalCredentialError, ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { getClienteById } from '../repositories/cliente.repository.js';
 import {
   consumeOAuthState,
+  createDataDeletionRequest,
   createOAuthState,
   deleteConexao,
+  deleteConexaoByInstagramUserId,
+  getDataDeletionRequestStatus,
   getStatusConexao,
   upsertConexao,
   type ClienteInstagramStatus,
@@ -143,4 +148,64 @@ export async function processarCallbackInstagram(
   });
 
   return { idCliente: state.id_cliente };
+}
+
+/**
+ * Item A1 (Deauthorize Callback, exigido pela revisão do App da Meta):
+ * o Instagram chama esta rota quando o usuário revoga o acesso do DesignHub
+ * pelas próprias configurações do Instagram — sem isso o App não é aprovado.
+ * Remove só a conexão (token) daquele `instagram_user_id`; cliente,
+ * solicitações, artes e histórico permanecem intactos (nunca é o mesmo
+ * conceito de "excluir o cliente").
+ */
+export async function processarDeauthorizeInstagram(signedRequest: string): Promise<void> {
+  const payload = verifyInstagramSignedRequest(signedRequest);
+  if (!payload) {
+    throw new ValidationError('Assinatura inválida.');
+  }
+  if (!payload.user_id) return;
+
+  const adminClient = getSupabaseAdminClient();
+  await deleteConexaoByInstagramUserId(adminClient, String(payload.user_id));
+}
+
+export interface DataDeletionResult {
+  confirmationCode: string;
+  url: string;
+}
+
+/**
+ * Item A2 (Data Deletion Request Callback, exigido pela revisão do App da
+ * Meta): mesmo escopo de remoção do Deauthorize — só a conexão/token da
+ * integração Instagram, nunca cliente/solicitação/arte/histórico. A
+ * exclusão é síncrona (já ocorre aqui), e o `confirmation_code` emitido
+ * permite ao usuário conferir o status depois pela URL devolvida.
+ */
+export async function processarSolicitacaoExclusaoInstagram(signedRequest: string): Promise<DataDeletionResult> {
+  const payload = verifyInstagramSignedRequest(signedRequest);
+  if (!payload) {
+    throw new ValidationError('Assinatura inválida.');
+  }
+  const instagramUserId = payload.user_id ? String(payload.user_id) : null;
+
+  const adminClient = getSupabaseAdminClient();
+  const conexaoRemovida = instagramUserId ? await deleteConexaoByInstagramUserId(adminClient, instagramUserId) : false;
+
+  const confirmationCode = randomBytes(16).toString('hex');
+  await createDataDeletionRequest(adminClient, {
+    confirmationCode,
+    instagramUserId: instagramUserId ?? 'desconhecido',
+    conexaoRemovida,
+  });
+
+  return {
+    confirmationCode,
+    url: `${env.PUBLIC_BACKEND_URL}/api/instagram/oauth/data-deletion/status?id=${confirmationCode}`,
+  };
+}
+
+/** Item A2: endpoint de status que a URL devolvida ao usuário aponta — nunca expõe dado pessoal. */
+export async function getStatusExclusaoInstagram(confirmationCode: string): Promise<'concluido' | 'nao_encontrado'> {
+  const adminClient = getSupabaseAdminClient();
+  return getDataDeletionRequestStatus(adminClient, confirmationCode);
 }

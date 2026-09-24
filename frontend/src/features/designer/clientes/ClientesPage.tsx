@@ -328,7 +328,7 @@ export function ClientesPage() {
           + Novo Cliente
         </button>
       </div>
-      <div className="designer-filters">
+      <div className="designer-filters clientes-search">
         <label htmlFor="cliente-search">Buscar</label>
         <input
           id="cliente-search"
@@ -354,11 +354,11 @@ export function ClientesPage() {
         </p>
       )}
 
-      {!loading && !error && items.length === 0 && <p>Nenhum cliente encontrado.</p>}
+      {!loading && !error && items.length === 0 && <p className="clientes-empty">Nenhum cliente encontrado.</p>}
 
       {!loading && !error && items.length > 0 && (
-        <div className="table-scroll">
-        <table className="designer-table">
+        <div className="table-scroll clientes-table-scroll">
+        <table className="designer-table clientes-table">
           <caption className="sr-only">Lista de clientes ({total} no total)</caption>
           <thead>
             <tr>
@@ -371,14 +371,22 @@ export function ClientesPage() {
           <tbody>
             {items.map((cliente) => (
               <tr key={cliente.id}>
-                <td>{cliente.nome}</td>
-                <td>{cliente.whatsapp}</td>
-                <td>
+                <td className="clientes-cell-nome">
+                  <span className="clientes-nome-text" title={cliente.nome}>
+                    {cliente.nome}
+                  </span>
+                </td>
+                <td data-label="WhatsApp" className="clientes-cell-whatsapp">
+                  {cliente.whatsapp}
+                </td>
+                <td data-label="Instagram">
                   {/* Item 9 (rodada correções): status real de conexão persistida — nunca o @ digitado manualmente. */}
                   <div className="cliente-instagram-cell">
                     {instagramStatus[cliente.id]?.conectado ? (
                       <>
-                        <span className="cliente-instagram-status">Conectado</span>
+                        <span className="cliente-instagram-status cliente-instagram-status--conectado">
+                          Conectado
+                        </span>
                         <button
                           type="button"
                           onClick={() => handleDesconectarInstagram(cliente)}
@@ -389,7 +397,9 @@ export function ClientesPage() {
                       </>
                     ) : (
                       <>
-                        <span className="cliente-instagram-status">Não conectado</span>
+                        <span className="cliente-instagram-status cliente-instagram-status--nao-conectado">
+                          Não conectado
+                        </span>
                         <button
                           type="button"
                           onClick={() => handleConectarInstagram(cliente)}
@@ -416,39 +426,48 @@ export function ClientesPage() {
                     </p>
                   )}
                 </td>
-                <td className="designer-actions">
-                  <button
-                    type="button"
-                    onClick={() => handleIniciarAtendimento(cliente)}
-                    disabled={startingAtendimentoId === cliente.id}
-                  >
-                    {startingAtendimentoId === cliente.id ? 'Enviando…' : 'Iniciar atendimento'}
-                  </button>
-                  <button type="button" onClick={() => setPanel({ mode: 'edit', cliente })}>
-                    Editar
-                  </button>
-                  {confirmingDeleteId === cliente.id ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(cliente)}
-                        disabled={deletingId === cliente.id}
-                      >
-                        {deletingId === cliente.id ? 'Excluindo…' : 'Confirmar exclusão'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmingDeleteId(null)}
-                        disabled={deletingId === cliente.id}
-                      >
-                        Cancelar
-                      </button>
-                    </>
-                  ) : (
-                    <button type="button" onClick={() => setConfirmingDeleteId(cliente.id)}>
-                      Excluir
+                <td className="designer-actions clientes-actions">
+                  <div className="clientes-actions-primary">
+                    <button
+                      type="button"
+                      className="clientes-action-primary"
+                      onClick={() => handleIniciarAtendimento(cliente)}
+                      disabled={startingAtendimentoId === cliente.id}
+                    >
+                      {startingAtendimentoId === cliente.id ? 'Enviando…' : 'Iniciar atendimento'}
                     </button>
-                  )}
+                  </div>
+                  <div className="clientes-actions-secondary">
+                    <button type="button" onClick={() => setPanel({ mode: 'edit', cliente })}>
+                      Editar
+                    </button>
+                    {confirmingDeleteId === cliente.id ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(cliente)}
+                          disabled={deletingId === cliente.id}
+                        >
+                          {deletingId === cliente.id ? 'Excluindo…' : 'Confirmar exclusão'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingDeleteId(null)}
+                          disabled={deletingId === cliente.id}
+                        >
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="designer-action-danger"
+                        onClick={() => setConfirmingDeleteId(cliente.id)}
+                      >
+                        Excluir
+                      </button>
+                    )}
+                  </div>
                   {rowError?.id === cliente.id && (
                     <p role="alert" className="auth-error">
                       {rowError.message}
