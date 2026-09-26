@@ -18,6 +18,29 @@ const solicitacaoRowSchema = z.object({
 
 const solicitacaoStatusEnum = z.enum(SOLICITACAO_STATUSES);
 
+/**
+ * Item 6/6.1/6.2 (rodada final): o prazo relevante muda com a etapa atual —
+ * "Prazo 1ª versão" deixava de fazer sentido depois da primeira versão
+ * enviada. Cada tipo usa exclusivamente um prazo REAL já documentado
+ * (RF006/RN11 para a 1ª versão; validade técnica do link de avaliação
+ * RF009/seção 12.1; data/horário do agendamento RF012) — nunca um SLA
+ * inventado. Etapas sem prazo de negócio documentado (`Ajustes`, `Aprovado`)
+ * usam `sem_prazo_definido`; estados terminais usam `terminal`.
+ */
+export type PrazoAtualTipo =
+  | 'primeira_versao'
+  | 'validade_link_avaliacao'
+  | 'agendamento'
+  | 'sem_prazo_definido'
+  | 'terminal';
+
+export interface PrazoAtual {
+  tipo: PrazoAtualTipo;
+  /** ISO 8601 — `null` quando `tipo` é `sem_prazo_definido`/`terminal`. */
+  dataHora: string | null;
+  responsavel: 'designer' | 'cliente' | 'sistema' | null;
+}
+
 export interface SolicitacaoSummary {
   id: number;
   idCliente: number;
@@ -27,6 +50,7 @@ export interface SolicitacaoSummary {
   status: z.infer<typeof solicitacaoStatusEnum>;
   dataCriacao: string;
   prazoPrimeiraVersao: string;
+  prazoAtual: PrazoAtual;
 }
 
 const clienteEmbedSchema = z.object({ nome: z.string() });
@@ -44,7 +68,7 @@ const solicitacaoListRowSchema = z.object({
     .transform((value) => (Array.isArray(value) ? (value[0] ?? null) : value)),
 });
 
-function toSummary(row: z.infer<typeof solicitacaoListRowSchema>): SolicitacaoSummary {
+function toSummary(row: z.infer<typeof solicitacaoListRowSchema>): Omit<SolicitacaoSummary, 'prazoAtual'> {
   return {
     id: row.id_solicitacao,
     idCliente: row.id_cliente,
@@ -55,6 +79,114 @@ function toSummary(row: z.infer<typeof solicitacaoListRowSchema>): SolicitacaoSu
     dataCriacao: row.data_criacao,
     prazoPrimeiraVersao: row.prazo_primeira_versao,
   };
+}
+
+const SEM_PRAZO_DEFINIDO: PrazoAtual = { tipo: 'sem_prazo_definido', dataHora: null, responsavel: null };
+const TERMINAL: PrazoAtual = { tipo: 'terminal', dataHora: null, responsavel: null };
+
+const avaliacaoLinkPrazoRowSchema = z.object({
+  expires_at: z.string(),
+  created_at: z.string(),
+  versao_arte: z
+    .union([z.object({ id_solicitacao: z.number() }), z.array(z.object({ id_solicitacao: z.number() }))])
+    // `!inner` no select garante ao menos um elemento quando vem como array.
+    .transform((value) => (Array.isArray(value) ? value[0]! : value)),
+});
+
+const agendamentoPrazoRowSchema = z.object({
+  id_solicitacao: z.number(),
+  data_publicacao: z.string(),
+  horario: z.string(),
+});
+
+/**
+ * Item 6/6.1/6.2 (rodada final): resolve o prazo da ETAPA ATUAL de cada
+ * solicitação, em lote (nunca uma consulta por linha — Gate F/performance).
+ * `Em produção`/`Ajustes`/`Aprovado`/estados terminais são resolvidos com os
+ * dados já carregados pelo chamador; `Enviado para avaliação` (validade do
+ * link) e `Agendado` (data/horário) exigem uma consulta em lote cada, só
+ * para os ids daquele status presentes na página atual.
+ */
+async function computePrazoAtual(
+  client: SupabaseClient,
+  rows: readonly z.infer<typeof solicitacaoListRowSchema>[],
+): Promise<Map<number, PrazoAtual>> {
+  const result = new Map<number, PrazoAtual>();
+
+  for (const row of rows) {
+    if (row.status === 'Em produção') {
+      result.set(row.id_solicitacao, {
+        tipo: 'primeira_versao',
+        dataHora: row.prazo_primeira_versao,
+        responsavel: 'designer',
+      });
+    } else if (row.status === 'Cancelado' || row.status === 'Publicado') {
+      result.set(row.id_solicitacao, TERMINAL);
+    } else if (row.status === 'Ajustes') {
+      // RN25: designer produz a nova versão externamente — sem prazo de negócio documentado (item 6.2).
+      result.set(row.id_solicitacao, { ...SEM_PRAZO_DEFINIDO, responsavel: 'designer' });
+    } else if (row.status === 'Aprovado') {
+      // Aguardando agendamento (RF012) — sem SLA documentado para quando ele deve ser criado.
+      result.set(row.id_solicitacao, SEM_PRAZO_DEFINIDO);
+    }
+  }
+
+  const idsAguardandoAvaliacao = rows.filter((r) => r.status === 'Enviado para avaliação').map((r) => r.id_solicitacao);
+  if (idsAguardandoAvaliacao.length > 0) {
+    const tokenResult: unknown = await client
+      .from('avaliacao_link_token')
+      .select('expires_at, created_at, versao_arte!inner(id_solicitacao)')
+      .in('versao_arte.id_solicitacao', idsAguardandoAvaliacao)
+      .order('created_at', { ascending: false });
+    const { data: tokenData, error: tokenError } = tokenResult as {
+      data: unknown;
+      error: { message: string } | null;
+    };
+    if (tokenError) throw new Error(`Falha ao calcular prazo do link de avaliação: ${tokenError.message}`);
+
+    const tokenRows = z.array(avaliacaoLinkPrazoRowSchema).parse(tokenData ?? []);
+    for (const tokenRow of tokenRows) {
+      const idSolicitacao = tokenRow.versao_arte.id_solicitacao;
+      // Já ordenado por created_at desc — a primeira ocorrência de cada solicitação é o link mais recente.
+      if (result.has(idSolicitacao)) continue;
+      result.set(idSolicitacao, {
+        tipo: 'validade_link_avaliacao',
+        dataHora: tokenRow.expires_at,
+        responsavel: 'cliente',
+      });
+    }
+    for (const id of idsAguardandoAvaliacao) {
+      if (!result.has(id)) result.set(id, SEM_PRAZO_DEFINIDO);
+    }
+  }
+
+  const idsAgendado = rows.filter((r) => r.status === 'Agendado').map((r) => r.id_solicitacao);
+  if (idsAgendado.length > 0) {
+    const agendamentoResult: unknown = await client
+      .from('agendamento_publicacao')
+      .select('id_solicitacao, data_publicacao, horario')
+      .in('id_solicitacao', idsAgendado)
+      .eq('status', 'Agendado');
+    const { data: agendamentoData, error: agendamentoError } = agendamentoResult as {
+      data: unknown;
+      error: { message: string } | null;
+    };
+    if (agendamentoError) throw new Error(`Falha ao calcular prazo do agendamento: ${agendamentoError.message}`);
+
+    const agendamentoRows = z.array(agendamentoPrazoRowSchema).parse(agendamentoData ?? []);
+    for (const agendamentoRow of agendamentoRows) {
+      result.set(agendamentoRow.id_solicitacao, {
+        tipo: 'agendamento',
+        dataHora: `${agendamentoRow.data_publicacao}T${agendamentoRow.horario}`,
+        responsavel: 'sistema',
+      });
+    }
+    for (const id of idsAgendado) {
+      if (!result.has(id)) result.set(id, SEM_PRAZO_DEFINIDO);
+    }
+  }
+
+  return result;
 }
 
 /** RF005/RN44: listagem/filtro por cliente e status; ownership via RLS (id_designer = auth.uid()). */
@@ -92,7 +224,12 @@ export async function listSolicitacoes(
   if (error) throw new Error(`Falha ao listar solicitações: ${error.message}`);
 
   const rows = z.array(solicitacaoListRowSchema).parse(data ?? []);
-  return { items: rows.map(toSummary), total: count ?? rows.length };
+  const prazoMap = await computePrazoAtual(client, rows);
+  const items = rows.map((row) => ({
+    ...toSummary(row),
+    prazoAtual: prazoMap.get(row.id_solicitacao) ?? SEM_PRAZO_DEFINIDO,
+  }));
+  return { items, total: count ?? rows.length };
 }
 
 export interface SolicitacaoDetail extends SolicitacaoSummary {
@@ -124,8 +261,10 @@ export async function getSolicitacaoDetail(
   if (!data) return null;
 
   const row = solicitacaoDetailRowSchema.parse(data);
+  const prazoMap = await computePrazoAtual(client, [row]);
   return {
     ...toSummary(row),
+    prazoAtual: prazoMap.get(row.id_solicitacao) ?? SEM_PRAZO_DEFINIDO,
     descricao: row.descricao,
     cores: row.cores,
     observacoes: row.observacoes,
@@ -529,4 +668,84 @@ export async function cancelSolicitacaoDesignerRpc(
     throw new ConflictError(error.message);
   }
   throw new Error(`Falha ao cancelar solicitação: ${error.message}`);
+}
+
+/** Estados não terminais (RN39) — os únicos que impedem inativação direta de um designer (item 4/rodada final). */
+const STATUS_NAO_TERMINAIS = SOLICITACAO_STATUSES.filter(
+  (status) => status !== 'Publicado' && status !== 'Cancelado',
+);
+
+const pendenciaDesignerRowSchema = z.object({
+  id_solicitacao: z.number(),
+  tema: z.string().nullable(),
+  status: solicitacaoStatusEnum,
+  prazo_primeira_versao: z.string(),
+  cliente: z
+    .union([clienteEmbedSchema, z.array(clienteEmbedSchema), z.null()])
+    .transform((value) => (Array.isArray(value) ? (value[0] ?? null) : value)),
+});
+
+export interface PendenciaDesignerRow {
+  idSolicitacao: number;
+  clienteNome: string;
+  tema: string | null;
+  status: z.infer<typeof solicitacaoStatusEnum>;
+  /** Só considerada para 'Em produção' (RF006/RN11) — nunca inventa SLA para as demais etapas (item 6.2). */
+  atrasada: boolean;
+}
+
+/**
+ * Item 4 (rodada final): solicitações do designer em qualquer estado NÃO
+ * terminal — usadas tanto para exigir uma estratégia antes de inativar
+ * quanto para listar ao Administrador as pendências de um designer já
+ * inativado pela estratégia "inativar mesmo assim".
+ */
+export async function listPendenciasByDesigner(
+  adminClient: SupabaseClient,
+  idDesigner: string,
+): Promise<PendenciaDesignerRow[]> {
+  const result: unknown = await adminClient
+    .from('solicitacao')
+    .select('id_solicitacao, tema, status, prazo_primeira_versao, cliente!inner(nome)')
+    .eq('id_designer', idDesigner)
+    .in('status', STATUS_NAO_TERMINAIS)
+    .order('data_criacao', { ascending: true });
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao listar pendências do designer: ${error.message}`);
+
+  const agora = Date.now();
+  return z
+    .array(pendenciaDesignerRowSchema)
+    .parse(data ?? [])
+    .map((row) => ({
+      idSolicitacao: row.id_solicitacao,
+      clienteNome: row.cliente?.nome ?? '—',
+      tema: row.tema,
+      status: row.status,
+      atrasada: row.status === 'Em produção' && new Date(row.prazo_primeira_versao).getTime() < agora,
+    }));
+}
+
+/**
+ * Item 4 (rodada final): cancela TODAS as pendências do designer e inativa
+ * o designer, atomicamente (mesma RPC cuida das duas coisas — nunca deixar
+ * um designer inativo com pendências "meio-canceladas" nem o inverso).
+ * Ator é sempre o Administrador que executou a ação (auditoria).
+ */
+export async function adminCancelarPendenciasDesignerRpc(
+  adminClient: SupabaseClient,
+  params: { idDesigner: string; atorId: string },
+): Promise<number> {
+  const result: unknown = await adminClient.rpc('admin_cancelar_pendencias_designer', {
+    p_id_designer: params.idDesigner,
+    p_ator_id: params.atorId,
+  });
+  const { data, error } = result as { data: unknown; error: { message: string; code?: string } | null };
+  if (error) {
+    if (error.code === PG_NO_DATA_FOUND) {
+      throw new NotFoundError('Designer não encontrado.');
+    }
+    throw new Error(`Falha ao cancelar pendências do designer: ${error.message}`);
+  }
+  return z.number().parse(data);
 }

@@ -41,6 +41,7 @@ const sampleSolicitacao: Solicitacao = {
   status: 'Em produção',
   dataCriacao: '2026-01-01T00:00:00Z',
   prazoPrimeiraVersao: '2026-01-06T00:00:00Z',
+  prazoAtual: { tipo: 'primeira_versao', dataHora: '2026-01-06T00:00:00Z', responsavel: 'designer' },
 };
 
 function renderPage() {
@@ -87,5 +88,88 @@ describe('SolicitacoesPage (RF005)', () => {
 
     expect(listSolicitacoesMock).toHaveBeenCalledWith({ status: 'Ajustes' });
     expect(screen.getByRole('combobox', { name: 'Status' })).toHaveValue('Ajustes');
+  });
+
+  describe('item 6/6.1/6.2 (rodada final): coluna "Prazo para vencimento" dinâmica', () => {
+    it('renomeia o cabeçalho da coluna (deixa de ser "Prazo 1ª versão")', async () => {
+      listSolicitacoesMock.mockResolvedValue({ items: [sampleSolicitacao], total: 1, page: 1, pageSize: 20 });
+
+      renderPage();
+      await screen.findByText('Cliente Teste');
+
+      expect(screen.getByRole('columnheader', { name: 'Prazo para vencimento' })).toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: 'Prazo 1ª versão' })).not.toBeInTheDocument();
+    });
+
+    it('"Em produção": mostra o responsável Designer e o prazo da 1ª versão (RF006/RN11)', async () => {
+      listSolicitacoesMock.mockResolvedValue({ items: [sampleSolicitacao], total: 1, page: 1, pageSize: 20 });
+
+      renderPage();
+
+      expect(await screen.findByText('Designer')).toBeInTheDocument();
+    });
+
+    it('"Enviado para avaliação": mostra o responsável Cliente e a validade do link (RF009)', async () => {
+      listSolicitacoesMock.mockResolvedValue({
+        items: [
+          {
+            ...sampleSolicitacao,
+            status: 'Enviado para avaliação',
+            prazoAtual: {
+              tipo: 'validade_link_avaliacao',
+              dataHora: '2099-01-10T18:00:00Z',
+              responsavel: 'cliente',
+            },
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      });
+
+      renderPage();
+
+      expect(await screen.findByText('Cliente')).toBeInTheDocument();
+      expect(screen.getByText(/Link válido até/)).toBeInTheDocument();
+    });
+
+    it('"Ajustes"/"Aprovado" sem SLA documentado: mostra "Sem prazo definido", nunca inventa uma data (item 6.2)', async () => {
+      listSolicitacoesMock.mockResolvedValue({
+        items: [
+          {
+            ...sampleSolicitacao,
+            status: 'Ajustes',
+            prazoAtual: { tipo: 'sem_prazo_definido', dataHora: null, responsavel: 'designer' },
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      });
+
+      renderPage();
+
+      expect(await screen.findByText('Sem prazo definido')).toBeInTheDocument();
+    });
+
+    it('estados terminais (Publicado/Cancelado) mostram "—" em vez de um prazo', async () => {
+      listSolicitacoesMock.mockResolvedValue({
+        items: [
+          {
+            ...sampleSolicitacao,
+            status: 'Publicado',
+            prazoAtual: { tipo: 'terminal', dataHora: null, responsavel: null },
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      });
+
+      renderPage();
+      await screen.findByText('Cliente Teste');
+
+      expect(screen.getByText('—')).toBeInTheDocument();
+    });
   });
 });

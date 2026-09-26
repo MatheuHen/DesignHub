@@ -11,6 +11,26 @@ export const SOLICITACAO_STATUSES = [
 ] as const;
 export type SolicitacaoStatus = (typeof SOLICITACAO_STATUSES)[number];
 
+/**
+ * Item 6/6.1/6.2 (rodada final): prazo da ETAPA ATUAL — nunca o mesmo campo
+ * estático de "1ª versão" depois que ela já foi entregue. Cada `tipo` usa
+ * exclusivamente um prazo real já documentado (RF006/RF009/RF012); etapas
+ * sem SLA de negócio documentado usam `sem_prazo_definido` em vez de um
+ * valor inventado.
+ */
+export type PrazoAtualTipo =
+  | 'primeira_versao'
+  | 'validade_link_avaliacao'
+  | 'agendamento'
+  | 'sem_prazo_definido'
+  | 'terminal';
+
+export interface PrazoAtual {
+  tipo: PrazoAtualTipo;
+  dataHora: string | null;
+  responsavel: 'designer' | 'cliente' | 'sistema' | null;
+}
+
 export interface Solicitacao {
   id: number;
   idCliente: number;
@@ -20,6 +40,7 @@ export interface Solicitacao {
   status: SolicitacaoStatus;
   dataCriacao: string;
   prazoPrimeiraVersao: string;
+  prazoAtual: PrazoAtual;
 }
 
 export interface SolicitacaoDetail extends Solicitacao {
@@ -198,6 +219,27 @@ export interface GerarLinkAvaliacaoResult {
 /** RF009/RN19: gera o link de avaliação da versão pendente e tenta notificar o cliente via WhatsApp. */
 export function gerarLinkAvaliacao(id: number): Promise<GerarLinkAvaliacaoResult> {
   return apiRequest<GerarLinkAvaliacaoResult>(`/api/solicitacoes/${id}/link-avaliacao`, { method: 'POST' });
+}
+
+export type LinkAvaliacaoSituacao = 'aguardando_resposta' | 'respondido' | 'expirado' | 'revogado' | 'falha_envio';
+
+/**
+ * Item 7 (rodada final): histórico PERSISTIDO do link de avaliação — "link
+ * gerado" não é o mesmo que "link enviado", e o designer precisa saber isso
+ * mesmo depois de recarregar a página (diferente de `GerarLinkAvaliacaoResult`,
+ * que só existe na resposta da chamada que gerou o link).
+ */
+export interface LinkAvaliacaoInfo {
+  ultimoEnvioEm: string;
+  whatsappNotificadoEm: string | null;
+  situacao: LinkAvaliacaoSituacao;
+  validoAte: string;
+  quantidadeEnvios: number;
+}
+
+/** Item 7: `null` quando a solicitação ainda não tem nenhuma versão enviada (nunca houve link a gerar). */
+export function getLinkAvaliacaoHistorico(id: number): Promise<LinkAvaliacaoInfo | null> {
+  return apiRequest<LinkAvaliacaoInfo | null>(`/api/solicitacoes/${id}/link-avaliacao`);
 }
 
 export interface AgendamentoInput {

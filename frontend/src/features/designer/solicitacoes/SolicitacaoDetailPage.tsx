@@ -5,6 +5,7 @@ import { FilePreviewPicker } from '../../../components/FilePreviewPicker';
 import { ApiError } from '../../../lib/apiClient';
 import { getSaoPauloNow, isDataHorarioPassadoSaoPaulo } from '../../../lib/saoPauloDate';
 import { statusSlug } from '../../../lib/statusStyle';
+import { useAuth } from '../../auth/useAuth';
 import {
   cancelAgendamento,
   cancelSolicitacao,
@@ -14,6 +15,7 @@ import {
   getAtendimentoReferenciaUrl,
   getClienteInstagramStatus,
   getComprovanteDownloadUrl,
+  getLinkAvaliacaoHistorico,
   getPublicacaoDetalhe,
   getSolicitacaoDetail,
   getVersaoArteDownloadUrl,
@@ -24,9 +26,30 @@ import {
   uploadVersaoArte,
   type ClienteInstagramStatus,
   type GerarLinkAvaliacaoResult,
+  type LinkAvaliacaoInfo,
+  type LinkAvaliacaoSituacao,
   type PublicacaoDetalhe,
   type SolicitacaoDetailResult,
 } from './api';
+
+/** Item 7 (rodada final): rótulos em pt-BR da situação real e persistida do link de avaliação. */
+const LINK_AVALIACAO_SITUACAO_LABEL: Record<LinkAvaliacaoSituacao, string> = {
+  aguardando_resposta: 'Aguardando resposta',
+  respondido: 'Respondido',
+  expirado: 'Expirado',
+  revogado: 'Revogado',
+  falha_envio: 'Falha no envio',
+};
+
+function formatDateTimeCurta(value: string): string {
+  return new Date(value).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 /** RF004/item 5: mesmo formato de path gerado por `downloadAndStoreReferencia` no backend. */
 function isReferenciaPath(value: string): boolean {
@@ -47,6 +70,7 @@ const CANCELAVEIS = new Set(['Em produção', 'Enviado para avaliação', 'Ajust
 export function SolicitacaoDetailPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
+  const { refreshProfile } = useAuth();
 
   const [data, setData] = useState<SolicitacaoDetailResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,6 +109,8 @@ export function SolicitacaoDetailPage() {
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [linkResult, setLinkResult] = useState<GerarLinkAvaliacaoResult | null>(null);
+  /** Item 7 (rodada final): histórico PERSISTIDO — sobrevive a reload, diferente de `linkResult` (ephemeral). */
+  const [linkHistorico, setLinkHistorico] = useState<LinkAvaliacaoInfo | null>(null);
 
   const [agendData, setAgendData] = useState('');
   const [agendHorario, setAgendHorario] = useState('');
@@ -159,6 +185,18 @@ export function SolicitacaoDetailPage() {
           setInstagramStatus(null);
         }
 
+        if (result.solicitacao.status === 'Enviado para avaliação') {
+          getLinkAvaliacaoHistorico(id)
+            .then((historico) => {
+              if (latestRequestIdRef.current === requestId) setLinkHistorico(historico);
+            })
+            .catch(() => {
+              if (latestRequestIdRef.current === requestId) setLinkHistorico(null);
+            });
+        } else {
+          setLinkHistorico(null);
+        }
+
         if (result.solicitacao.status === 'Publicado') {
           getPublicacaoDetalhe(id)
             .then((detalhe) => {
@@ -202,6 +240,9 @@ export function SolicitacaoDetailPage() {
         setUploadFile(null);
         setUploadObservacoes('');
         uploadFormRef.current?.reset();
+        // Item 5.1: a 1ª versão pode ter resolvido um bloqueio por atraso (RF006) —
+        // recarrega o perfil para o aviso sumir sem exigir logout/login.
+        void refreshProfile();
         reload();
       })
       .catch((submitError: unknown) => {
@@ -268,6 +309,11 @@ export function SolicitacaoDetailPage() {
     gerarLinkAvaliacao(id)
       .then((result) => {
         setLinkResult(result);
+        // Item 7: refaz a leitura do histórico persistido para refletir o novo envio
+        // (quantidade de tentativas, situação) sem esperar um reload manual da página.
+        getLinkAvaliacaoHistorico(id)
+          .then(setLinkHistorico)
+          .catch(() => undefined);
       })
       .catch((linkErr: unknown) => {
         setLinkError(
@@ -416,6 +462,8 @@ export function SolicitacaoDetailPage() {
       .then(() => {
         setConfirmingCancelSolicitacao(false);
         reload();
+        // Item 5.1: cancelar também resolve o bloqueio por atraso (RF006/RN12).
+        void refreshProfile();
       })
       .catch((cancelErr: unknown) => {
         setCancelSolicitacaoError(
@@ -690,16 +738,46 @@ export function SolicitacaoDetailPage() {
                 solicitação. O sistema tenta notificar o cliente automaticamente pelo WhatsApp.
               </p>
 
-              {/* Item 6 (correções 13/09/2026): status de notificação (se o link já foi
-                  enviado nesta sessão) é sempre exibido separado do status de negócio da
-                  solicitação (badge acima) — nunca substitui nem altera "Enviado para avaliação". */}
-              <p className="link-avaliacao-status" role="status">
-                {linkResult ? 'Link enviado ao cliente.' : 'Link de avaliação ainda não enviado.'}
-              </p>
+              {/* Item 7 (rodada final): histórico PERSISTIDO — "link gerado" não é o
+                  mesmo que "link enviado". Sempre exibido separado do status de negócio
+                  da solicitação (badge acima) — nunca substitui nem altera "Enviado para
+                  avaliação". Sobrevive a reload, diferente do aviso ephemeral abaixo. */}
+              {linkHistorico ? (
+                <dl className="link-avaliacao-historico">
+                  <div>
+                    <dt>Último envio</dt>
+                    <dd>{formatDateTimeCurta(linkHistorico.ultimoEnvioEm)}</dd>
+                  </div>
+                  <div>
+                    <dt>Canal</dt>
+                    <dd>{linkHistorico.whatsappNotificadoEm ? 'WhatsApp' : 'Copiado manualmente'}</dd>
+                  </div>
+                  <div>
+                    <dt>Situação</dt>
+                    <dd>{LINK_AVALIACAO_SITUACAO_LABEL[linkHistorico.situacao]}</dd>
+                  </div>
+                  <div>
+                    <dt>Validade</dt>
+                    <dd>{formatDateTimeCurta(linkHistorico.validoAte)}</dd>
+                  </div>
+                  <div>
+                    <dt>Quantidade de envios</dt>
+                    <dd>{linkHistorico.quantidadeEnvios}</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p className="link-avaliacao-status" role="status">
+                  Link de avaliação ainda não enviado.
+                </p>
+              )}
 
               <div className="designer-form-actions">
                 <button type="button" onClick={handleGerarLink} disabled={generatingLink}>
-                  {generatingLink ? 'Gerando link de avaliação…' : 'Gerar e enviar link de avaliação'}
+                  {generatingLink
+                    ? 'Gerando link de avaliação…'
+                    : linkHistorico
+                      ? 'Reenviar link de avaliação'
+                      : 'Gerar e enviar link de avaliação'}
                 </button>
               </div>
 

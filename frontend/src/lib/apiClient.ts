@@ -3,11 +3,19 @@ import { supabase } from './supabaseClient';
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /**
+   * Item 4 (rodada final): alguns 409 carregam dados estruturados além da
+   * mensagem (ex.: `DESIGNER_PENDENCIAS` devolve a lista de pendências para
+   * a UI montar o modal de estratégia) — corpo bruto da resposta, quando
+   * houver, para o chamador decidir o que fazer com ele.
+   */
+  readonly details: unknown;
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, details?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -41,14 +49,16 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   if (!response.ok) {
     let code = 'UNKNOWN_ERROR';
     let message = 'Não foi possível concluir a operação.';
+    let details: unknown;
     try {
       const body = (await response.json()) as ApiErrorBody;
       code = body.error ?? code;
       message = body.message ?? message;
+      details = body;
     } catch {
       // resposta sem corpo JSON — mantém mensagem genérica
     }
-    throw new ApiError(response.status, code, message);
+    throw new ApiError(response.status, code, message, details);
   }
 
   if (response.status === 204) {

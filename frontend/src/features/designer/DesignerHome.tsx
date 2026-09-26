@@ -39,7 +39,16 @@ function prazoTag(prazoIso: string): { label: string; className: string } {
  * (RN11) das solicitações "Em produção".
  */
 export function DesignerHome() {
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
+
+  // Item 5.1 (rodada final): recalcula `bloqueado` ao vivo toda vez que o
+  // dashboard é aberto — não depende de logout/login nem de F5 para refletir
+  // um bloqueio que começou (prazo venceu) ou terminou (versão enviada/
+  // cancelamento) desde o último carregamento do perfil.
+  useEffect(() => {
+    void refreshProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [tiles, setTiles] = useState<TileCount[] | null>(null);
   const [emProducao, setEmProducao] = useState<Solicitacao[] | null>(null);

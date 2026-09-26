@@ -41,7 +41,7 @@ export async function gerarAutorizacaoInstagramUrl(
 
   const { raw, hash } = generateOpaqueToken();
   const adminClient = getSupabaseAdminClient();
-  await createOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId });
+  await createOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId, origem: 'designer' });
 
   return { url: buildAuthorizeUrl(raw) };
 }
@@ -71,7 +71,7 @@ export async function enviarLinkConexaoInstagram(
 
   const { raw, hash } = generateOpaqueToken();
   const adminClient = getSupabaseAdminClient();
-  await createOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId });
+  await createOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId, origem: 'cliente_link' });
   const url = buildAuthorizeUrl(raw);
 
   const message =
@@ -123,7 +123,7 @@ export async function removerInstagramConexao(userClient: SupabaseClient, idClie
 export async function processarCallbackInstagram(
   rawState: string,
   code: string,
-): Promise<{ idCliente: number }> {
+): Promise<{ idCliente: number; origem: 'designer' | 'cliente_link' }> {
   // Item N.5.5: nunca grava o access_token sem cifrar — falha explícita
   // (fail-closed) em vez de persistir em texto puro.
   if (!env.INSTAGRAM_TOKEN_ENC_KEY) {
@@ -147,7 +147,7 @@ export async function processarCallbackInstagram(
     encKey: env.INSTAGRAM_TOKEN_ENC_KEY,
   });
 
-  return { idCliente: state.id_cliente };
+  return { idCliente: state.id_cliente, origem: state.origem };
 }
 
 /**

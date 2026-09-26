@@ -435,6 +435,31 @@ p {
   color: #6b6478;
 }
 
+/* Item 7 (rodada final): histórico persistido do link de avaliação. */
+.link-avaliacao-historico {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  background: #f8f6fc;
+  border-radius: 10px;
+}
+
+.link-avaliacao-historico dt {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #746a89;
+}
+
+.link-avaliacao-historico dd {
+  margin: 2px 0 0;
+  font-size: 0.9rem;
+  color: #2b2438;
+}
+
 .atendimento-success {
   margin: 10px 0 0;
   padding: 10px 12px;
@@ -880,6 +905,27 @@ p {
 .prazo-tag--ok { background: #2e9e5b; }
 .prazo-tag--hoje { background: #d9822b; }
 .prazo-tag--atrasado { background: #c0392b; }
+
+/* Item 6/6.1/6.2 (rodada final): célula "Prazo para vencimento" na listagem de solicitações. */
+.prazo-atual-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.88rem;
+}
+
+.prazo-atual-responsavel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #746a89;
+}
+
+.prazo-atual-vazio {
+  color: #8b8299;
+  font-size: 0.88rem;
+}
 
 .dashboard-cta {
   padding: 11px 20px;

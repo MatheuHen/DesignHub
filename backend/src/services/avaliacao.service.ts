@@ -15,17 +15,29 @@ import {
 } from '../lib/fileSignature.js';
 import { generateOpaqueToken, hashOpaqueToken } from '../lib/tokens.js';
 import {
+  WebPushSubscriptionGoneError,
+  sendWebPushNotification,
+  type WebPushPayload,
+} from '../integrations/webpush/webPushClient.js';
+import {
+  deletePushSubscriptionByEndpoint,
+  listPushSubscriptionsByDesigner,
+} from '../repositories/pushSubscription.repository.js';
+import {
   cancelAgendamentoCliente,
   createAgendamentoCliente,
   generateAvaliacaoLinkToken,
   getAvaliacaoLinkState,
+  getLinkAvaliacaoAtual,
   getTrackingAgendamento,
   getTrackingSolicitacaoByVersao,
   getVersaoArtePreview,
   listTrackingHistorico,
   listTrackingVersoes,
+  marcarLinkAvaliacaoNotificado,
   submitAvaliacao,
   type AvaliacaoLinkState,
+  type LinkAvaliacaoInfo,
 } from '../repositories/avaliacao.repository.js';
 import { findClienteById } from '../repositories/atendimento.repository.js';
 import { getDesignerById } from '../repositories/designer.repository.js';
@@ -109,6 +121,18 @@ export async function gerarLinkAvaliacao(
   let whatsappError: string | undefined;
   try {
     await sendTextMessage(cliente.whatsapp, message);
+    // Item 7/7.1 (rodada final): só persiste "notificado" depois da Cloud API
+    // aceitar o envio — nunca porque o token foi gerado. Melhor esforço: uma
+    // falha aqui não desfaz o envio real já confirmado acima, só deixa o
+    // histórico como "não confirmado" (nunca um falso "enviado").
+    try {
+      await marcarLinkAvaliacaoNotificado(adminClient, hash);
+    } catch (persistError) {
+      console.error('[designhub:avaliacao] falha ao persistir confirmação de envio do link (melhor esforço)', {
+        idSolicitacao,
+        message: persistError instanceof Error ? persistError.message : 'erro desconhecido',
+      });
+    }
   } catch (error) {
     whatsappNotified = false;
     // Nunca loga `message`/`url` (contêm o token bruto) — só o erro do SDK/HTTP, truncado.
@@ -125,6 +149,27 @@ export async function gerarLinkAvaliacao(
     whatsappNotified,
     ...(whatsappError ? { whatsappError } : {}),
   };
+}
+
+/**
+ * Item 7 (rodada final): histórico persistido do link de avaliação da versão
+ * pendente — "Último envio realmente aconteceu?", situação atual e quantas
+ * vezes foi (re)enviado. Sobrevive a reload/nova sessão, diferente do
+ * resultado ephemeral de `gerarLinkAvaliacao` (que só existe na resposta
+ * daquela requisição).
+ */
+export async function getLinkAvaliacaoHistorico(
+  userClient: SupabaseClient,
+  idSolicitacao: number,
+  callerId: string,
+): Promise<LinkAvaliacaoInfo | null> {
+  const solicitacao = await getSolicitacaoDetailRepo(userClient, idSolicitacao);
+  if (!solicitacao || solicitacao.idDesigner !== callerId) {
+    throw new NotFoundError('Solicitação não encontrada.');
+  }
+
+  const adminClient = getSupabaseAdminClient();
+  return getLinkAvaliacaoAtual(adminClient, idSolicitacao);
 }
 
 export interface AvaliacaoTrackingVersao {
@@ -351,6 +396,26 @@ export async function submitAvaliacaoDecisao(
   // A partir daqui a decisão já está confirmada e persistida — nada abaixo
   // pode desfazê-la; qualquer falha vira melhor-esforço (log), nunca erro
   // de resposta ao cliente que já aprovou/ajustou/cancelou com sucesso.
+
+  // Item 8 (rodada final): ajuste/cancelamento pelo cliente sempre avisam o
+  // designer responsável — canal in-app (histórico, já gravado pela RPC
+  // acima) sempre disponível; push/WhatsApp são melhor esforço.
+  if (input.decisao === 'Ajustes') {
+    await notificarDesignerEventoClienteBestEffort(adminClient, result.idSolicitacao, {
+      pushTitle: 'Cliente solicitou ajustes',
+      pushBody: 'O cliente pediu ajustes na arte. Consulte a descrição no DesignHub.',
+      whatsappMessage: 'O cliente solicitou ajustes na arte. Consulte a descrição do pedido no DesignHub.',
+      eventoTag: 'AJUSTE',
+    });
+  } else if (input.decisao === 'Cancelado') {
+    await notificarDesignerEventoClienteBestEffort(adminClient, result.idSolicitacao, {
+      pushTitle: 'Cliente cancelou a solicitação',
+      pushBody: 'O cliente cancelou a solicitação pelo link de avaliação.',
+      whatsappMessage: 'AVISO: o cliente cancelou a solicitação de arte pelo link de avaliação.',
+      eventoTag: 'CANCELAMENTO_CLIENTE',
+    });
+  }
+
   if (opcaoPublicacao === 'automatico') {
     const agendamentoAutomaticoCriado = await tentarAgendamentoAutomaticoBestEffort(adminClient, {
       idSolicitacao: result.idSolicitacao,
@@ -358,6 +423,18 @@ export async function submitAvaliacaoDecisao(
       dataPublicacao: input.dataDesejada!,
       horario: input.horarioDesejado!,
       legenda: input.legendaDesejada ?? null,
+    });
+    // Item 8 (rodada final): aviso de aprovação sempre, com o resultado real do
+    // agendamento automático — nunca finge que foi criado se não foi.
+    await notificarDesignerEventoClienteBestEffort(adminClient, result.idSolicitacao, {
+      pushTitle: 'Cliente aprovou a arte',
+      pushBody: agendamentoAutomaticoCriado
+        ? 'Aprovado! Publicação agendada automaticamente.'
+        : 'Aprovado, mas o agendamento automático não pôde ser criado — agende manualmente.',
+      whatsappMessage: agendamentoAutomaticoCriado
+        ? 'O cliente aprovou a arte e a publicação foi agendada automaticamente.'
+        : 'O cliente aprovou a arte, mas o agendamento automático não pôde ser criado. Agende manualmente no DesignHub.',
+      eventoTag: 'APROVACAO_AUTOMATICA',
     });
     return {
       idSolicitacao: result.idSolicitacao,
@@ -372,10 +449,21 @@ export async function submitAvaliacaoDecisao(
    * comunicar. A mensagem antiga ("registre a publicação manual no DesignHub
    * quando ela ocorrer") pedia ao designer uma ação que a regra atual não
    * exige mais, então deixa de ser enviada. Só o caminho `designer_manual`
-   * ainda gera trabalho para o designer e, portanto, aviso.
+   * ainda gera trabalho para o designer e, portanto, aviso. Item 8 (rodada
+   * final): "eu mesmo vou publicar" ainda avisa o designer, só como
+   * informação — nunca cria pendência (RN13/RN14 continuam satisfeitas pelo
+   * histórico da solicitação).
    */
   if (opcaoPublicacao === 'designer_manual') {
     await notificarDesignerPosAprovacaoBestEffort(adminClient, result.idSolicitacao);
+  } else if (opcaoPublicacao === 'proprio_cliente') {
+    await notificarDesignerEventoClienteBestEffort(adminClient, result.idSolicitacao, {
+      pushTitle: 'Cliente aprovou a arte',
+      pushBody: 'Aprovado! O cliente vai publicar por conta própria — nenhuma ação necessária.',
+      whatsappMessage:
+        'O cliente aprovou a arte e vai publicar por conta própria. Nenhuma ação sua é necessária.',
+      eventoTag: 'APROVACAO_PUBLICACAO_PROPRIA',
+    });
   }
 
   return { idSolicitacao: result.idSolicitacao, statusNovo: result.statusNovo };
@@ -435,6 +523,89 @@ async function tentarAgendamentoAutomaticoBestEffort(
  * encerra a solicitação como `Publicado` e não deixa nenhuma pendência que
  * justifique avisar o designer.
  */
+/**
+ * Item 8/8.1 (rodada final): Web Push best-effort ao(s) dispositivo(s) do
+ * designer — mesmo padrão de limpeza de assinatura expirada já usado em
+ * `notificarPublicacoesProximas` (item 9). Nunca lança: o canal confiável e
+ * sempre disponível é o histórico da solicitação, gravado atomicamente pela
+ * RPC de negócio antes deste ponto.
+ */
+async function notificarDesignerPushBestEffort(
+  adminClient: SupabaseClient,
+  idDesigner: string,
+  payload: WebPushPayload,
+): Promise<void> {
+  let subscriptions;
+  try {
+    subscriptions = await listPushSubscriptionsByDesigner(adminClient, idDesigner);
+  } catch (error) {
+    console.error('[designhub:push] falha ao buscar assinaturas do designer (evento do cliente)', {
+      idDesigner,
+      message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
+    });
+    return;
+  }
+
+  for (const subscription of subscriptions) {
+    try {
+      await sendWebPushNotification(subscription, payload);
+    } catch (sendError) {
+      if (sendError instanceof WebPushSubscriptionGoneError) {
+        await deletePushSubscriptionByEndpoint(adminClient, subscription.endpoint).catch(() => undefined);
+        continue;
+      }
+      console.error('[designhub:push] falha ao notificar designer (evento do cliente)', {
+        idDesigner,
+        message: sendError instanceof Error ? sendError.message.slice(0, 200) : 'erro desconhecido',
+      });
+    }
+  }
+}
+
+/**
+ * Item 8/8.1/8.2 (rodada final): aviso combinado ao designer para eventos do
+ * CLIENTE sem template Meta aprovado ainda (Ajustes, Cancelado via
+ * avaliação, aprovação com agendamento automático, publicação pelo próprio
+ * cliente) — Web Push + WhatsApp texto livre (fora da janela de 24h vira
+ * BLOCKED_EXTERNAL explícito, nunca finge sucesso; nunca inventa um template
+ * não aprovado, seção 3.6.1/16.5). Nunca lança nem desfaz a decisão já
+ * confirmada — o histórico da solicitação é sempre o canal confiável.
+ */
+async function notificarDesignerEventoClienteBestEffort(
+  adminClient: SupabaseClient,
+  idSolicitacao: number,
+  params: { pushTitle: string; pushBody: string; whatsappMessage: string; eventoTag: string },
+): Promise<void> {
+  const solicitacao = await getSolicitacaoDetailRepo(adminClient, idSolicitacao).catch(() => null);
+  if (!solicitacao) return;
+
+  await notificarDesignerPushBestEffort(adminClient, solicitacao.idDesigner, {
+    title: params.pushTitle,
+    body: params.pushBody,
+    url: `${env.FRONTEND_URL}/designer/solicitacoes/${idSolicitacao}`,
+  });
+
+  const designer = await getDesignerById(adminClient, solicitacao.idDesigner).catch(() => null);
+  if (!designer?.whatsapp) return;
+
+  try {
+    await sendTextMessage(designer.whatsapp, params.whatsappMessage);
+  } catch (error) {
+    if (error instanceof WhatsAppReengagementRequiredError) {
+      console.warn(
+        `[designhub:avaliacao] BLOCKED_EXTERNAL_WHATSAPP_${params.eventoTag}: janela de 24h fechada e nenhum template aprovado para este aviso — alerta in-app (histórico) e push permanecem`,
+        { idSolicitacao },
+      );
+      return;
+    }
+    console.error('[designhub:avaliacao] falha ao alertar designer via WhatsApp', {
+      idSolicitacao,
+      evento: params.eventoTag,
+      message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
+    });
+  }
+}
+
 async function notificarDesignerPosAprovacaoBestEffort(
   adminClient: SupabaseClient,
   idSolicitacao: number,
@@ -442,6 +613,13 @@ async function notificarDesignerPosAprovacaoBestEffort(
   try {
     const solicitacao = await getSolicitacaoDetailRepo(adminClient, idSolicitacao);
     if (!solicitacao) return;
+
+    // Item 8/8.1 (rodada final): push é enviado independentemente do WhatsApp abaixo ter destino.
+    await notificarDesignerPushBestEffort(adminClient, solicitacao.idDesigner, {
+      title: 'Cliente aprovou a arte',
+      body: `${solicitacao.clienteNome} aprovou "${solicitacao.tema ?? 'a arte'}" e prefere que você agende a publicação.`,
+      url: `${env.FRONTEND_URL}/designer/solicitacoes/${idSolicitacao}`,
+    });
 
     const designer = await getDesignerById(adminClient, solicitacao.idDesigner);
     if (!designer?.whatsapp) return;
@@ -491,6 +669,13 @@ async function notificarDesignerCancelamentoBestEffort(
   try {
     const solicitacao = await getSolicitacaoDetailRepo(adminClient, idSolicitacao);
     if (!solicitacao) return;
+
+    // Item 8/8.1 (rodada final): push é enviado independentemente do WhatsApp abaixo ter destino.
+    await notificarDesignerPushBestEffort(adminClient, solicitacao.idDesigner, {
+      title: 'Cliente cancelou o agendamento',
+      body: `${solicitacao.clienteNome} cancelou o agendamento de publicação de "${solicitacao.tema ?? 'uma arte'}".`,
+      url: `${env.FRONTEND_URL}/designer/solicitacoes/${idSolicitacao}`,
+    });
 
     const designer = await getDesignerById(adminClient, solicitacao.idDesigner);
     if (!designer?.whatsapp) return;

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import { useAutoDismiss } from '../../../lib/useAutoDismiss';
+import { INSTAGRAM_OAUTH_MESSAGE_SOURCE } from '../../instagram/oauthMessage';
 import {
   createCliente,
   deleteCliente,
@@ -20,7 +21,6 @@ import { ClienteFormPanel, type ClienteFormValues } from './ClienteFormPanel';
 
 type PanelState = { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; cliente: Cliente };
 
-const INSTAGRAM_OAUTH_MESSAGE_SOURCE = 'designhub-instagram-oauth';
 /** Mesmo breakpoint tablet/desktop já usado no restante do app (styles.css). */
 const POPUP_VIEWPORT_QUERY = '(min-width: 861px)';
 

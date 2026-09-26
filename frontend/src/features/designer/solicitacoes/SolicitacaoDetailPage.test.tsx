@@ -11,6 +11,7 @@ const {
   getVersaoArteDownloadUrlMock,
   getAjusteReferenciaUrlMock,
   gerarLinkAvaliacaoMock,
+  getLinkAvaliacaoHistoricoMock,
   createAgendamentoMock,
   updateAgendamentoMock,
   cancelAgendamentoMock,
@@ -28,6 +29,7 @@ const {
   getVersaoArteDownloadUrlMock: vi.fn(),
   getAjusteReferenciaUrlMock: vi.fn(),
   gerarLinkAvaliacaoMock: vi.fn(),
+  getLinkAvaliacaoHistoricoMock: vi.fn(),
   createAgendamentoMock: vi.fn(),
   updateAgendamentoMock: vi.fn(),
   cancelAgendamentoMock: vi.fn(),
@@ -50,6 +52,7 @@ vi.mock('./api', async (importOriginal) => {
     getVersaoArteDownloadUrl: getVersaoArteDownloadUrlMock,
     getAjusteReferenciaUrl: getAjusteReferenciaUrlMock,
     gerarLinkAvaliacao: gerarLinkAvaliacaoMock,
+    getLinkAvaliacaoHistorico: getLinkAvaliacaoHistoricoMock,
     createAgendamento: createAgendamentoMock,
     updateAgendamento: updateAgendamentoMock,
     cancelAgendamento: cancelAgendamentoMock,
@@ -78,6 +81,7 @@ vi.mock('../../auth/useAuth', () => ({
     profileError: null,
     signIn: vi.fn(),
     signOut: vi.fn(),
+    refreshProfile: vi.fn().mockResolvedValue(undefined),
   }),
 }));
 
@@ -93,6 +97,7 @@ const sampleDetail: SolicitacaoDetailResult = {
     status: 'Em produção',
     dataCriacao: '2026-01-01T00:00:00Z',
     prazoPrimeiraVersao: '2026-01-06T00:00:00Z',
+    prazoAtual: { tipo: 'primeira_versao', dataHora: '2026-01-06T00:00:00Z', responsavel: 'designer' },
     descricao: null,
     cores: 'Azul',
     observacoes: null,
@@ -125,6 +130,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     getVersaoArteDownloadUrlMock.mockReset();
     getAjusteReferenciaUrlMock.mockReset();
     gerarLinkAvaliacaoMock.mockReset();
+    getLinkAvaliacaoHistoricoMock.mockReset().mockResolvedValue(null);
     createAgendamentoMock.mockReset();
     updateAgendamentoMock.mockReset();
     cancelAgendamentoMock.mockReset();
@@ -369,9 +375,16 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       expiresAt: '2026-01-08T00:00:00Z',
       whatsappNotified: true,
     });
+    getLinkAvaliacaoHistoricoMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      ultimoEnvioEm: '2026-01-01T12:00:00Z',
+      whatsappNotificadoEm: '2026-01-01T12:00:01Z',
+      situacao: 'aguardando_resposta',
+      validoAte: '2026-01-08T00:00:00Z',
+      quantidadeEnvios: 1,
+    });
 
     renderPage();
-    // item 6 (correções 13/09/2026): status de notificação, separado do status de negócio.
+    // item 6/7 (rodada final): status de notificação, separado do status de negócio.
     expect(await screen.findByText('Link de avaliação ainda não enviado.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Gerar e enviar link de avaliação' }));
@@ -380,8 +393,11 @@ describe('SolicitacaoDetailPage (RF005)', () => {
       expect(gerarLinkAvaliacaoMock).toHaveBeenCalledWith(10);
     });
     expect(await screen.findByText(/Cliente notificado via WhatsApp com sucesso/)).toBeInTheDocument();
-    expect(screen.getByText('Link enviado ao cliente.')).toBeInTheDocument();
+    // Item 7: histórico persistido (sobrevive a reload) substitui o aviso genérico.
+    expect(await screen.findByText('Aguardando resposta')).toBeInTheDocument();
+    expect(screen.getByText('WhatsApp')).toBeInTheDocument();
     expect(screen.queryByText('Link de avaliação ainda não enviado.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reenviar link de avaliação' })).toBeInTheDocument();
   });
 
   it('não mascara falha de notificação WhatsApp ao gerar o link', async () => {
@@ -400,6 +416,66 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Gerar e enviar link de avaliação' }));
 
     expect(await screen.findByText(/não foi possível notificar via WhatsApp/)).toBeInTheDocument();
+  });
+
+  describe('item 7 (rodada final): histórico persistido do link de avaliação', () => {
+    it('carrega e mostra o histórico persistido ao abrir a página (sem precisar gerar de novo)', async () => {
+      getSolicitacaoDetailMock.mockResolvedValue({
+        ...sampleDetail,
+        solicitacao: { ...sampleDetail.solicitacao, status: 'Enviado para avaliação' },
+      });
+      getLinkAvaliacaoHistoricoMock.mockResolvedValue({
+        ultimoEnvioEm: '2026-01-01T12:00:00Z',
+        whatsappNotificadoEm: '2026-01-01T12:00:01Z',
+        situacao: 'aguardando_resposta',
+        validoAte: '2026-01-08T00:00:00Z',
+        quantidadeEnvios: 3,
+      });
+
+      renderPage();
+
+      expect(await screen.findByText('Aguardando resposta')).toBeInTheDocument();
+      expect(screen.getByText('3')).toBeInTheDocument();
+      expect(screen.getByText('WhatsApp')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reenviar link de avaliação' })).toBeInTheDocument();
+    });
+
+    it('item 7.1: "falha_envio" mostra canal "Copiado manualmente" (nunca confunde link gerado com link enviado)', async () => {
+      getSolicitacaoDetailMock.mockResolvedValue({
+        ...sampleDetail,
+        solicitacao: { ...sampleDetail.solicitacao, status: 'Enviado para avaliação' },
+      });
+      getLinkAvaliacaoHistoricoMock.mockResolvedValue({
+        ultimoEnvioEm: '2026-01-01T12:00:00Z',
+        whatsappNotificadoEm: null,
+        situacao: 'falha_envio',
+        validoAte: '2026-01-08T00:00:00Z',
+        quantidadeEnvios: 1,
+      });
+
+      renderPage();
+
+      expect(await screen.findByText('Falha no envio')).toBeInTheDocument();
+      expect(screen.getByText('Copiado manualmente')).toBeInTheDocument();
+    });
+
+    it('link expirado: situação mostra "Expirado"', async () => {
+      getSolicitacaoDetailMock.mockResolvedValue({
+        ...sampleDetail,
+        solicitacao: { ...sampleDetail.solicitacao, status: 'Enviado para avaliação' },
+      });
+      getLinkAvaliacaoHistoricoMock.mockResolvedValue({
+        ultimoEnvioEm: '2025-01-01T12:00:00Z',
+        whatsappNotificadoEm: '2025-01-01T12:00:01Z',
+        situacao: 'expirado',
+        validoAte: '2025-01-08T00:00:00Z',
+        quantidadeEnvios: 1,
+      });
+
+      renderPage();
+
+      expect(await screen.findByText('Expirado')).toBeInTheDocument();
+    });
   });
 
   it('exibe o formulário de agendamento quando o status é "Aprovado" (RF012/RN30)', async () => {

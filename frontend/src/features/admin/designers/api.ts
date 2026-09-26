@@ -1,6 +1,25 @@
 import { apiRequest } from '../../../lib/apiClient';
 import type { ListSolicitacoesResult, SolicitacaoStatus } from '../../designer/solicitacoes/api';
 
+/** Item 4 (rodada final): estratégias aprovadas para inativar um designer com pendências. */
+export type EstrategiaInativacao = 'cancelar_pendentes' | 'reatribuir_pendentes' | 'inativar_mesmo_assim';
+
+/** Item 4 (rodada final): solicitação em estado não terminal ainda vinculada ao designer. */
+export interface PendenciaDesigner {
+  idSolicitacao: number;
+  clienteNome: string;
+  tema: string | null;
+  status: SolicitacaoStatus;
+  /** Só considerada para 'Em produção' (RF006/RN11) — nunca inventa SLA para as demais etapas. */
+  atrasada: boolean;
+}
+
+export interface SetDesignerStatusInput {
+  status: 'ativo' | 'inativo';
+  estrategia?: EstrategiaInativacao;
+  reatribuicoes?: { idSolicitacao: number; novoDesignerId: string }[];
+}
+
 export interface Designer {
   id: string;
   nomeCompleto: string;
@@ -62,12 +81,22 @@ export function updateDesigner(id: string, input: UpdateDesignerInput): Promise<
   });
 }
 
-/** RF001: inativação/reativação. */
-export function setDesignerStatus(id: string, status: 'ativo' | 'inativo'): Promise<void> {
+/**
+ * RF001/item 4 (rodada final): inativação/reativação. Inativar um designer
+ * com solicitações pendentes sem `estrategia` é rejeitado pelo backend com
+ * 409 `DESIGNER_PENDENCIAS` (corpo com a lista de pendências) — o backend é
+ * a autoridade, esta função só repassa o que a UI decidir.
+ */
+export function setDesignerStatus(id: string, input: SetDesignerStatusInput): Promise<void> {
   return apiRequest<void>(`/api/designers/${id}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(input),
   });
+}
+
+/** Item 4 (rodada final): pendências (estados não terminais) de um designer — usável a qualquer momento. */
+export function getDesignerPendencias(id: string): Promise<{ items: PendenciaDesigner[] }> {
+  return apiRequest<{ items: PendenciaDesigner[] }>(`/api/designers/${id}/pendencias`);
 }
 
 /** RF001/item 2.1: Admin define uma nova senha para o designer. */

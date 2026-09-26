@@ -32,9 +32,26 @@ export const updateDesignerSchema = z
   .refine((data) => Object.keys(data).length > 0, { message: 'Nenhum campo para atualizar.' });
 export type UpdateDesignerInput = z.infer<typeof updateDesignerSchema>;
 
+/**
+ * Item 4 (rodada final): inativar um designer com solicitações pendentes
+ * (estados não terminais) exige uma estratégia explícita. `reatribuicoes` só
+ * é obrigatório para `reatribuir_pendentes` — validado no service (precisa
+ * conferir contra a lista real de pendências do designer, não só o formato).
+ */
 export const setDesignerStatusSchema = z.object({
   status: z.enum(['ativo', 'inativo']),
+  estrategia: z.enum(['cancelar_pendentes', 'reatribuir_pendentes', 'inativar_mesmo_assim']).optional(),
+  reatribuicoes: z
+    .array(
+      z.object({
+        idSolicitacao: z.coerce.number().int().positive(),
+        novoDesignerId: z.string().uuid(),
+      }),
+    )
+    .max(200)
+    .optional(),
 });
+export type SetDesignerStatusInput = z.infer<typeof setDesignerStatusSchema>;
 
 /** RF001/item 2.1: Admin altera a senha de um designer existente. */
 export const changeDesignerPasswordSchema = z

@@ -51,6 +51,7 @@ const sampleDetail: SolicitacaoDetailResult = {
     status: 'Aprovado',
     dataCriacao: '2026-01-01T00:00:00Z',
     prazoPrimeiraVersao: '2026-01-06T00:00:00Z',
+    prazoAtual: { tipo: 'sem_prazo_definido', dataHora: null, responsavel: null },
     descricao: null,
     cores: 'Azul',
     observacoes: 'Observação teste',

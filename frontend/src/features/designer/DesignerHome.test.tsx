@@ -37,6 +37,7 @@ const baseAuth: AuthContextValue = {
   profileError: null,
   signIn: vi.fn(),
   signOut: vi.fn(),
+  refreshProfile: vi.fn().mockResolvedValue(undefined),
 };
 
 function renderPage() {

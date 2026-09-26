@@ -18,13 +18,18 @@ import {
   type DesignerSummary,
 } from '../repositories/designer.repository.js';
 import {
+  adminCancelarPendenciasDesignerRpc,
   getSolicitacaoCore,
+  listPendenciasByDesigner,
   reassignSolicitacaoRpc,
+  syncDesignerBloqueio,
+  type PendenciaDesignerRow,
 } from '../repositories/solicitacao.repository.js';
 import type {
   CreateDesignerInput,
   ListDesignersQuery,
   ReassignSolicitacaoInput,
+  SetDesignerStatusInput,
   UpdateDesignerInput,
 } from '../schemas/designer.schemas.js';
 
@@ -112,12 +117,98 @@ export async function updateDesigner(id: string, changes: UpdateDesignerInput): 
   await updateDesignerProfile(adminClient, id, changes);
 }
 
-/** RF001: inativação/reativação de designer. */
-export async function changeDesignerStatus(id: string, status: 'ativo' | 'inativo'): Promise<void> {
+export interface ChangeDesignerStatusResult {
+  /**
+   * Presente somente quando `status: 'inativo'` foi pedido sem `estrategia`
+   * e o designer possui solicitações pendentes — o backend rejeita a
+   * inativação direta e devolve a lista para a UI exigir uma escolha
+   * (item 4/rodada final). Ausente em qualquer outro caso.
+   */
+  pendencias?: PendenciaDesignerRow[];
+}
+
+/** RF001/item 4 (rodada final): leitura das pendências de um designer — usável a qualquer momento, não só durante a inativação. */
+export async function listPendenciasDesigner(id: string): Promise<PendenciaDesignerRow[]> {
   const adminClient = getSupabaseAdminClient();
   const designer = await getDesignerById(adminClient, id);
   if (!designer) throw new NotFoundError('Designer não encontrado.');
-  await setDesignerStatus(adminClient, id, status);
+  return listPendenciasByDesigner(adminClient, id);
+}
+
+/**
+ * RF001/item 4 (rodada final): inativação/reativação de designer.
+ * Reativar (`status: 'ativo'`) nunca exige estratégia. Inativar exige uma
+ * das 3 estratégias aprovadas quando existem pendências (estados não
+ * terminais — RN39): `cancelar_pendentes`, `reatribuir_pendentes` ou
+ * `inativar_mesmo_assim`. Backend é a autoridade: sem pendências ou com
+ * `inativar_mesmo_assim`, a inativação é direta; as outras duas estratégias
+ * só inativam depois que TODAS as pendências têm destino válido.
+ */
+export async function changeDesignerStatus(
+  atorId: string,
+  id: string,
+  input: SetDesignerStatusInput,
+): Promise<ChangeDesignerStatusResult> {
+  const adminClient = getSupabaseAdminClient();
+  const designer = await getDesignerById(adminClient, id);
+  if (!designer) throw new NotFoundError('Designer não encontrado.');
+
+  if (input.status === 'ativo') {
+    await setDesignerStatus(adminClient, id, 'ativo');
+    return {};
+  }
+
+  if (!input.estrategia) {
+    const pendencias = await listPendenciasByDesigner(adminClient, id);
+    if (pendencias.length > 0) return { pendencias };
+    await setDesignerStatus(adminClient, id, 'inativo');
+    return {};
+  }
+
+  if (input.estrategia === 'inativar_mesmo_assim') {
+    // Item 4: não cancela nem reatribui nada — as pendências continuam
+    // visíveis ao Administrador via `listPendenciasDesigner` para ação futura.
+    await setDesignerStatus(adminClient, id, 'inativo');
+    return {};
+  }
+
+  if (input.estrategia === 'cancelar_pendentes') {
+    // RPC atômica: cancela todas as pendências (mesma regra de
+    // `cancel_solicitacao_designer`, incluindo agendamento ativo) e inativa
+    // o designer na mesma transação.
+    await adminCancelarPendenciasDesignerRpc(adminClient, { idDesigner: id, atorId });
+    return {};
+  }
+
+  // estrategia === 'reatribuir_pendentes'
+  const pendencias = await listPendenciasByDesigner(adminClient, id);
+  const pendenciasIds = new Set(pendencias.map((p) => p.idSolicitacao));
+  const reatribuicoes = input.reatribuicoes ?? [];
+  const idsFornecidos = new Set(reatribuicoes.map((r) => r.idSolicitacao));
+
+  const semDestino = [...pendenciasIds].filter((pid) => !idsFornecidos.has(pid));
+  if (semDestino.length > 0) {
+    throw new ValidationError(
+      'Indique um novo designer para todas as solicitações pendentes antes de inativar.',
+    );
+  }
+  const invalidas = reatribuicoes.filter((r) => !pendenciasIds.has(r.idSolicitacao));
+  if (invalidas.length > 0) {
+    throw new ValidationError('Uma ou mais solicitações informadas não são pendências deste designer.');
+  }
+
+  // Reaproveita `reassignSolicitacao` (mesma validação de designer de
+  // destino ativo/não bloqueado e mesma auditoria de RF016) para cada
+  // pendência — se uma falhar no meio, o designer permanece ativo e as já
+  // reatribuídas ficam com destino válido (estado seguro para retomar).
+  for (const reatribuicao of reatribuicoes) {
+    await reassignSolicitacao(atorId, reatribuicao.idSolicitacao, {
+      novoDesignerId: reatribuicao.novoDesignerId,
+    });
+  }
+
+  await setDesignerStatus(adminClient, id, 'inativo');
+  return {};
 }
 
 /**
@@ -182,6 +273,21 @@ export async function reassignSolicitacao(
   }
 
   await assertDesignerIsActive(adminClient, input.novoDesignerId);
+
+  /**
+   * Item 5/5.1 (rodada final): "receber nova atribuição" é explicitamente um
+   * dos caminhos que geram novo serviço para o designer — reatribuir uma
+   * solicitação para um designer com outra solicitação vencida sem a 1ª
+   * versão (RF006/RN11/RN12) seria dar-lhe mais trabalho antes de resolver a
+   * pendência atual. Recalculado ao vivo (nunca a coluna cache) — mesma
+   * autoridade de `iniciarAtendimento`.
+   */
+  const destinoBloqueado = await syncDesignerBloqueio(adminClient, input.novoDesignerId);
+  if (destinoBloqueado) {
+    throw new ConflictError(
+      'O designer de destino possui solicitação vencida sem a primeira versão enviada e não pode receber novas atribuições até resolver a pendência.',
+    );
+  }
 
   await reassignSolicitacaoRpc(adminClient, {
     idSolicitacao: solicitacao.idSolicitacao,

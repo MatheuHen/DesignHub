@@ -17,6 +17,7 @@ import {
   createDesigner,
   getDesigner,
   listDesigners,
+  listPendenciasDesigner,
   removeDesigner,
   updateDesigner,
 } from '../services/designer.service.js';
@@ -84,11 +85,35 @@ designerRouter.patch('/:id', designerAdminRateLimit, async (request, response, n
   }
 });
 
+/**
+ * Item 4 (rodada final): pendências (estados não terminais) de um designer —
+ * usada tanto para o Admin decidir a estratégia de inativação quanto para
+ * revisar depois um designer que ficou "inativo mesmo assim" com pendências.
+ */
+designerRouter.get('/:id/pendencias', async (request, response, next) => {
+  try {
+    const { id } = designerIdParamSchema.parse(request.params);
+    const pendencias = await listPendenciasDesigner(id);
+    response.status(200).json({ items: pendencias });
+  } catch (error) {
+    next(toAppError(error));
+  }
+});
+
 designerRouter.patch('/:id/status', designerAdminRateLimit, async (request, response, next) => {
   try {
     const { id } = designerIdParamSchema.parse(request.params);
     const input = setDesignerStatusSchema.parse(request.body);
-    await changeDesignerStatus(id, input.status);
+    const result = await changeDesignerStatus(request.auth!.userId, id, input);
+    if (result.pendencias) {
+      response.status(409).json({
+        error: 'DESIGNER_PENDENCIAS',
+        message:
+          'Este designer possui solicitações pendentes. Escolha uma estratégia (cancelar, reatribuir ou inativar mesmo assim) para continuar.',
+        pendencias: result.pendencias,
+      });
+      return;
+    }
     response.status(204).end();
   } catch (error) {
     next(toAppError(error));

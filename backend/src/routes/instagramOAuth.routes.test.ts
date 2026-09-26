@@ -28,24 +28,24 @@ describe('GET /api/instagram/oauth/callback (RF014/ADR 0005 — rota pública)',
     processarCallbackInstagramMock.mockReset();
   });
 
-  it('redireciona com instagram=erro quando a Meta retorna erro (usuário negou acesso)', async () => {
+  it('redireciona para a página pública de status com erro quando a Meta retorna erro (usuário negou acesso)', async () => {
     const response = await request(createApp()).get(
       '/api/instagram/oauth/callback?error=access_denied&state=abc',
     );
 
     expect(response.status).toBe(302);
-    expect(response.headers.location).toContain('instagram=erro');
+    expect(response.headers.location).toContain('/instagram/status?resultado=erro');
     expect(processarCallbackInstagramMock).not.toHaveBeenCalled();
   });
 
-  it('redireciona com instagram=erro quando faltam code/state', async () => {
+  it('redireciona para a página pública de status com erro quando faltam code/state', async () => {
     const response = await request(createApp()).get('/api/instagram/oauth/callback');
 
     expect(response.status).toBe(302);
-    expect(response.headers.location).toContain('instagram=erro');
+    expect(response.headers.location).toContain('/instagram/status?resultado=erro');
   });
 
-  it('redireciona com instagram=erro quando o state é inválido/expirado — nunca expõe detalhe técnico na URL', async () => {
+  it('item 12.2/13.3 (rodada final): erro com state inválido/expirado vai para a página pública (origem ainda não é conhecida) — nunca expõe detalhe técnico na URL', async () => {
     processarCallbackInstagramMock.mockRejectedValue(new ConflictError('link de conexão inválido'));
 
     const response = await request(createApp()).get(
@@ -53,20 +53,32 @@ describe('GET /api/instagram/oauth/callback (RF014/ADR 0005 — rota pública)',
     );
 
     expect(response.status).toBe(302);
-    expect(response.headers.location).toContain('instagram=erro');
+    expect(response.headers.location).toContain('/instagram/status?resultado=erro');
     expect(response.headers.location).not.toMatch(/invalido|link de conexão/);
   });
 
-  it('redireciona com instagram=conectado quando o callback é processado com sucesso', async () => {
-    processarCallbackInstagramMock.mockResolvedValue({ idCliente: 7 });
+  it('sucesso com origem "designer" redireciona para a listagem de clientes do designer', async () => {
+    processarCallbackInstagramMock.mockResolvedValue({ idCliente: 7, origem: 'designer' });
 
     const response = await request(createApp()).get(
       '/api/instagram/oauth/callback?code=abc&state=valido',
     );
 
     expect(response.status).toBe(302);
-    expect(response.headers.location).toContain('instagram=conectado');
+    expect(response.headers.location).toContain('/designer/clientes?instagram=conectado');
     expect(processarCallbackInstagramMock).toHaveBeenCalledWith('valido', 'abc');
+  });
+
+  it('item 12.2/13.3 (rodada final): sucesso com origem "cliente_link" redireciona para a página pública de status — nunca a rota protegida do designer', async () => {
+    processarCallbackInstagramMock.mockResolvedValue({ idCliente: 7, origem: 'cliente_link' });
+
+    const response = await request(createApp()).get(
+      '/api/instagram/oauth/callback?code=abc&state=valido',
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toContain('/instagram/status?resultado=conectado');
+    expect(response.headers.location).not.toContain('/designer/clientes');
   });
 });
 

@@ -56,24 +56,41 @@ const callbackQuerySchema = z.object({
   error: z.string().optional(),
 });
 
-/** Redireciona sempre para a tela de Clientes do designer — nunca expõe token/código na URL de destino. */
+/** Redireciona para a tela de Clientes do designer — nunca expõe token/código na URL de destino. */
 function redirectToClientes(query: string): string {
   return `${env.FRONTEND_URL}/designer/clientes?${query}`;
+}
+
+/**
+ * Item 12.2/13.3 (rodada final): destino seguro quando quem abriu o OAuth
+ * NÃO foi o designer autenticado (fluxo "enviar link ao cliente" via
+ * WhatsApp) — página pública simples, nunca a listagem protegida do
+ * designer. Também usada como destino padrão quando `state`/`code` estão
+ * ausentes/inválidos e a origem ainda não pôde ser determinada (mais seguro
+ * do que arriscar redirecionar um cliente sem sessão para uma rota
+ * protegida).
+ */
+function redirectToInstagramStatus(query: string): string {
+  return `${env.FRONTEND_URL}/instagram/status?${query}`;
 }
 
 instagramOAuthRouter.get('/callback', callbackRateLimit, async (request, response) => {
   const parsed = callbackQuerySchema.safeParse(request.query);
   if (!parsed.success || parsed.data.error || !parsed.data.code || !parsed.data.state) {
-    response.redirect(302, redirectToClientes('instagram=erro'));
+    response.redirect(302, redirectToInstagramStatus('resultado=erro'));
     return;
   }
 
   try {
-    await processarCallbackInstagram(parsed.data.state, parsed.data.code);
-    response.redirect(302, redirectToClientes('instagram=conectado'));
+    const { origem } = await processarCallbackInstagram(parsed.data.state, parsed.data.code);
+    response.redirect(
+      302,
+      origem === 'designer' ? redirectToClientes('instagram=conectado') : redirectToInstagramStatus('resultado=conectado'),
+    );
   } catch {
     // Nunca expõe detalhe técnico/payload da Meta na URL pública (seção 12.6) — só o resultado.
-    response.redirect(302, redirectToClientes('instagram=erro'));
+    // A origem não é conhecida aqui (o state pode não ter sido consumido) — destino público seguro por padrão.
+    response.redirect(302, redirectToInstagramStatus('resultado=erro'));
   }
 });
 

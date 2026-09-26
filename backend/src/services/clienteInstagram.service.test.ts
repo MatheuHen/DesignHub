@@ -92,7 +92,7 @@ describe('gerarAutorizacaoInstagramUrl (RF014/ADR 0005)', () => {
     expect(result).toEqual({ url: 'https://www.instagram.com/oauth/authorize?state=abc' });
     expect(createOAuthStateMock).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ idCliente: 1, idDesigner: 'designer-1' }),
+      expect.objectContaining({ idCliente: 1, idDesigner: 'designer-1', origem: 'designer' }),
     );
   });
 });
@@ -156,6 +156,10 @@ describe('enviarLinkConexaoInstagram (item 4 — rodada correções Instagram)',
     const result = await enviarLinkConexaoInstagram({} as never, 1, 'designer-1');
 
     expect(result).toEqual({ url: 'https://www.instagram.com/oauth/authorize?state=abc', whatsappNotified: true });
+    expect(createOAuthStateMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ idCliente: 1, idDesigner: 'designer-1', origem: 'cliente_link' }),
+    );
     expect(sendTextMessageMock).toHaveBeenCalledWith(
       '5511988887777',
       expect.stringContaining('https://www.instagram.com/oauth/authorize?state=abc'),
@@ -194,7 +198,7 @@ describe('processarCallbackInstagram (RF014/ADR 0005 — callback público)', ()
   });
 
   it('troca o code e grava a conexão vinculada ao id_cliente do state validado', async () => {
-    consumeOAuthStateMock.mockResolvedValue({ id_cliente: 7, id_designer: 'designer-1' });
+    consumeOAuthStateMock.mockResolvedValue({ id_cliente: 7, id_designer: 'designer-1', origem: 'designer' });
     exchangeCodeForLongLivedTokenMock.mockResolvedValue({
       accessToken: 'token-longo',
       instagramUserId: 'conta-7',
@@ -203,7 +207,7 @@ describe('processarCallbackInstagram (RF014/ADR 0005 — callback público)', ()
 
     const result = await processarCallbackInstagram('state-valido', 'code-1');
 
-    expect(result).toEqual({ idCliente: 7 });
+    expect(result).toEqual({ idCliente: 7, origem: 'designer' });
     expect(upsertConexaoMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -213,6 +217,19 @@ describe('processarCallbackInstagram (RF014/ADR 0005 — callback público)', ()
         encKey: 'chave-de-teste-com-32-caracteres',
       }),
     );
+  });
+
+  it('item 12.2/13.3 (rodada final): repassa a origem "cliente_link" do state consumido — o callback usa isso para nunca redirecionar o cliente à rota protegida do designer', async () => {
+    consumeOAuthStateMock.mockResolvedValue({ id_cliente: 7, id_designer: 'designer-1', origem: 'cliente_link' });
+    exchangeCodeForLongLivedTokenMock.mockResolvedValue({
+      accessToken: 'token-longo',
+      instagramUserId: 'conta-7',
+      expiresInSeconds: 5_184_000,
+    });
+
+    const result = await processarCallbackInstagram('state-valido', 'code-1');
+
+    expect(result).toEqual({ idCliente: 7, origem: 'cliente_link' });
   });
 
   it('item N.5.5: rejeita (fail-closed) sem gravar nada quando INSTAGRAM_TOKEN_ENC_KEY está ausente', async () => {

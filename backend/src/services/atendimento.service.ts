@@ -52,6 +52,7 @@ import {
   CLOSING_MESSAGE,
   CONFIRMACAO_INVALIDA_MESSAGE,
   RECUSA_MESSAGE,
+  DUVIDA_SISTEMA_MESSAGE,
   RESPOSTA_NAO_PERTINENTE_MESSAGE,
   TIPO_MENSAGEM_NAO_SUPORTADA_MESSAGE,
   TIPO_MENSAGEM_NAO_SUPORTADA_REFERENCIA_MESSAGE,
@@ -282,7 +283,20 @@ const CONTINUAR_INTENT_PATTERN = /^(continuar|continua|seguir|prosseguir|vamos c
  */
 const PERGUNTA_DO_CLIENTE_PATTERN = /\?\s*$|^(o que|oq|que|qual|quais|como|quando|onde|por que|porque|pq|quem|vc|voce)\b.*\?/;
 
-type PertinenciaDecisao = 'aceitar' | 'esclarecer' | 'cancelar' | 'reenviar_pergunta';
+/**
+ * Item 14.4/14.6 (rodada final): meta-conversa sobre o próprio atendimento
+ * automatizado — checada de forma determinística e ANTES do classificador
+ * Gemini, para não depender de disponibilidade externa no caso mais comum
+ * relatado em uso real ("você é o Gemini?", "tá funcionando com IA?"). Só
+ * dispara para menções inequívocas a IA/robô/automação — nunca para o
+ * assunto normal da conversa (tema/cores/observação da arte).
+ */
+// Texto já passa por `normalizeText` (NFD + remoção de diacríticos) antes de
+// chegar aqui — o padrão é escrito sem acentos de propósito.
+const DUVIDA_SISTEMA_PATTERN =
+  /\bgemini\b|inteligencia artificial|\bia\b|\brobo\b|\bchatbot\b|\bautomatiz|\bbot\b/;
+
+type PertinenciaDecisao = 'aceitar' | 'esclarecer' | 'duvida_sistema' | 'cancelar' | 'reenviar_pergunta';
 
 /**
  * Rodada correções (item 12.2/12.3): antes, QUALQUER texto com ao menos um
@@ -313,6 +327,10 @@ async function avaliarPertinenciaResposta(
   if (SEM_PREFERENCIA_PATTERN.test(normalized)) {
     return question.key === 'tema' ? 'esclarecer' : 'aceitar';
   }
+  // Item 14.4/14.6: checagem determinística, independente do Gemini estar
+  // disponível — cobre o caso mais comum de meta-conversa reportado em uso
+  // real sem depender de uma chamada externa.
+  if (DUVIDA_SISTEMA_PATTERN.test(normalized)) return 'duvida_sistema';
 
   const ia = await classificarRespostaPerguntaComGemini(question.prompt, texto);
   if (ia === null) {
@@ -320,6 +338,7 @@ async function avaliarPertinenciaResposta(
   }
   if (ia.classificacao === 'cancelar') return 'cancelar';
   if (ia.classificacao === 'continuar') return 'reenviar_pergunta';
+  if (ia.classificacao === 'duvida_sistema') return 'duvida_sistema';
   if (ia.confianca === 'baixa') return 'esclarecer';
   if (ia.classificacao === 'duvida' || ia.classificacao === 'fora_de_contexto') return 'esclarecer';
   if (ia.classificacao === 'sem_preferencia') {
@@ -492,6 +511,14 @@ async function handleInboundMessage(
         match.id,
         match.clienteWhatsapp,
         `${RESPOSTA_NAO_PERTINENTE_MESSAGE} ${question.prompt}`,
+      );
+      return;
+    }
+    if (decisao === 'duvida_sistema') {
+      await sendTextMessageBestEffort(
+        match.id,
+        match.clienteWhatsapp,
+        `${DUVIDA_SISTEMA_MESSAGE} ${question.prompt}`,
       );
       return;
     }

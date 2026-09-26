@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { getSupabaseUserClient } from '../config/supabase.js';
+import { getSupabaseAdminClient } from '../config/supabase.js';
 import { attachProfile, requireAuth } from '../middleware/auth.js';
-import { getDesignerById } from '../repositories/designer.repository.js';
+import { syncDesignerBloqueio } from '../repositories/solicitacao.repository.js';
 
 export const authRouter = Router();
 
@@ -12,6 +12,13 @@ export const authRouter = Router();
  * nesta aplicação (delegadas ao Supabase Auth, ver ADR 0001). Para
  * designers, inclui `bloqueado` (RF006) para a UI exibir o aviso de
  * bloqueio por solicitação vencida sem precisar de uma chamada extra.
+ *
+ * Item 5.1 (rodada final): recalcula o bloqueio ao vivo (mesma função usada
+ * como autoridade em `iniciarAtendimento`) em vez de ler a coluna
+ * `designer.bloqueado` — que é só um cache de exibição e podia ficar
+ * desatualizada até a próxima tentativa de iniciar atendimento. Isso permite
+ * que o frontend recarregue o perfil (`refreshProfile`) depois de resolver a
+ * pendência e o aviso desaparecer sem exigir logout/login.
  */
 authRouter.get('/me', requireAuth, attachProfile, async (request, response, next) => {
   try {
@@ -22,9 +29,7 @@ authRouter.get('/me', requireAuth, attachProfile, async (request, response, next
 
     let bloqueado: boolean | null = null;
     if (request.profile.perfil === 'designer') {
-      const client = getSupabaseUserClient(request.auth.accessToken);
-      const designer = await getDesignerById(client, request.auth.userId);
-      bloqueado = designer?.bloqueado ?? false;
+      bloqueado = await syncDesignerBloqueio(getSupabaseAdminClient(), request.auth.userId);
     }
 
     response.status(200).json({

@@ -80,6 +80,96 @@ export async function getAvaliacaoLinkState(
   return { state: 'valid', idVersao: row.id_versao };
 }
 
+/**
+ * Item 7/7.1 (rodada final): marca que a WhatsApp Cloud API ACEITOU o envio
+ * da mensagem contendo o link — nunca marcado só porque o token foi gerado
+ * ("link gerado" ≠ "link enviado"). Chamado pelo service só depois de
+ * `sendTextMessage` resolver com sucesso; falha de envio nunca chama isto,
+ * então o histórico mostra corretamente "falha no envio" (nunca um falso
+ * "enviado").
+ */
+export async function marcarLinkAvaliacaoNotificado(adminClient: SupabaseClient, tokenHash: string): Promise<void> {
+  const result: unknown = await adminClient
+    .from('avaliacao_link_token')
+    .update({ whatsapp_notificado_em: new Date().toISOString() })
+    .eq('token_hash', tokenHash);
+  const { error } = result as { error: { message: string } | null };
+  if (error) throw new Error(`Falha ao registrar notificação do link de avaliação: ${error.message}`);
+}
+
+export type LinkAvaliacaoSituacao = 'aguardando_resposta' | 'respondido' | 'expirado' | 'revogado' | 'falha_envio';
+
+export interface LinkAvaliacaoInfo {
+  ultimoEnvioEm: string;
+  whatsappNotificadoEm: string | null;
+  situacao: LinkAvaliacaoSituacao;
+  validoAte: string;
+  /** Quantas vezes um link foi gerado para a versão atualmente aguardando avaliação (1 = nunca reenviado). */
+  quantidadeEnvios: number;
+}
+
+const linkAvaliacaoAtualRowSchema = z.object({
+  created_at: z.string(),
+  expires_at: z.string(),
+  revoked_at: z.string().nullable(),
+  used_at: z.string().nullable(),
+  whatsapp_notificado_em: z.string().nullable(),
+});
+
+function resolveLinkAvaliacaoSituacao(row: z.infer<typeof linkAvaliacaoAtualRowSchema>): LinkAvaliacaoSituacao {
+  if (row.used_at) return 'respondido';
+  if (row.revoked_at) return 'revogado';
+  if (new Date(row.expires_at).getTime() < Date.now()) return 'expirado';
+  if (!row.whatsapp_notificado_em) return 'falha_envio';
+  return 'aguardando_resposta';
+}
+
+/**
+ * Item 7 (rodada final): histórico do link de avaliação da versão
+ * atualmente pendente (a mais recente da solicitação) — "Último envio",
+ * situação real e quantidade de tentativas. `null` quando a solicitação
+ * ainda não tem nenhuma versão enviada (nunca houve link a gerar).
+ */
+export async function getLinkAvaliacaoAtual(
+  adminClient: SupabaseClient,
+  idSolicitacao: number,
+): Promise<LinkAvaliacaoInfo | null> {
+  const versaoResult: unknown = await adminClient
+    .from('versao_arte')
+    .select('id_versao')
+    .eq('id_solicitacao', idSolicitacao)
+    .order('numero_versao', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const { data: versaoData, error: versaoError } = versaoResult as {
+    data: unknown;
+    error: { message: string } | null;
+  };
+  if (versaoError) throw new Error(`Falha ao buscar versão da solicitação: ${versaoError.message}`);
+  if (!versaoData) return null;
+  const { id_versao: idVersao } = z.object({ id_versao: z.number() }).parse(versaoData);
+
+  const tokensResult: unknown = await adminClient
+    .from('avaliacao_link_token')
+    .select('created_at, expires_at, revoked_at, used_at, whatsapp_notificado_em')
+    .eq('id_versao', idVersao)
+    .order('created_at', { ascending: false });
+  const { data: tokensData, error: tokensError } = tokensResult as { data: unknown; error: { message: string } | null };
+  if (tokensError) throw new Error(`Falha ao buscar histórico do link de avaliação: ${tokensError.message}`);
+
+  const tokens = z.array(linkAvaliacaoAtualRowSchema).parse(tokensData ?? []);
+  const ultimo = tokens[0];
+  if (!ultimo) return null;
+
+  return {
+    ultimoEnvioEm: ultimo.created_at,
+    whatsappNotificadoEm: ultimo.whatsapp_notificado_em,
+    situacao: resolveLinkAvaliacaoSituacao(ultimo),
+    validoAte: ultimo.expires_at,
+    quantidadeEnvios: tokens.length,
+  };
+}
+
 const versaoPreviewRowSchema = z.object({
   id_solicitacao: z.number(),
   numero_versao: z.number(),

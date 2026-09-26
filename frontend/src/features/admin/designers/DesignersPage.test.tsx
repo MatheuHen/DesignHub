@@ -125,7 +125,9 @@ describe('DesignersPage (RF001/RF015)', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
 
-    await waitFor(() => expect(setDesignerStatusMock).toHaveBeenCalledWith('designer-1', 'inativo'));
+    await waitFor(() =>
+      expect(setDesignerStatusMock).toHaveBeenCalledWith('designer-1', { status: 'inativo' }),
+    );
     expect(await screen.findByRole('button', { name: 'Ativar' })).toBeInTheDocument();
   });
 
@@ -252,6 +254,121 @@ describe('DesignersPage (RF001/RF015)', () => {
       expect(listSolicitacoesAdminMock).toHaveBeenCalledWith(
         expect.objectContaining({ idDesigner: 'designer-1' }),
       );
+    });
+  });
+
+  describe('item 4 (rodada final): estratégia obrigatória de inativação com pendências', () => {
+    const outroDesigner: Designer = {
+      id: 'designer-2',
+      nomeCompleto: 'Beto Designer',
+      email: 'beto@exemplo.com',
+      status: 'ativo',
+      whatsapp: '5511988888888',
+      bloqueado: false,
+      statusOperacional: null,
+    };
+    const pendencia = {
+      idSolicitacao: 42,
+      clienteNome: 'Waynne',
+      tema: 'Post de aniversário',
+      status: 'Em produção' as const,
+      atrasada: true,
+    };
+
+    async function abrirPainelComPendencia() {
+      const { ApiError } = await import('../../../lib/apiClient');
+      listDesignersMock.mockResolvedValue({
+        items: [sampleDesigner, outroDesigner],
+        total: 2,
+        page: 1,
+        pageSize: 20,
+      });
+      setDesignerStatusMock.mockReset().mockRejectedValueOnce(
+        new ApiError(409, 'DESIGNER_PENDENCIAS', 'Este designer possui solicitações pendentes.', {
+          pendencias: [pendencia],
+        }),
+      );
+
+      renderPage();
+      await screen.findByRole('cell', { name: 'Dora Designer' });
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'Excluir' })[0]!);
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
+
+      expect(await screen.findByText(/possui solicitações pendentes/)).toBeInTheDocument();
+      expect(screen.getByText('Waynne')).toBeInTheDocument();
+    }
+
+    it('backend rejeita com DESIGNER_PENDENCIAS e a UI mostra o painel de estratégia com a lista recebida', async () => {
+      await abrirPainelComPendencia();
+      expect(screen.getByRole('button', { name: 'Confirmar' })).toBeDisabled();
+    });
+
+    it('estratégia "cancelar_pendentes" envia o payload correto', async () => {
+      await abrirPainelComPendencia();
+      setDesignerStatusMock.mockResolvedValueOnce(undefined);
+
+      fireEvent.click(screen.getByLabelText('Cancelar todas as pendências e inativar'));
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+      await waitFor(() =>
+        expect(setDesignerStatusMock).toHaveBeenCalledWith('designer-1', {
+          status: 'inativo',
+          estrategia: 'cancelar_pendentes',
+        }),
+      );
+    });
+
+    it('estratégia "reatribuir_pendentes" exige destino antes de confirmar e envia o mapeamento correto', async () => {
+      await abrirPainelComPendencia();
+      setDesignerStatusMock.mockResolvedValueOnce(undefined);
+
+      fireEvent.click(screen.getByLabelText('Reatribuir cada pendência para outro designer ativo e inativar'));
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+      expect(
+        await screen.findByText('Selecione um novo designer para todas as solicitações pendentes.'),
+      ).toBeInTheDocument();
+      // Só a chamada inicial (rejeitada com DESIGNER_PENDENCIAS) — nenhuma nova chamada sem destino selecionado.
+      expect(setDesignerStatusMock).toHaveBeenCalledTimes(1);
+
+      fireEvent.change(screen.getByLabelText('Novo designer para a solicitação de Waynne'), {
+        target: { value: 'designer-2' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+      await waitFor(() =>
+        expect(setDesignerStatusMock).toHaveBeenCalledWith('designer-1', {
+          status: 'inativo',
+          estrategia: 'reatribuir_pendentes',
+          reatribuicoes: [{ idSolicitacao: 42, novoDesignerId: 'designer-2' }],
+        }),
+      );
+    });
+
+    it('estratégia "inativar_mesmo_assim" não exige nenhuma seleção adicional', async () => {
+      await abrirPainelComPendencia();
+      setDesignerStatusMock.mockResolvedValueOnce(undefined);
+
+      fireEvent.click(
+        screen.getByLabelText('Inativar mesmo assim (pendências continuam visíveis para ação posterior)'),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+      await waitFor(() =>
+        expect(setDesignerStatusMock).toHaveBeenCalledWith('designer-1', {
+          status: 'inativo',
+          estrategia: 'inativar_mesmo_assim',
+        }),
+      );
+    });
+
+    it('"Cancelar" fecha o painel sem chamar o backend novamente', async () => {
+      await abrirPainelComPendencia();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+      expect(screen.queryByText(/possui solicitações pendentes/)).not.toBeInTheDocument();
     });
   });
 });

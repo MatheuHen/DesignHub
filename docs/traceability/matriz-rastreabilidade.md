@@ -307,3 +307,30 @@ publicação automática real no Instagram ponta a ponta com uma arte real —
 só a conexão OAuth e o agendamento foram exercitados.
 
 Sem bloqueios externos novos nesta rodada.
+
+### Rodada final de correções/melhorias (2026-09-25/26)
+
+| Item do pedido | RF/RN | Onde | Tipo | Evidência |
+|---|---|---|---|---|
+| Inativação de designer com pendências exige estratégia (cancelar/reatribuir/inativar mesmo assim) | RF001/RF016/RN44-49 (correção aditiva) | `admin_cancelar_pendencias_designer` (migration `20260925180000`), `solicitacao.repository.ts` (`listPendenciasByDesigner`), `designer.service.ts` (`changeDesignerStatus`/`listPendenciasDesigner`), `designer.routes.ts` (`GET/PATCH /:id/status`, `GET /:id/pendencias`), `DesignersPage.tsx` (painel de estratégia) | Correção de bug + melhoria não funcional (auditoria/segurança) | `solicitacao.repository.test.ts`, `designer.service.test.ts`, `designer.routes.test.ts`, `DesignersPage.test.tsx` |
+| Bloqueio por atraso (RF006) recalculado ao vivo em `/api/auth/me` e também no destino de uma reatribuição (RF016) | RF006/RN11/RN12/RF016 | `auth.routes.ts`, `designer.service.ts` (`reassignSolicitacao`), `AuthContext.tsx` (`refreshProfile`), `DesignerHome.tsx`, `SolicitacaoDetailPage.tsx` | Correção de bug (bloqueio dependia de coluna cache desatualizada) | `auth.routes.test.ts`, `designer.service.test.ts`, `DesignerHome.test.tsx`, `SolicitacaoDetailPage.test.tsx` |
+| Classificador Gemini: meta-conversa sobre o sistema/IA nunca é gravada como resposta nem trava respostas válidas ("bem top") | RF004/RN08/RN09 | `atendimento.service.ts` (`avaliarPertinenciaResposta`, padrão `DUVIDA_SISTEMA_PATTERN`), `geminiClient.ts` (classificação `duvida_sistema`), `atendimentoQuestions.ts` (`DUVIDA_SISTEMA_MESSAGE`) | Correção de bug | `atendimento.service.test.ts` |
+| Instagram: callback OAuth nunca redireciona o CLIENTE (link enviado via WhatsApp) para a rota protegida do designer | RF014/ADR 0005 | migration `20260925190000` (`instagram_oauth_state.origem`), `clienteInstagram.repository.ts`/`service.ts`, `instagramOAuth.routes.ts`, `frontend/src/features/instagram/InstagramStatusPage.tsx` (nova página pública) | Correção de bug | `clienteInstagram.repository.test.ts`, `clienteInstagram.service.test.ts`, `instagramOAuth.routes.test.ts`, `InstagramStatusPage.test.tsx` |
+| Prazo dinâmico por etapa ("Prazo para vencimento") na listagem de solicitações — nunca mais o prazo estático da 1ª versão depois dela entregue; nunca inventa SLA para etapas sem prazo documentado | RF005/RF006/RF009/RF012/RN11 | `solicitacao.repository.ts` (`computePrazoAtual`), `SolicitacoesPage.tsx` | Correção de bug + melhoria de clareza (RNF002) | `solicitacao.repository.test.ts`, `SolicitacoesPage.test.tsx` |
+| Histórico persistido do link de avaliação ("gerado" ≠ "enviado"): último envio, canal, situação real, validade, quantidade de reenvios | RF009/seção 12.1 | migration `20260925200000` (`avaliacao_link_token.whatsapp_notificado_em`), `avaliacao.repository.ts` (`getLinkAvaliacaoAtual`/`marcarLinkAvaliacaoNotificado`), `avaliacao.service.ts` (`getLinkAvaliacaoHistorico`), `GET /api/solicitacoes/:id/link-avaliacao`, `SolicitacaoDetailPage.tsx` | Correção de bug + melhoria de observabilidade | `avaliacao.repository.test.ts`, `avaliacao.service.test.ts`, `solicitacao.routes.test.ts`, `SolicitacaoDetailPage.test.tsx` |
+| Notificações ao designer para eventos do cliente (aprovação, ajuste, cancelamento, agendamento automático, publicação própria, cancelamento de agendamento) via Web Push + WhatsApp best-effort, além do histórico in-app já existente | RF011/item 8 do pedido (correção aditiva, sem novo canal fora do já aprovado) | `avaliacao.service.ts` (`notificarDesignerPushBestEffort`, `notificarDesignerEventoClienteBestEffort`) | Correção de bug (eventos sem nenhum aviso ao designer além do histórico) | `avaliacao.service.test.ts` |
+
+**Achado de integridade corrigido nesta rodada:** `supabase migration list`
+mostrou 4 migrations de commits anteriores nunca aplicadas ao banco real
+(`20260923100000`, `20260923110000`, `20260924100000`,
+`20260925180000`/nova). A migration `20260924100000` (Instagram
+Deauthorize/Data Deletion) já existia fisicamente no banco (tabela, índice,
+RLS e comentário conferidos via introspecção direta) mas não estava
+registrada no ledger — reparado com `supabase migration repair --status
+applied` após confirmar que o schema já batia exatamente com o arquivo,
+sem re-executar DDL. Todas as migrations pendentes foram então aplicadas;
+`supabase migration list` confirma `local == remote` em todas as 51
+migrations.
+
+Validação desta rodada: backend 644/644 testes, frontend 150/150 testes,
+lint/typecheck/build limpos nos dois workspaces (`npm run verify` na raiz).

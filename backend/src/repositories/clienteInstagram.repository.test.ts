@@ -14,15 +14,20 @@ import {
 type AnyClient = Parameters<typeof getConexaoAtiva>[0];
 
 describe('createOAuthState (RF014/ADR 0005)', () => {
-  it('insere o estado do handshake OAuth', async () => {
+  it('insere o estado do handshake OAuth com a origem informada (item 12.2/13.3)', async () => {
     const insert = (payload: unknown) => {
-      expect(payload).toMatchObject({ state_hash: 'hash-1', id_cliente: 1, id_designer: 'designer-1' });
+      expect(payload).toMatchObject({
+        state_hash: 'hash-1',
+        id_cliente: 1,
+        id_designer: 'designer-1',
+        origem: 'designer',
+      });
       return Promise.resolve({ error: null });
     };
     const client = { from: () => ({ insert }) } as unknown as AnyClient;
 
     await expect(
-      createOAuthState(client, { stateHash: 'hash-1', idCliente: 1, idDesigner: 'designer-1' }),
+      createOAuthState(client, { stateHash: 'hash-1', idCliente: 1, idDesigner: 'designer-1', origem: 'designer' }),
     ).resolves.toBeUndefined();
   });
 
@@ -30,7 +35,7 @@ describe('createOAuthState (RF014/ADR 0005)', () => {
     const client = { from: () => ({ insert: () => Promise.resolve({ error: { message: 'falhou' } }) }) } as unknown as AnyClient;
 
     await expect(
-      createOAuthState(client, { stateHash: 'hash-1', idCliente: 1, idDesigner: 'designer-1' }),
+      createOAuthState(client, { stateHash: 'hash-1', idCliente: 1, idDesigner: 'designer-1', origem: 'designer' }),
     ).rejects.toThrow(/falhou/);
   });
 });
@@ -54,7 +59,7 @@ describe('consumeOAuthState (RF014/ADR 0005 — single-use)', () => {
     await expect(consumeOAuthState(client, 'hash-1')).resolves.toBeNull();
   });
 
-  it('retorna id_cliente/id_designer quando o state é válido e consumido', async () => {
+  it('retorna id_cliente/id_designer/origem quando o state é válido e consumido', async () => {
     const client = {
       from: () => ({
         update: () => ({
@@ -63,7 +68,10 @@ describe('consumeOAuthState (RF014/ADR 0005 — single-use)', () => {
               gt: () => ({
                 select: () => ({
                   maybeSingle: () =>
-                    Promise.resolve({ data: { id_cliente: 5, id_designer: 'designer-9' }, error: null }),
+                    Promise.resolve({
+                      data: { id_cliente: 5, id_designer: 'designer-9', origem: 'cliente_link' },
+                      error: null,
+                    }),
                 }),
               }),
             }),
@@ -72,7 +80,11 @@ describe('consumeOAuthState (RF014/ADR 0005 — single-use)', () => {
       }),
     } as unknown as AnyClient;
 
-    await expect(consumeOAuthState(client, 'hash-1')).resolves.toEqual({ id_cliente: 5, id_designer: 'designer-9' });
+    await expect(consumeOAuthState(client, 'hash-1')).resolves.toEqual({
+      id_cliente: 5,
+      id_designer: 'designer-9',
+      origem: 'cliente_link',
+    });
   });
 });
 

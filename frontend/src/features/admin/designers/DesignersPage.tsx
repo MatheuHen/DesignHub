@@ -14,6 +14,8 @@ import {
   updateDesigner,
   updateDesignerPassword,
   type Designer,
+  type EstrategiaInativacao,
+  type PendenciaDesigner,
 } from './api';
 import { DesignerFormPanel, type CreateFormValues, type EditFormValues } from './DesignerFormPanel';
 
@@ -37,6 +39,15 @@ export function DesignersPage() {
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [excluindoSaving, setExcluindoSaving] = useState(false);
+
+  // Item 4 (rodada final): estratégia obrigatória para inativar designer com pendências.
+  const [pendenciasPanel, setPendenciasPanel] = useState<{ designer: Designer; pendencias: PendenciaDesigner[] } | null>(
+    null,
+  );
+  const [estrategiaSelecionada, setEstrategiaSelecionada] = useState<EstrategiaInativacao | ''>('');
+  const [reatribuicoesPorSolicitacao, setReatribuicoesPorSolicitacao] = useState<Record<number, string>>({});
+  const [pendenciasSaving, setPendenciasSaving] = useState(false);
+  const [pendenciasError, setPendenciasError] = useState<string | null>(null);
 
   const [solicitacoes, setSolicitacoes] = useState<Solicitacao[]>([]);
   const [solicitacoesLoading, setSolicitacoesLoading] = useState(true);
@@ -127,13 +138,32 @@ export function DesignersPage() {
     setPanel({ mode: 'closed' });
   }
 
+  /**
+   * Item 4 (rodada final): o backend rejeita a inativação direta com 409
+   * `DESIGNER_PENDENCIAS` quando o designer possui solicitações em estado
+   * não terminal — abre o painel de estratégia com a lista já devolvida pelo
+   * backend (nunca uma segunda chamada para buscá-la de novo).
+   */
+  function abrirPainelPendenciasSeNecessario(designer: Designer, error: unknown): boolean {
+    if (error instanceof ApiError && error.code === 'DESIGNER_PENDENCIAS') {
+      const details = error.details as { pendencias?: PendenciaDesigner[] } | undefined;
+      setPendenciasPanel({ designer, pendencias: details?.pendencias ?? [] });
+      setEstrategiaSelecionada('');
+      setReatribuicoesPorSolicitacao({});
+      setPendenciasError(null);
+      return true;
+    }
+    return false;
+  }
+
   function handleToggleStatus(designer: Designer) {
     const nextStatus = designer.status === 'ativo' ? 'inativo' : 'ativo';
     setRowError(null);
     setTogglingId(designer.id);
-    setDesignerStatus(designer.id, nextStatus)
+    setDesignerStatus(designer.id, { status: nextStatus })
       .then(() => reload())
       .catch((toggleError: unknown) => {
+        if (nextStatus === 'inativo' && abrirPainelPendenciasSeNecessario(designer, toggleError)) return;
         setRowError({
           id: designer.id,
           message: toggleError instanceof ApiError ? toggleError.message : 'Não foi possível atualizar o status.',
@@ -150,18 +180,61 @@ export function DesignersPage() {
   function handleConfirmarExclusao(designer: Designer) {
     setExcluindoSaving(true);
     setRowError(null);
-    setDesignerStatus(designer.id, 'inativo')
+    setDesignerStatus(designer.id, { status: 'inativo' })
       .then(() => {
         setExcluindoId(null);
         reload();
       })
       .catch((deleteError: unknown) => {
+        if (abrirPainelPendenciasSeNecessario(designer, deleteError)) {
+          setExcluindoId(null);
+          return;
+        }
         setRowError({
           id: designer.id,
           message: deleteError instanceof ApiError ? deleteError.message : 'Não foi possível excluir o designer.',
         });
       })
       .finally(() => setExcluindoSaving(false));
+  }
+
+  /** Item 4 (rodada final): aplica a estratégia escolhida (backend valida e inativa atomicamente). */
+  function handleConfirmarEstrategia() {
+    if (!pendenciasPanel || !estrategiaSelecionada) return;
+
+    if (estrategiaSelecionada === 'reatribuir_pendentes') {
+      const semDestino = pendenciasPanel.pendencias.some((p) => !reatribuicoesPorSolicitacao[p.idSolicitacao]);
+      if (semDestino) {
+        setPendenciasError('Selecione um novo designer para todas as solicitações pendentes.');
+        return;
+      }
+    }
+
+    setPendenciasSaving(true);
+    setPendenciasError(null);
+    setDesignerStatus(pendenciasPanel.designer.id, {
+      status: 'inativo',
+      estrategia: estrategiaSelecionada,
+      ...(estrategiaSelecionada === 'reatribuir_pendentes'
+        ? {
+            reatribuicoes: pendenciasPanel.pendencias.map((p) => ({
+              idSolicitacao: p.idSolicitacao,
+              novoDesignerId: reatribuicoesPorSolicitacao[p.idSolicitacao]!,
+            })),
+          }
+        : {}),
+    })
+      .then(() => {
+        setPendenciasPanel(null);
+        reload();
+        reloadSolicitacoes();
+      })
+      .catch((confirmError: unknown) => {
+        setPendenciasError(
+          confirmError instanceof ApiError ? confirmError.message : 'Não foi possível concluir a inativação.',
+        );
+      })
+      .finally(() => setPendenciasSaving(false));
   }
 
   function handleConfirmarReatribuicao(solicitacao: Solicitacao) {
@@ -321,6 +394,132 @@ export function DesignersPage() {
           onSubmit={(values) => handleEdit(panel.designer, values)}
           onCancel={() => setPanel({ mode: 'closed' })}
         />
+      )}
+
+      {pendenciasPanel && (
+        <div
+          className="designer-form"
+          role="alertdialog"
+          aria-labelledby="pendencias-panel-title"
+          style={{ marginTop: 24 }}
+        >
+          <h2 id="pendencias-panel-title">
+            {pendenciasPanel.designer.nomeCompleto} possui solicitações pendentes
+          </h2>
+          <p>
+            Escolha uma estratégia para a{pendenciasPanel.pendencias.length === 1 ? '' : 's'}{' '}
+            {pendenciasPanel.pendencias.length} solicitaç{pendenciasPanel.pendencias.length === 1 ? 'ão' : 'ões'}{' '}
+            pendente{pendenciasPanel.pendencias.length === 1 ? '' : 's'} antes de inativar este designer.
+          </p>
+
+          <div className="table-scroll">
+            <table className="designer-table">
+              <caption className="sr-only">
+                Solicitações pendentes de {pendenciasPanel.designer.nomeCompleto}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Tema</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Situação</th>
+                  {estrategiaSelecionada === 'reatribuir_pendentes' && <th scope="col">Novo designer</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {pendenciasPanel.pendencias.map((pendencia) => (
+                  <tr key={pendencia.idSolicitacao}>
+                    <td>{pendencia.clienteNome}</td>
+                    <td>{pendencia.tema ?? '—'}</td>
+                    <td>
+                      <span className={`status-badge status-badge--${statusSlug(pendencia.status)}`}>
+                        {pendencia.status}
+                      </span>
+                    </td>
+                    <td>{pendencia.atrasada ? 'Atrasada' : '—'}</td>
+                    {estrategiaSelecionada === 'reatribuir_pendentes' && (
+                      <td>
+                        <select
+                          aria-label={`Novo designer para a solicitação de ${pendencia.clienteNome}`}
+                          value={reatribuicoesPorSolicitacao[pendencia.idSolicitacao] ?? ''}
+                          onChange={(event) =>
+                            setReatribuicoesPorSolicitacao((prev) => ({
+                              ...prev,
+                              [pendencia.idSolicitacao]: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">Selecione…</option>
+                          {items
+                            .filter(
+                              (designer) =>
+                                designer.status === 'ativo' && designer.id !== pendenciasPanel.designer.id,
+                            )
+                            .map((designer) => (
+                              <option key={designer.id} value={designer.id}>
+                                {designer.nomeCompleto}
+                              </option>
+                            ))}
+                        </select>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <fieldset className="designer-form-senha">
+            <legend>Estratégia</legend>
+            <label>
+              <input
+                type="radio"
+                name="estrategia-inativacao"
+                checked={estrategiaSelecionada === 'cancelar_pendentes'}
+                onChange={() => setEstrategiaSelecionada('cancelar_pendentes')}
+              />{' '}
+              Cancelar todas as pendências e inativar
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="estrategia-inativacao"
+                checked={estrategiaSelecionada === 'reatribuir_pendentes'}
+                onChange={() => setEstrategiaSelecionada('reatribuir_pendentes')}
+              />{' '}
+              Reatribuir cada pendência para outro designer ativo e inativar
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="estrategia-inativacao"
+                checked={estrategiaSelecionada === 'inativar_mesmo_assim'}
+                onChange={() => setEstrategiaSelecionada('inativar_mesmo_assim')}
+              />{' '}
+              Inativar mesmo assim (pendências continuam visíveis para ação posterior)
+            </label>
+          </fieldset>
+
+          {pendenciasError && (
+            <p role="alert" className="auth-error">
+              {pendenciasError}
+            </p>
+          )}
+
+          <div className="designer-form-actions">
+            <button type="button" onClick={() => setPendenciasPanel(null)} disabled={pendenciasSaving}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="designer-action-danger"
+              disabled={!estrategiaSelecionada || pendenciasSaving}
+              onClick={handleConfirmarEstrategia}
+            >
+              {pendenciasSaving ? 'Aplicando…' : 'Confirmar'}
+            </button>
+          </div>
+        </div>
       )}
 
       <section aria-labelledby="reatribuicao-title" style={{ marginTop: 32 }}>

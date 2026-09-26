@@ -4,9 +4,13 @@ import {
   cancelAgendamentoCliente,
   generateAvaliacaoLinkToken,
   getAvaliacaoLinkState,
+  getLinkAvaliacaoAtual,
   getVersaoArtePreview,
+  marcarLinkAvaliacaoNotificado,
   submitAvaliacao,
 } from './avaliacao.repository.js';
+
+type AnyClient = Parameters<typeof getVersaoArtePreview>[0];
 
 function rpcClient(response: { data: unknown; error: { message: string; code?: string } | null }) {
   return { rpc: () => Promise.resolve(response) } as unknown as Parameters<typeof generateAvaliacaoLinkToken>[0];
@@ -249,5 +253,168 @@ describe('cancelAgendamentoCliente (RF012/RF013/item 8.4 — correções 13/09/2
   it('resolve sem erro quando a RPC confirma o cancelamento', async () => {
     const client = rpcClient({ data: null, error: null });
     await expect(cancelAgendamentoCliente(client, 10)).resolves.toBeUndefined();
+  });
+});
+
+describe('marcarLinkAvaliacaoNotificado (item 7/7.1 — rodada final)', () => {
+  it('atualiza whatsapp_notificado_em pelo token_hash', async () => {
+    const eq = (column: string, value: string) => {
+      expect(column).toBe('token_hash');
+      expect(value).toBe('hash-1');
+      return Promise.resolve({ error: null });
+    };
+    const client = { from: () => ({ update: () => ({ eq }) }) } as unknown as AnyClient;
+
+    await expect(marcarLinkAvaliacaoNotificado(client, 'hash-1')).resolves.toBeUndefined();
+  });
+
+  it('propaga erro do banco', async () => {
+    const client = {
+      from: () => ({ update: () => ({ eq: () => Promise.resolve({ error: { message: 'falhou' } }) }) }),
+    } as unknown as AnyClient;
+
+    await expect(marcarLinkAvaliacaoNotificado(client, 'hash-1')).rejects.toThrow(/falhou/);
+  });
+});
+
+describe('getLinkAvaliacaoAtual (item 7 — rodada final)', () => {
+  it('retorna null quando a solicitação ainda não tem nenhuma versão enviada', async () => {
+    const client = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({ order: () => ({ limit: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) }),
+        }),
+      }),
+    } as unknown as AnyClient;
+
+    await expect(getLinkAvaliacaoAtual(client, 10)).resolves.toBeNull();
+  });
+
+  it('resolve "respondido" quando o link mais recente já foi usado', async () => {
+    const client = {
+      from: (table: string) => {
+        if (table === 'versao_arte') {
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () => ({ limit: () => ({ maybeSingle: () => Promise.resolve({ data: { id_versao: 5 }, error: null }) }) }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () =>
+                Promise.resolve({
+                  data: [
+                    {
+                      created_at: '2026-09-20T10:00:00Z',
+                      expires_at: '2026-09-27T10:00:00Z',
+                      revoked_at: null,
+                      used_at: '2026-09-21T10:00:00Z',
+                      whatsapp_notificado_em: '2026-09-20T10:00:01Z',
+                    },
+                  ],
+                  error: null,
+                }),
+            }),
+          }),
+        };
+      },
+    } as unknown as AnyClient;
+
+    await expect(getLinkAvaliacaoAtual(client, 10)).resolves.toEqual({
+      ultimoEnvioEm: '2026-09-20T10:00:00Z',
+      whatsappNotificadoEm: '2026-09-20T10:00:01Z',
+      situacao: 'respondido',
+      validoAte: '2026-09-27T10:00:00Z',
+      quantidadeEnvios: 1,
+    });
+  });
+
+  it('resolve "falha_envio" quando o link não foi confirmado como notificado (item 7.1 — não confunde gerado com enviado)', async () => {
+    const client = {
+      from: (table: string) => {
+        if (table === 'versao_arte') {
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () => ({ limit: () => ({ maybeSingle: () => Promise.resolve({ data: { id_versao: 5 }, error: null }) }) }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () =>
+                Promise.resolve({
+                  data: [
+                    {
+                      created_at: '2026-09-20T10:00:00Z',
+                      expires_at: '2026-09-27T10:00:00Z',
+                      revoked_at: null,
+                      used_at: null,
+                      whatsapp_notificado_em: null,
+                    },
+                  ],
+                  error: null,
+                }),
+            }),
+          }),
+        };
+      },
+    } as unknown as AnyClient;
+
+    const result = await getLinkAvaliacaoAtual(client, 10);
+    expect(result?.situacao).toBe('falha_envio');
+  });
+
+  it('conta reenvios: quantidadeEnvios reflete todos os tokens da versão pendente, mais recente primeiro', async () => {
+    const client = {
+      from: (table: string) => {
+        if (table === 'versao_arte') {
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () => ({ limit: () => ({ maybeSingle: () => Promise.resolve({ data: { id_versao: 5 }, error: null }) }) }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () =>
+                Promise.resolve({
+                  data: [
+                    {
+                      created_at: '2026-09-22T10:00:00Z',
+                      expires_at: '2026-09-29T10:00:00Z',
+                      revoked_at: null,
+                      used_at: null,
+                      whatsapp_notificado_em: '2026-09-22T10:00:01Z',
+                    },
+                    {
+                      created_at: '2026-09-20T10:00:00Z',
+                      expires_at: '2026-09-27T10:00:00Z',
+                      revoked_at: '2026-09-22T10:00:00Z',
+                      used_at: null,
+                      whatsapp_notificado_em: '2026-09-20T10:00:01Z',
+                    },
+                  ],
+                  error: null,
+                }),
+            }),
+          }),
+        };
+      },
+    } as unknown as AnyClient;
+
+    const result = await getLinkAvaliacaoAtual(client, 10);
+    expect(result?.quantidadeEnvios).toBe(2);
+    expect(result?.situacao).toBe('aguardando_resposta');
+    expect(result?.ultimoEnvioEm).toBe('2026-09-22T10:00:00Z');
   });
 });

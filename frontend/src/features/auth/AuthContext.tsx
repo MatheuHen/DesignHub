@@ -164,9 +164,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   }, []);
 
+  /** Item 5.1: recarrega o perfil (inclui `bloqueado` recalculado ao vivo) sem exigir logout/login. */
+  const refreshProfile = useCallback(async () => {
+    if (!supabase) return;
+    const { data } = await supabase.auth.getSession();
+    await loadProfile(data.session);
+  }, [loadProfile]);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, signIn, signOut }),
-    [state, signIn, signOut],
+    () => ({ ...state, signIn, signOut, refreshProfile }),
+    [state, signIn, signOut, refreshProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

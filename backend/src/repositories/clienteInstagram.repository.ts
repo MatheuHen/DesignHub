@@ -17,15 +17,25 @@ import { z } from 'zod';
  */
 const OAUTH_STATE_TTL_SECONDS = 24 * 60 * 60;
 
+/**
+ * Item 12.2/13.3 (rodada final): distingue quem iniciou o handshake OAuth —
+ * o callback usa isso para escolher o destino correto do redirect (o
+ * designer autenticado vai para a listagem de clientes; o cliente, que abriu
+ * o link pelo WhatsApp e não tem sessão de designer, vai para uma página
+ * pública simples de sucesso/erro).
+ */
+export type InstagramOAuthOrigem = 'designer' | 'cliente_link';
+
 interface OAuthStateRow {
   id_cliente: number;
   id_designer: string;
+  origem: InstagramOAuthOrigem;
 }
 
 /** Persiste o estado (hash) do handshake OAuth, vinculado ao cliente/designer que iniciaram a conexão. */
 export async function createOAuthState(
   adminClient: SupabaseClient,
-  params: { stateHash: string; idCliente: number; idDesigner: string },
+  params: { stateHash: string; idCliente: number; idDesigner: string; origem: InstagramOAuthOrigem },
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + OAUTH_STATE_TTL_SECONDS * 1000).toISOString();
   const result: unknown = await adminClient.from('instagram_oauth_state').insert({
@@ -33,12 +43,17 @@ export async function createOAuthState(
     id_cliente: params.idCliente,
     id_designer: params.idDesigner,
     expires_at: expiresAt,
+    origem: params.origem,
   });
   const { error } = result as { error: { message: string } | null };
   if (error) throw new Error(`Falha ao iniciar conexão com o Instagram: ${error.message}`);
 }
 
-const oauthStateRowSchema = z.object({ id_cliente: z.number(), id_designer: z.string() });
+const oauthStateRowSchema = z.object({
+  id_cliente: z.number(),
+  id_designer: z.string(),
+  origem: z.enum(['designer', 'cliente_link']),
+});
 
 /**
  * Consome (marca como usado) um estado ainda válido e não expirado — update
@@ -57,14 +72,14 @@ export async function consumeOAuthState(
     .eq('state_hash', stateHash)
     .is('used_at', null)
     .gt('expires_at', new Date().toISOString())
-    .select('id_cliente, id_designer')
+    .select('id_cliente, id_designer, origem')
     .maybeSingle();
   const { data, error } = result as { data: unknown; error: { message: string } | null };
   if (error) throw new Error(`Falha ao validar conexão com o Instagram: ${error.message}`);
   if (!data) return null;
 
   const row = oauthStateRowSchema.parse(data);
-  return { id_cliente: row.id_cliente, id_designer: row.id_designer };
+  return { id_cliente: row.id_cliente, id_designer: row.id_designer, origem: row.origem };
 }
 
 export interface ClienteInstagramConexao {

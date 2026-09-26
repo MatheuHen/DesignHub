@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockedExternalCredentialError, ConflictError, NotFoundError } from '../lib/errors.js';
+import { ATENDIMENTO_QUESTIONS } from './atendimentoQuestions.js';
 
 const {
   sendTextMessageMock,
@@ -355,6 +356,88 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
     expect(sendTextMessageMock).toHaveBeenCalledOnce();
     expect(completeAtendimentoAndCreateSolicitacaoMock).not.toHaveBeenCalled();
+  });
+
+  it('item 14 (rodada final): "bem top" é uma observação válida — não pede esclarecimento nem trava o fluxo', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(3); // confirmação, tema, cores já respondidas — esta é "observações"
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 4 });
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue({
+      classificacao: 'resposta_valida',
+      confianca: 'alta',
+    });
+
+    await processInboundWebhook(
+      webhookPayload(inboundMessage({ from: '5511999999999', text: { body: 'bem top' } })),
+    );
+
+    expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
+    expect(sendTextMessageMock).toHaveBeenCalledOnce();
+    expect(sendTextMessageMock.mock.calls[0]![1]).not.toContain('Ainda não consegui identificar');
+  });
+
+  it('item 14.4 (rodada final): pergunta sobre o Gemini/IA não é gravada como resposta, explica e repete a pergunta pendente', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(3); // pergunta pendente: observações
+
+    await processInboundWebhook(
+      webhookPayload(
+        inboundMessage({ from: '5511999999999', text: { body: 'voce esta funcionando com o gemini ja?' } }),
+      ),
+    );
+
+    expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+    // Determinístico: nem precisa consultar a IA para este caso.
+    expect(classificarRespostaPerguntaComGeminiMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).toHaveBeenCalledOnce();
+    const mensagemEnviada = sendTextMessageMock.mock.calls[0]![1] as string;
+    expect(mensagemEnviada).toContain('inteligência artificial como apoio');
+    expect(mensagemEnviada).toContain(ATENDIMENTO_QUESTIONS[3]!.prompt);
+  });
+
+  it('item 14.4 (rodada final): meta-conversa sobre a IA classificada pelo Gemini (sem palavra-chave determinística) também não avança nem grava', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(3);
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue({
+      classificacao: 'duvida_sistema',
+      confianca: 'alta',
+    });
+
+    await processInboundWebhook(
+      webhookPayload(
+        inboundMessage({
+          from: '5511999999999',
+          text: { body: 'voce consegue mesmo entender o que eu escrevo?' },
+        }),
+      ),
+    );
+
+    expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock.mock.calls[0]![1]).toContain('inteligência artificial como apoio');
+  });
+
+  it('item 12.3 (regressão): texto fora de contexto continua pedindo esclarecimento sem gravar', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(3);
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue({
+      classificacao: 'fora_de_contexto',
+      confianca: 'alta',
+    });
+
+    await processInboundWebhook(
+      webhookPayload(inboundMessage({ from: '5511999999999', text: { body: 'vai chover amanhã?' } })),
+    );
+
+    expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock.mock.calls[0]![1]).toContain('Ainda não consegui identificar');
   });
 
   it('conclui o atendimento e cria a solicitação após a última pergunta (RN03)', async () => {

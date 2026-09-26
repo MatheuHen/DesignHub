@@ -23,6 +23,13 @@ export interface AuthState {
 export interface AuthContextValue extends AuthState {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  /**
+   * Item 5.1 (rodada final): recarrega `/api/auth/me` sem precisar de
+   * logout/login — usado depois de ações que podem mudar `bloqueado`
+   * (upload de versão, cancelamento de solicitação) para o aviso de
+   * bloqueio (RF006) desaparecer/aparecer imediatamente na UI.
+   */
+  refreshProfile: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);

@@ -22,7 +22,7 @@ import {
   createAgendamento,
   updateAgendamento,
 } from '../services/agendamento.service.js';
-import { gerarLinkAvaliacao } from '../services/avaliacao.service.js';
+import { gerarLinkAvaliacao, getLinkAvaliacaoHistorico } from '../services/avaliacao.service.js';
 import { reassignSolicitacao } from '../services/designer.service.js';
 import {
   getComprovanteDownloadUrl,
@@ -222,6 +222,27 @@ solicitacaoRouter.post(
       const client = getSupabaseUserClient(request.auth!.accessToken);
       const result = await gerarLinkAvaliacao(client, id, request.auth!.userId);
       response.status(201).json(result);
+    } catch (error) {
+      next(toAppError(error));
+    }
+  },
+);
+
+/**
+ * Item 7 (rodada final): histórico PERSISTIDO do link de avaliação da versão
+ * pendente — "Último envio", canal, situação real e quantidade de tentativas.
+ * Sobrevive a reload/nova sessão, diferente da resposta ephemeral do POST
+ * acima. `null` quando a solicitação ainda não tem nenhuma versão enviada.
+ */
+solicitacaoRouter.get(
+  '/:id/link-avaliacao',
+  requireProfile('designer'),
+  async (request, response, next) => {
+    try {
+      const { id } = solicitacaoIdParamSchema.parse(request.params);
+      const client = getSupabaseUserClient(request.auth!.accessToken);
+      const result = await getLinkAvaliacaoHistorico(client, id, request.auth!.userId);
+      response.status(200).json(result);
     } catch (error) {
       next(toAppError(error));
     }

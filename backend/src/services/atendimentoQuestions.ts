@@ -106,3 +106,16 @@ export const CANCELAMENTO_ABORTADO_MESSAGE = 'Certo, vamos continuar de onde par
  */
 export const RESPOSTA_NAO_PERTINENTE_MESSAGE =
   'Ainda não consegui identificar sua resposta para esta pergunta. Vamos tentar de novo:';
+
+/**
+ * Item 14.4 (rodada final): o cliente perguntou sobre o próprio atendimento
+ * automatizado (se é robô/IA, se usa Gemini, se está funcionando) em vez de
+ * responder à pergunta corrente. Diferente de `RESPOSTA_NAO_PERTINENTE_MESSAGE`
+ * — não é "não identifiquei sua resposta, tente de novo" (o que soa como
+ * culpa do cliente por uma pergunta legítima), é uma explicação verdadeira e
+ * fixa, seguida da mesma pergunta pendente. Nunca grava esse texto como
+ * resposta nem avança o questionário (RN09).
+ */
+export const DUVIDA_SISTEMA_MESSAGE =
+  'O DesignHub usa inteligência artificial como apoio para interpretar algumas respostas do atendimento. ' +
+  'O fluxo continua seguindo as etapas do sistema. Agora, respondendo à pergunta anterior:';

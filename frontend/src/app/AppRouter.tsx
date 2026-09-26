@@ -14,6 +14,7 @@ import { ClientesPage } from '../features/designer/clientes/ClientesPage';
 import { DesignerHome } from '../features/designer/DesignerHome';
 import { SolicitacaoDetailPage } from '../features/designer/solicitacoes/SolicitacaoDetailPage';
 import { SolicitacoesPage } from '../features/designer/solicitacoes/SolicitacoesPage';
+import { InstagramStatusPage } from '../features/instagram/InstagramStatusPage';
 
 export function AppRouter() {
   return (
@@ -24,6 +25,7 @@ export function AppRouter() {
           <Route path="/esqueci-senha" element={<ForgotPasswordPage />} />
           <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
           <Route path="/avaliacao/:token" element={<AvaliacaoPage />} />
+          <Route path="/instagram/status" element={<InstagramStatusPage />} />
           <Route
             path="/designer"
             element={

@@ -42,12 +42,14 @@ vi.mock('../services/versaoArte.service.js', () => ({
   getVersaoArteDownloadUrl: getVersaoArteDownloadUrlMock,
 }));
 
-const { gerarLinkAvaliacaoMock } = vi.hoisted(() => ({
+const { gerarLinkAvaliacaoMock, getLinkAvaliacaoHistoricoMock } = vi.hoisted(() => ({
   gerarLinkAvaliacaoMock: vi.fn(),
+  getLinkAvaliacaoHistoricoMock: vi.fn(),
 }));
 
 vi.mock('../services/avaliacao.service.js', () => ({
   gerarLinkAvaliacao: gerarLinkAvaliacaoMock,
+  getLinkAvaliacaoHistorico: getLinkAvaliacaoHistoricoMock,
 }));
 
 const { createAgendamentoMock, updateAgendamentoMock, cancelAgendamentoMock } = vi.hoisted(() => ({
@@ -103,6 +105,7 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
     uploadVersaoArteMock.mockReset();
     getVersaoArteDownloadUrlMock.mockReset();
     gerarLinkAvaliacaoMock.mockReset();
+    getLinkAvaliacaoHistoricoMock.mockReset();
     createAgendamentoMock.mockReset();
     updateAgendamentoMock.mockReset();
     cancelAgendamentoMock.mockReset();
@@ -378,6 +381,54 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
       whatsappNotified: true,
     });
     expect(gerarLinkAvaliacaoMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1');
+  });
+
+  it('GET /:id/link-avaliacao (item 7 — rodada final) é exclusivo do designer — administrador recebe 403', async () => {
+    mockAuthenticatedUser('administrador');
+
+    const response = await request(createApp())
+      .get('/api/solicitacoes/10/link-avaliacao')
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(403);
+    expect(getLinkAvaliacaoHistoricoMock).not.toHaveBeenCalled();
+  });
+
+  it('GET /:id/link-avaliacao devolve o histórico persistido para o designer', async () => {
+    mockAuthenticatedUser('designer');
+    getLinkAvaliacaoHistoricoMock.mockResolvedValue({
+      ultimoEnvioEm: '2026-09-20T10:00:00Z',
+      whatsappNotificadoEm: '2026-09-20T10:00:01Z',
+      situacao: 'aguardando_resposta',
+      validoAte: '2026-09-27T10:00:00Z',
+      quantidadeEnvios: 1,
+    });
+
+    const response = await request(createApp())
+      .get('/api/solicitacoes/10/link-avaliacao')
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ultimoEnvioEm: '2026-09-20T10:00:00Z',
+      whatsappNotificadoEm: '2026-09-20T10:00:01Z',
+      situacao: 'aguardando_resposta',
+      validoAte: '2026-09-27T10:00:00Z',
+      quantidadeEnvios: 1,
+    });
+    expect(getLinkAvaliacaoHistoricoMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1');
+  });
+
+  it('GET /:id/link-avaliacao devolve null quando ainda não há nenhuma versão enviada', async () => {
+    mockAuthenticatedUser('designer');
+    getLinkAvaliacaoHistoricoMock.mockResolvedValue(null);
+
+    const response = await request(createApp())
+      .get('/api/solicitacoes/10/link-avaliacao')
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toBeNull();
   });
 
   it('POST /:id/agendamento é exclusivo do designer — administrador recebe 403', async () => {

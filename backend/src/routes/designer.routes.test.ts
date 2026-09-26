@@ -18,17 +18,21 @@ vi.mock('../config/supabase.js', () => ({
   }),
 }));
 
-const { removeDesignerMock, changeDesignerPasswordMock } = vi.hoisted(() => ({
-  removeDesignerMock: vi.fn(),
-  changeDesignerPasswordMock: vi.fn(),
-}));
+const { removeDesignerMock, changeDesignerPasswordMock, changeDesignerStatusMock, listPendenciasDesignerMock } =
+  vi.hoisted(() => ({
+    removeDesignerMock: vi.fn(),
+    changeDesignerPasswordMock: vi.fn(),
+    changeDesignerStatusMock: vi.fn(),
+    listPendenciasDesignerMock: vi.fn(),
+  }));
 
 vi.mock('../services/designer.service.js', () => ({
   listDesigners: listDesignersMock,
   getDesigner: vi.fn(),
   createDesigner: vi.fn(),
   updateDesigner: vi.fn(),
-  changeDesignerStatus: vi.fn(),
+  changeDesignerStatus: changeDesignerStatusMock,
+  listPendenciasDesigner: listPendenciasDesignerMock,
   removeDesigner: removeDesignerMock,
   changeDesignerPassword: changeDesignerPasswordMock,
 }));
@@ -171,5 +175,105 @@ describe('PATCH /api/designers/:id/senha — item 2.1 (correções 13/09/2026): 
 
     expect(response.status).toBe(204);
     expect(changeDesignerPasswordMock).toHaveBeenCalledWith('user-1', VALID_ID, 'senha1234');
+  });
+});
+
+describe('PATCH /api/designers/:id/status — item 4 (rodada final): estratégia obrigatória com pendências', () => {
+  const VALID_ID = '33333333-3333-4333-8333-333333333333';
+
+  beforeEach(() => {
+    changeDesignerStatusMock.mockReset();
+  });
+
+  it('rejeita com 403 quando o perfil autenticado não é administrador', async () => {
+    mockAuthenticatedUser({ perfil: 'designer', status: 'ativo' });
+
+    const response = await request(createApp())
+      .patch(`/api/designers/${VALID_ID}/status`)
+      .set('Authorization', 'Bearer token-designer')
+      .send({ status: 'inativo' });
+
+    expect(response.status).toBe(403);
+    expect(changeDesignerStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('retorna 204 e repassa atorId/estratégia ao service quando não há pendências', async () => {
+    mockAuthenticatedUser({ perfil: 'administrador', status: 'ativo' });
+    changeDesignerStatusMock.mockResolvedValue({});
+
+    const response = await request(createApp())
+      .patch(`/api/designers/${VALID_ID}/status`)
+      .set('Authorization', 'Bearer token-admin')
+      .send({ status: 'inativo' });
+
+    expect(response.status).toBe(204);
+    expect(changeDesignerStatusMock).toHaveBeenCalledWith('user-1', VALID_ID, { status: 'inativo' });
+  });
+
+  it('retorna 409 com a lista de pendências quando o service não recebe estratégia e existem pendências', async () => {
+    mockAuthenticatedUser({ perfil: 'administrador', status: 'ativo' });
+    changeDesignerStatusMock.mockResolvedValue({
+      pendencias: [{ idSolicitacao: 1, clienteNome: 'Waynne', tema: 'Post', status: 'Em produção', atrasada: true }],
+    });
+
+    const response = await request(createApp())
+      .patch(`/api/designers/${VALID_ID}/status`)
+      .set('Authorization', 'Bearer token-admin')
+      .send({ status: 'inativo' });
+
+    const body = response.body as { error: string; pendencias: unknown[] };
+    expect(response.status).toBe(409);
+    expect(body.error).toBe('DESIGNER_PENDENCIAS');
+    expect(body.pendencias).toHaveLength(1);
+  });
+
+  it('aceita a estratégia "reatribuir_pendentes" com a lista de reatribuições', async () => {
+    mockAuthenticatedUser({ perfil: 'administrador', status: 'ativo' });
+    changeDesignerStatusMock.mockResolvedValue({});
+
+    const response = await request(createApp())
+      .patch(`/api/designers/${VALID_ID}/status`)
+      .set('Authorization', 'Bearer token-admin')
+      .send({
+        status: 'inativo',
+        estrategia: 'reatribuir_pendentes',
+        reatribuicoes: [{ idSolicitacao: 1, novoDesignerId: VALID_ID }],
+      });
+
+    expect(response.status).toBe(204);
+  });
+});
+
+describe('GET /api/designers/:id/pendencias — item 4 (rodada final)', () => {
+  const VALID_ID = '44444444-4444-4444-8444-444444444444';
+
+  beforeEach(() => {
+    listPendenciasDesignerMock.mockReset();
+  });
+
+  it('rejeita com 403 quando o perfil autenticado não é administrador', async () => {
+    mockAuthenticatedUser({ perfil: 'designer', status: 'ativo' });
+
+    const response = await request(createApp())
+      .get(`/api/designers/${VALID_ID}/pendencias`)
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(403);
+    expect(listPendenciasDesignerMock).not.toHaveBeenCalled();
+  });
+
+  it('devolve a lista de pendências para o administrador', async () => {
+    mockAuthenticatedUser({ perfil: 'administrador', status: 'ativo' });
+    listPendenciasDesignerMock.mockResolvedValue([
+      { idSolicitacao: 1, clienteNome: 'Waynne', tema: 'Post', status: 'Em produção', atrasada: true },
+    ]);
+
+    const response = await request(createApp())
+      .get(`/api/designers/${VALID_ID}/pendencias`)
+      .set('Authorization', 'Bearer token-admin');
+
+    const body = response.body as { items: unknown[] };
+    expect(response.status).toBe(200);
+    expect(body.items).toHaveLength(1);
   });
 });

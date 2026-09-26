@@ -10,6 +10,9 @@ const {
   assertDesignerIsActiveMock,
   getSolicitacaoCoreMock,
   reassignSolicitacaoRpcMock,
+  syncDesignerBloqueioMock,
+  listPendenciasByDesignerMock,
+  adminCancelarPendenciasDesignerRpcMock,
   deleteDesignerRowMock,
   updateDesignerPasswordRowMock,
   updateDesignerProfileMock,
@@ -23,6 +26,9 @@ const {
   assertDesignerIsActiveMock: vi.fn(),
   getSolicitacaoCoreMock: vi.fn(),
   reassignSolicitacaoRpcMock: vi.fn(),
+  syncDesignerBloqueioMock: vi.fn(),
+  listPendenciasByDesignerMock: vi.fn(),
+  adminCancelarPendenciasDesignerRpcMock: vi.fn(),
   deleteDesignerRowMock: vi.fn(),
   updateDesignerPasswordRowMock: vi.fn(),
   updateDesignerProfileMock: vi.fn(),
@@ -51,6 +57,9 @@ vi.mock('../repositories/designer.repository.js', () => ({
 vi.mock('../repositories/solicitacao.repository.js', () => ({
   getSolicitacaoCore: getSolicitacaoCoreMock,
   reassignSolicitacaoRpc: reassignSolicitacaoRpcMock,
+  syncDesignerBloqueio: syncDesignerBloqueioMock,
+  listPendenciasByDesigner: listPendenciasByDesignerMock,
+  adminCancelarPendenciasDesignerRpc: adminCancelarPendenciasDesignerRpcMock,
 }));
 
 const {
@@ -60,6 +69,7 @@ const {
   changeDesignerPassword,
   updateDesigner,
   changeDesignerStatus,
+  listPendenciasDesigner,
 } = await import('./designer.service.js');
 
 describe('createDesigner (RF001/FIGURA 28)', () => {
@@ -132,6 +142,7 @@ describe('reassignSolicitacao (RF016)', () => {
     assertDesignerIsActiveMock.mockReset();
     getDesignerByIdMock.mockReset();
     reassignSolicitacaoRpcMock.mockReset();
+    syncDesignerBloqueioMock.mockReset().mockResolvedValue(false);
   });
 
   it('rejeita quando a solicitação já pertence ao designer de destino', async () => {
@@ -165,6 +176,21 @@ describe('reassignSolicitacao (RF016)', () => {
 
     await expect(
       reassignSolicitacao('admin-1', 10, { novoDesignerId: 'designer-inativo' }),
+    ).rejects.toBeInstanceOf(ConflictError);
+    expect(reassignSolicitacaoRpcMock).not.toHaveBeenCalled();
+  });
+
+  it('item 5/5.1 (rodada final): rejeita reatribuir para designer de destino bloqueado por atraso (RF006)', async () => {
+    getSolicitacaoCoreMock.mockResolvedValue({
+      idSolicitacao: 10,
+      idDesigner: 'designer-atual',
+      status: 'Em produção',
+    });
+    assertDesignerIsActiveMock.mockResolvedValue(undefined);
+    syncDesignerBloqueioMock.mockResolvedValue(true);
+
+    await expect(
+      reassignSolicitacao('admin-1', 10, { novoDesignerId: 'designer-atrasado' }),
     ).rejects.toBeInstanceOf(ConflictError);
     expect(reassignSolicitacaoRpcMock).not.toHaveBeenCalled();
   });
@@ -269,24 +295,163 @@ describe('updateDesigner (auditoria — corrige falta de checagem de existência
   });
 });
 
-describe('changeDesignerStatus (auditoria — corrige 204 falso-positivo para id inexistente)', () => {
+describe('changeDesignerStatus (item 4/rodada final — inativação com pendências)', () => {
+  const pendenciaExemplo = {
+    idSolicitacao: 42,
+    clienteNome: 'Waynne',
+    tema: 'Post de aniversário',
+    status: 'Em produção' as const,
+    atrasada: true,
+  };
+
   beforeEach(() => {
-    getDesignerByIdMock.mockReset();
-    setDesignerStatusMock.mockReset();
+    getDesignerByIdMock.mockReset().mockResolvedValue({ id: 'designer-x', email: 'x@exemplo.com' });
+    setDesignerStatusMock.mockReset().mockResolvedValue(undefined);
+    listPendenciasByDesignerMock.mockReset().mockResolvedValue([]);
+    adminCancelarPendenciasDesignerRpcMock.mockReset().mockResolvedValue(1);
+    getSolicitacaoCoreMock.mockReset();
+    assertDesignerIsActiveMock.mockReset().mockResolvedValue(undefined);
+    syncDesignerBloqueioMock.mockReset().mockResolvedValue(false);
+    reassignSolicitacaoRpcMock.mockReset().mockResolvedValue(undefined);
   });
 
   it('lança NotFoundError quando o designer não existe (nunca escreve)', async () => {
     getDesignerByIdMock.mockResolvedValue(null);
 
-    await expect(changeDesignerStatus('inexistente', 'inativo')).rejects.toBeInstanceOf(NotFoundError);
+    await expect(
+      changeDesignerStatus('admin-1', 'inexistente', { status: 'inativo' }),
+    ).rejects.toBeInstanceOf(NotFoundError);
     expect(setDesignerStatusMock).not.toHaveBeenCalled();
   });
 
-  it('atualiza o status quando o designer existe', async () => {
-    getDesignerByIdMock.mockResolvedValue({ id: 'designer-x', email: 'x@exemplo.com' });
-    setDesignerStatusMock.mockResolvedValue(undefined);
+  it('reativar nunca exige estratégia nem consulta pendências', async () => {
+    await changeDesignerStatus('admin-1', 'designer-x', { status: 'ativo' });
 
-    await expect(changeDesignerStatus('designer-x', 'inativo')).resolves.toBeUndefined();
+    expect(setDesignerStatusMock).toHaveBeenCalledWith(expect.anything(), 'designer-x', 'ativo');
+    expect(listPendenciasByDesignerMock).not.toHaveBeenCalled();
+  });
+
+  it('inativa direto quando não há pendências e nenhuma estratégia foi informada', async () => {
+    listPendenciasByDesignerMock.mockResolvedValue([]);
+
+    const result = await changeDesignerStatus('admin-1', 'designer-x', { status: 'inativo' });
+
+    expect(result.pendencias).toBeUndefined();
     expect(setDesignerStatusMock).toHaveBeenCalledWith(expect.anything(), 'designer-x', 'inativo');
+  });
+
+  it('rejeita a inativação direta e devolve as pendências quando existem e nenhuma estratégia foi escolhida', async () => {
+    listPendenciasByDesignerMock.mockResolvedValue([pendenciaExemplo]);
+
+    const result = await changeDesignerStatus('admin-1', 'designer-x', { status: 'inativo' });
+
+    expect(result.pendencias).toEqual([pendenciaExemplo]);
+    expect(setDesignerStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('estratégia "inativar_mesmo_assim": inativa sem tocar nas pendências', async () => {
+    listPendenciasByDesignerMock.mockResolvedValue([pendenciaExemplo]);
+
+    await changeDesignerStatus('admin-1', 'designer-x', {
+      status: 'inativo',
+      estrategia: 'inativar_mesmo_assim',
+    });
+
+    expect(setDesignerStatusMock).toHaveBeenCalledWith(expect.anything(), 'designer-x', 'inativo');
+    expect(adminCancelarPendenciasDesignerRpcMock).not.toHaveBeenCalled();
+    expect(reassignSolicitacaoRpcMock).not.toHaveBeenCalled();
+  });
+
+  it('estratégia "cancelar_pendentes": delega para a RPC atômica (cancela + inativa) e não chama setDesignerStatus separadamente', async () => {
+    await changeDesignerStatus('admin-1', 'designer-x', {
+      status: 'inativo',
+      estrategia: 'cancelar_pendentes',
+    });
+
+    expect(adminCancelarPendenciasDesignerRpcMock).toHaveBeenCalledWith(expect.anything(), {
+      idDesigner: 'designer-x',
+      atorId: 'admin-1',
+    });
+    expect(setDesignerStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('estratégia "reatribuir_pendentes": rejeita quando falta destino para alguma pendência', async () => {
+    listPendenciasByDesignerMock.mockResolvedValue([pendenciaExemplo, { ...pendenciaExemplo, idSolicitacao: 43 }]);
+
+    await expect(
+      changeDesignerStatus('admin-1', 'designer-x', {
+        status: 'inativo',
+        estrategia: 'reatribuir_pendentes',
+        reatribuicoes: [{ idSolicitacao: 42, novoDesignerId: 'designer-novo' }],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(setDesignerStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('estratégia "reatribuir_pendentes": rejeita solicitação informada que não é pendência deste designer', async () => {
+    listPendenciasByDesignerMock.mockResolvedValue([pendenciaExemplo]);
+
+    await expect(
+      changeDesignerStatus('admin-1', 'designer-x', {
+        status: 'inativo',
+        estrategia: 'reatribuir_pendentes',
+        reatribuicoes: [{ idSolicitacao: 999, novoDesignerId: 'designer-novo' }],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('estratégia "reatribuir_pendentes": reatribui cada pendência (reaproveitando reassignSolicitacao) e só então inativa', async () => {
+    listPendenciasByDesignerMock.mockResolvedValue([pendenciaExemplo]);
+    getSolicitacaoCoreMock.mockResolvedValue({ idSolicitacao: 42, idDesigner: 'designer-x', status: 'Em produção' });
+
+    await changeDesignerStatus('admin-1', 'designer-x', {
+      status: 'inativo',
+      estrategia: 'reatribuir_pendentes',
+      reatribuicoes: [{ idSolicitacao: 42, novoDesignerId: 'designer-novo' }],
+    });
+
+    expect(reassignSolicitacaoRpcMock).toHaveBeenCalledWith(expect.anything(), {
+      idSolicitacao: 42,
+      novoDesignerId: 'designer-novo',
+      atorId: 'admin-1',
+    });
+    expect(setDesignerStatusMock).toHaveBeenCalledWith(expect.anything(), 'designer-x', 'inativo');
+  });
+
+  it('estratégia "reatribuir_pendentes": não inativa se a reatribuição falhar (destino bloqueado)', async () => {
+    listPendenciasByDesignerMock.mockResolvedValue([pendenciaExemplo]);
+    getSolicitacaoCoreMock.mockResolvedValue({ idSolicitacao: 42, idDesigner: 'designer-x', status: 'Em produção' });
+    syncDesignerBloqueioMock.mockResolvedValue(true);
+
+    await expect(
+      changeDesignerStatus('admin-1', 'designer-x', {
+        status: 'inativo',
+        estrategia: 'reatribuir_pendentes',
+        reatribuicoes: [{ idSolicitacao: 42, novoDesignerId: 'designer-atrasado' }],
+      }),
+    ).rejects.toBeInstanceOf(ConflictError);
+    expect(setDesignerStatusMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('listPendenciasDesigner (item 4/rodada final)', () => {
+  beforeEach(() => {
+    getDesignerByIdMock.mockReset();
+    listPendenciasByDesignerMock.mockReset();
+  });
+
+  it('lança NotFoundError quando o designer não existe', async () => {
+    getDesignerByIdMock.mockResolvedValue(null);
+    await expect(listPendenciasDesigner('inexistente')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('devolve as pendências do designer', async () => {
+    getDesignerByIdMock.mockResolvedValue({ id: 'designer-x' });
+    listPendenciasByDesignerMock.mockResolvedValue([
+      { idSolicitacao: 1, clienteNome: 'Waynne', tema: 'Post', status: 'Em produção', atrasada: true },
+    ]);
+
+    const result = await listPendenciasDesigner('designer-x');
+    expect(result).toHaveLength(1);
   });
 });
