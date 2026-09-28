@@ -118,7 +118,7 @@ export function DesignerHome() {
       </div>
 
       {profile?.bloqueado && (
-        <p role="alert" className="auth-error" style={{ marginBottom: 20 }}>
+        <p role="alert" className="auth-error dashboard-bloqueio-alert">
           Você está bloqueado para iniciar novos atendimentos: há uma solicitação vencida sem a
           primeira versão enviada. Envie a versão pendente ou aguarde o cancelamento para
           ser desbloqueado.

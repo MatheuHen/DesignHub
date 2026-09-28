@@ -401,7 +401,6 @@ export function DesignersPage() {
           className="designer-form"
           role="alertdialog"
           aria-labelledby="pendencias-panel-title"
-          style={{ marginTop: 24 }}
         >
           <h2 id="pendencias-panel-title">
             {pendenciasPanel.designer.nomeCompleto} possui solicitações pendentes
@@ -522,7 +521,7 @@ export function DesignersPage() {
         </div>
       )}
 
-      <section aria-labelledby="reatribuicao-title" style={{ marginTop: 32 }}>
+      <section className="reatribuicao-section" aria-labelledby="reatribuicao-title">
         <h2 id="reatribuicao-title">Solicitações atribuídas</h2>
         <p>Selecione uma solicitação e escolha outro designer responsável.</p>
 
