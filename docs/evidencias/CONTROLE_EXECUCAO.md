@@ -3123,3 +3123,125 @@ Push/Internal Job) a pedido do usuário, após ele configurar
   Gemini corrigido em produção (nada a fazer agora, só monitorar).
 - Chave `GEMINI_API_KEY` local (`.env.local`) permanece com o valor exposto
   no histórico desta sessão — decisão do usuário foi manter sem rotacionar.
+
+## 2026-09-27 — Catch-up de checkpoint (8 commits de 23-27/09 não documentados)
+
+Este arquivo ficou atrasado em relação ao Git por 8 commits (checkpoint
+anterior parou em `7adfb97`/`dea49ae`, 23/09). Entrada consolidada,
+reconstruída a partir de `git show` de cada commit — nenhum código foi
+alterado nesta entrada, é só o registro que faltava.
+
+- **`892062f` fix (HIGH, RF004/RN08/RN09)**: retry da Meta podia corromper a
+  solicitação. Quando a resposta era gravada com sucesso e algo *depois*
+  falhava (ex.: envio da próxima pergunta), a rota respondia não-2xx, a
+  Meta reentregava o mesmo `wamid` e o reprocessamento recalculava a
+  pergunta alvo a partir da contagem já incrementada — a resposta de
+  "tema" era regravada como resposta de "cores". O índice único
+  `(id_atendimento, pergunta)` não protegia porque a pergunta alvo mudava
+  entre as duas tentativas. Corrigido com `resposta_cliente.id_evento`
+  (o `wamid`) + índice único parcial; `register_resposta_atendimento_e_avancar`
+  agora checa o evento sob o mesmo lock antes de decidir a pergunta —
+  reentrega vira no-op. Item 11.3: cliente passa a ser avisado por
+  WhatsApp só depois do comprovante persistido com sucesso (nunca antes),
+  melhor-esforço com fallback documentado
+  (`BLOCKED_EXTERNAL_WHATSAPP_TEMPLATE`).
+- **`9a16f7a` test**: primeira suíte E2E real (Playwright) do Web Push,
+  contra produção real (backend + Supabase + par VAPID reais, Chromium
+  real, sem mock de `pushManager`/`ServiceWorker`) — os dois bugs de
+  produção do Web Push tinham passado despercebidos justamente porque os
+  testes unitários mockavam essas APIs. Infra nova: `@playwright/test`
+  (devDependency do frontend), `tsconfig.e2e.json` fora do build de
+  produção, `scripts/bootstrap-e2e-designer.mjs` (credenciais só em
+  arquivo gitignored). Nenhum código de runtime alterado.
+- **`3266659` feat (RF014/ADR 0005)**: implementados os dois callbacks
+  obrigatórios da revisão do App Meta que ainda faltavam —
+  `POST /api/instagram/oauth/deauthorize` e
+  `POST /api/instagram/oauth/data-deletion` (+ `GET
+  .../data-deletion/status`), ambos validando `signed_request` via
+  HMAC-SHA256 + `timingSafeEqual` e removendo só a conexão/token daquele
+  `instagram_user_id` (nunca cliente/solicitação/histórico), idempotentes
+  e com rate limit dedicado. Migration nova: índice por
+  `instagram_user_id` + tabela infraestrutural
+  `instagram_data_deletion_request` (mesmo padrão de
+  `whatsapp_webhook_evento`, não é entidade do DER). Também: layout
+  responsivo de `/designer/clientes` (técnica "responsive table" — mesmo
+  DOM, card via `data-label` abaixo de 860px), sem duplicar markup nem
+  criar tela nova; bug de CSS real encontrado e corrigido durante
+  validação visual (botão "Iniciar atendimento" com texto branco sobre
+  fundo branco por perda de especificidade de cascata).
+- **`e970db7` fix**: rodada de correções agrupadas — inativação de
+  designer com pendências agora exige estratégia explícita
+  (cancelar/reatribuir/inativar mesmo assim); bloqueio por atraso (RF006)
+  deixa de depender de coluna cache e passa a ser recalculado ao vivo em
+  `/api/auth/me` e no destino de uma reatribuição; classificador de
+  meta-conversa do WhatsApp (Gemini) para de travar respostas válidas e
+  passa a explicar em vez de repetir "não entendi"; callback OAuth do
+  Instagram nunca mais redireciona o cliente (link via WhatsApp) para a
+  rota protegida do designer; "Prazo para vencimento" na listagem de
+  solicitações passa a refletir a etapa atual em vez do prazo estático da
+  1ª versão; histórico do link de avaliação passa a distinguir
+  gerado≠enviado; designer passa a ser avisado (push + WhatsApp
+  best-effort) em aprovação/ajuste/cancelamento/agendamento
+  automático/publicação própria do cliente. Também corrigido um desvio
+  real entre o ledger de migrations e o schema do banco (Instagram
+  Deauthorize/Data Deletion já existia fisicamente mas não estava
+  registrado como aplicado) via `supabase migration repair`, sem
+  reexecutar DDL. Nenhuma mudança de RF/RN/estado — só correções e
+  reforço dos already-documentados.
+- **`9bada1c` fix (segurança)**: 4 alertas médios do OWASP ZAP no frontend
+  estático (Vercel) corrigidos — `Access-Control-Allow-Origin: *` default
+  do Vercel para arquivos estáticos, CSP ausente, `X-Frame-Options`
+  ausente, `X-Content-Type-Options` ausente. Backend já tinha essa
+  proteção via `helmet()`; `frontend/vercel.json` nunca declarava headers
+  próprios. CSP construída a partir do uso real do bundle (self-hosted
+  script/style, `unsafe-inline` só pelo `style={{}}` de 2 componentes,
+  `blob:`/host do Supabase Storage pelo preview de upload e pelo iframe
+  da avaliação pública, `frame-ancestors 'none'` + `X-Frame-Options: DENY`
+  porque nada legítimo embute o DesignHub em iframe de terceiro).
+- **`78276a8` test**: duas fixtures com datas absolutas fixas
+  (`avaliacao.repository.test.ts`, `AvaliacaoPage.test.tsx`) quebravam por
+  *timing* assim que o calendário real alcançava a data hardcoded, não por
+  regressão de código — trocadas por datas calculadas em relação a
+  `Date.now()`. Nenhuma regra de negócio alterada.
+- **`a03b7c7` test**: `frontend/playwright.config.ts` — `trace:
+  'retain-on-failure'` causava `ENOENT` no teardown do
+  `launchPersistentContext` manual (necessário para Push API real) no
+  Windows, marcando o E2E como falho mesmo com o fluxo 100% funcional nos
+  logs; trocado para `trace: 'off'` (não altera comportamento de
+  produção). Criado `EVIDENCIAS_TESTES_FINAIS.md` (raiz do repo, já
+  versionado) consolidando a validação real desta rodada: backend
+  644/644, frontend 150/150, E2E Web Push 1/1 contra produção, headers de
+  segurança e CORS confirmados em produção, k6 (`k6-health-test.js`) 258
+  requisições/0% falha/p95=228ms. Documento também registra que uma
+  segunda sessão autônoma do Claude Code (`INICIAR_CLAUDE_AUTONOMO`)
+  esteve rodando em paralelo no mesmo repositório e já havia
+  commitado/deployado `9bada1c` de forma independente antes desta
+  validação — todos os números foram reexecutados nesta sessão para
+  confirmar o estado real, não reaproveitados às cegas.
+- **`9dcd679` feat**: classificador Gemini que decide se a resposta do
+  cliente é pertinente à pergunta atual (RN08) passa a receber um
+  histórico da conversa (últimas 4 perguntas/respostas já dadas no mesmo
+  atendimento, 200 caracteres cada) como contexto adicional — antes
+  julgava cada mensagem isolada. Histórico tratado como DADO no prompt
+  (mesma defesa contra prompt injection já existente), nunca como
+  instrução. Não muda RF004/RN08 (fluxo continua pergunta-por-pergunta,
+  sequencial e fixo); sem `GEMINI_API_KEY`, cai na mesma heurística
+  determinística de sempre.
+- **Validação executada nesta entrada de catch-up** (estado real do
+  `HEAD` atual, `9dcd679`, não reaproveitado da validação anterior):
+  `npm run lint`/`typecheck`/`build` limpos nos dois workspaces;
+  **backend 650/650 testes** (52 suítes, +6 em relação aos 644 de
+  `EVIDENCIAS_TESTES_FINAIS.md`, refletindo os testes novos do
+  classificador com histórico); **frontend 150/150 testes** (15 suítes,
+  inalterado). `git status` limpo exceto os 2 arquivos já conhecidos e
+  intencionalmente fora do Git (`docs/evidencias/DOSSIE_CAPITULOS_3_4_TFC.md`,
+  `k6-health-test.js` — script de teste de carga solto na raiz, mesmo
+  usado como evidência no item k6 acima).
+- Nenhum `CRITICAL`/`HIGH` em aberto identificado nesta consolidação.
+  Pendências reais permanecem as mesmas já registradas: aprovação do
+  template `designhub_publicacao_concluida` (resolvida em 16/09, ver
+  entrada correspondente) e ausência de coverage automatizado (decisão
+  já registrada de não adicionar só para gerar número).
+- Próxima etapa: nenhuma tecnicamente obrigatória identificada. Recomendo
+  manter este arquivo atualizado a cada commit relevante para não repetir
+  o atraso de documentação observado nesta sessão.
