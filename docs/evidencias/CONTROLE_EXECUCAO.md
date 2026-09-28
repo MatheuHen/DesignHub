@@ -3245,3 +3245,56 @@ alterado nesta entrada, é só o registro que faltava.
 - Próxima etapa: nenhuma tecnicamente obrigatória identificada. Recomendo
   manter este arquivo atualizado a cada commit relevante para não repetir
   o atraso de documentação observado nesta sessão.
+
+## 2026-09-27 — Último alerta médio do ZAP resolvido (CSP `style-src unsafe-inline`)
+
+Pedido pontual do usuário: eliminar `'unsafe-inline'` de `style-src` **só
+se** fosse provadamente seguro, sem refatoração arriscada.
+
+- **Investigação (antes de qualquer mudança)**: grep exaustivo em
+  `frontend/src` por `style={{`, `style={` (sem chave dupla),
+  `dangerouslySetInnerHTML` e `<style` — únicos 3 usos de estilo inline
+  no projeto inteiro: `style={{ marginTop: 24 }}` (painel de pendências,
+  `DesignersPage.tsx`), `style={{ marginTop: 32 }}` (seção de
+  reatribuição, `DesignersPage.tsx`) e `style={{ marginBottom: 20 }}`
+  (alerta de bloqueio, `DesignerHome.tsx`) — todos com valores estáticos
+  em pixels, nenhum computado em runtime a partir de dado do usuário.
+  Dependências do frontend confirmadas mínimas (`react`, `react-dom`,
+  `react-router-dom`, `@supabase/supabase-js`) — nenhuma biblioteca
+  CSS-in-JS/injeção de `<style>`. `index.html` e `sw.js` sem estilo
+  inline. **Resposta a "era realmente necessário": não mais — os 3 usos
+  eram elimináveis sem perda de funcionalidade.**
+- **Correção aplicada** (`3f4cece`): o `marginTop: 24` do painel de
+  pendências já era **redundante** com `.designer-form` (que já define
+  `margin-top: 24px`) — removido sem substituto. Os outros dois viraram
+  classes CSS dedicadas com o valor exato preservado:
+  `.reatribuicao-section { margin-top: 32px; }` e
+  `.dashboard-bloqueio-alert { margin-bottom: 20px; }`
+  (`frontend/src/styles.css`), aplicadas via `className` nos mesmos
+  elementos. `style-src` em `frontend/vercel.json` passou de `'self'
+  'unsafe-inline'` para só `'self'`. Nenhuma outra diretiva da CSP,
+  contrato de API, banco, autenticação ou regra de negócio foi tocada.
+- **Validação**: `npm run lint`/`typecheck`/`test`/`build` limpos nos
+  dois workspaces (backend 650/650 inalterado; **frontend 150/150**,
+  incluindo `DesignersPage.test.tsx` e `DesignerHome.test.tsx` — as
+  suítes que exercitam exatamente os componentes alterados — sem
+  nenhuma quebra). Deploy de produção via `vercel deploy --prod`
+  (`READY`). `curl -I https://designhub-frontend-ten.vercel.app/`
+  confirmou `style-src 'self'` (sem `unsafe-inline`) no header real.
+  E2E Web Push (`npm run test:e2e:webpush`, Playwright contra produção
+  real, sem mock) reexecutado **depois** do deploy com a CSP nova:
+  **1/1 passou** — service worker ativado, assinatura criada, push
+  aceito (HTTP 201), notificação exibida, unsubscribe/resubscribe —
+  confirma que a página que mais depende de JS/DOM dinâmico continua
+  funcionando sem `unsafe-inline`.
+- **Risco residual**: nenhum identificado. Os 3 usos de estilo inline
+  eram os únicos do projeto e foram eliminados por substituição
+  mecânica (mesmo valor, classe em vez de atributo) — não por
+  relaxamento de política em outro lugar. Nenhum `'unsafe-hashes'`,
+  nonce ou wildcard foi necessário.
+- Commits: `3f4cece` (fix), `cbbc424` (catch-up de checkpoint anterior,
+  commitado antes deste item a pedido do usuário). Ambos em
+  `origin/main`. Deploy de produção do frontend confirmado `READY`.
+- Próxima etapa: nenhuma tecnicamente obrigatória. Alertas do OWASP ZAP
+  no frontend estático (CORS/CSP/X-Frame-Options/nosniff, ver entrada de
+  27/09 anterior, e agora `style-src`) estão todos resolvidos.
