@@ -23,7 +23,12 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: BASE_URL,
-    trace: 'retain-on-failure',
+    // 'retain-on-failure' depende do contexto padrão gerenciado pelo runner;
+    // este spec usa `launchPersistentContext` manualmente (pushContext.ts),
+    // e no Windows a gravação do trace no teardown desse contexto falha com
+    // ENOENT (diretório de artifacts não fica pronto a tempo), marcando o
+    // teste como falho mesmo quando toda a evidência do fluxo passou.
+    trace: 'off',
     // `E2E_HEADED=0` permite rodar sem sessão gráfica (CI); o padrão é headed,
     // porque o Chromium completo é o mais próximo do navegador real do usuário.
     headless: process.env.E2E_HEADED === '0',
