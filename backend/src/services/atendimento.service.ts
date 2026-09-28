@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '../config/supabase.js';
 import {
   classificarConfirmacaoComGemini,
   classificarRespostaPerguntaComGemini,
+  type HistoricoAtendimentoItem,
 } from '../integrations/ai/geminiClient.js';
 import {
   downloadMediaFromWhatsApp,
@@ -307,7 +308,9 @@ type PertinenciaDecisao = 'aceitar' | 'esclarecer' | 'duvida_sistema' | 'cancela
  *
  * Ordem de decisão (a IA é sempre a SEGUNDA camada, nunca a primeira):
  * 1. regras determinísticas inequívocas ("não tenho", "continuar");
- * 2. classificador Gemini para linguagem natural ambígua — fail closed em
+ * 2. classificador Gemini para linguagem natural ambígua — recebe o
+ *    `historico` (perguntas/respostas já dadas nesta conversa, item 18) como
+ *    contexto adicional, nunca como texto a classificar — fail closed em
  *    dúvida, texto fora de contexto ou confiança baixa: pede esclarecimento
  *    e NÃO avança o questionário;
  * 3. IA indisponível (sem chave, timeout, erro, limite): heurística
@@ -318,6 +321,7 @@ type PertinenciaDecisao = 'aceitar' | 'esclarecer' | 'duvida_sistema' | 'cancela
 async function avaliarPertinenciaResposta(
   question: QuestionDefinition,
   texto: string,
+  historico: readonly HistoricoAtendimentoItem[],
 ): Promise<PertinenciaDecisao> {
   const normalized = normalizeText(texto);
 
@@ -332,7 +336,7 @@ async function avaliarPertinenciaResposta(
   // real sem depender de uma chamada externa.
   if (DUVIDA_SISTEMA_PATTERN.test(normalized)) return 'duvida_sistema';
 
-  const ia = await classificarRespostaPerguntaComGemini(question.prompt, texto);
+  const ia = await classificarRespostaPerguntaComGemini(question.prompt, texto, historico);
   if (ia === null) {
     return PERGUNTA_DO_CLIENTE_PATTERN.test(normalized) ? 'esclarecer' : 'aceitar';
   }
@@ -492,7 +496,14 @@ async function handleInboundMessage(
    */
   const textoResposta = textoBrutoDaMensagem(message);
   if (question.key !== 'confirmacao' && textoResposta !== null) {
-    const decisao = await avaliarPertinenciaResposta(question, textoResposta);
+    // Item 18: respostas já dadas nesta mesma conversa, como contexto para o
+    // classificador de pertinência — RN08 é sequencial, então são sempre as
+    // perguntas anteriores à corrente, na mesma ordem fixa do questionário.
+    const respostasAnteriores = await listRespostasOrdenadas(adminClient, match.id);
+    const historico: HistoricoAtendimentoItem[] = ATENDIMENTO_QUESTIONS.slice(0, respostasAnteriores.length).map(
+      (q, index) => ({ pergunta: q.prompt, resposta: respostasAnteriores[index] ?? '' }),
+    );
+    const decisao = await avaliarPertinenciaResposta(question, textoResposta, historico);
     if (decisao === 'cancelar') {
       await markAtendimentoAguardandoCancelamento(adminClient, match.id);
       await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, CANCELAMENTO_CONFIRMACAO_PROMPT);

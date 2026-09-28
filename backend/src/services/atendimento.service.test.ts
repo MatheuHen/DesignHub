@@ -279,7 +279,7 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     countRespostasMock.mockReset();
     insertRespostaMock.mockReset().mockResolvedValue(true);
     registerRespostaEAvancarMock.mockReset();
-    listRespostasOrdenadasMock.mockReset();
+    listRespostasOrdenadasMock.mockReset().mockResolvedValue([]);
     completeAtendimentoAndCreateSolicitacaoMock.mockReset();
     sendTextMessageMock.mockReset().mockResolvedValue({ wamid: 'wamid.out' });
     downloadMediaFromWhatsAppMock.mockReset();
@@ -376,6 +376,33 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
     expect(sendTextMessageMock).toHaveBeenCalledOnce();
     expect(sendTextMessageMock.mock.calls[0]![1]).not.toContain('Ainda não consegui identificar');
+  });
+
+  it('item 18 (contexto de conversa): monta o histórico com as perguntas/respostas já dadas e passa ao classificador de pertinência', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(3); // confirmação, tema, cores já respondidas — esta é "observações"
+    listRespostasOrdenadasMock.mockResolvedValue(['sim', 'Aniversário de 15 anos', 'Rosa e dourado']);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 4 });
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue({
+      classificacao: 'resposta_valida',
+      confianca: 'alta',
+    });
+
+    await processInboundWebhook(
+      webhookPayload(inboundMessage({ from: '5511999999999', text: { body: 'sem observação especial' } })),
+    );
+
+    expect(classificarRespostaPerguntaComGeminiMock).toHaveBeenCalledWith(
+      ATENDIMENTO_QUESTIONS[3]!.prompt,
+      'sem observação especial',
+      [
+        { pergunta: ATENDIMENTO_QUESTIONS[0]!.prompt, resposta: 'sim' },
+        { pergunta: ATENDIMENTO_QUESTIONS[1]!.prompt, resposta: 'Aniversário de 15 anos' },
+        { pergunta: ATENDIMENTO_QUESTIONS[2]!.prompt, resposta: 'Rosa e dourado' },
+      ],
+    );
   });
 
   it('item 14.4 (rodada final): pergunta sobre o Gemini/IA não é gravada como resposta, explica e repete a pergunta pendente', async () => {
