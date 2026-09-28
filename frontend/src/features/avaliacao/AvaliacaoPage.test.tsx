@@ -33,6 +33,8 @@ const validPreview: AvaliacaoPreview = {
 
 const TOKEN = 'a'.repeat(64);
 
+const dataFuturaDesejada = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={[`/avaliacao/${TOKEN}`]}>
@@ -237,7 +239,7 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
     const automaticoBtn = await screen.findByRole('button', { name: 'Agendar automaticamente' });
     expect(automaticoBtn).not.toBeDisabled();
     fireEvent.click(automaticoBtn);
-    fireEvent.change(screen.getByLabelText('Data da publicação'), { target: { value: '2026-09-26' } });
+    fireEvent.change(screen.getByLabelText('Data da publicação'), { target: { value: dataFuturaDesejada } });
     fireEvent.change(screen.getByLabelText('Horário da publicação'), { target: { value: '12:00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar aprovação' }));
 
@@ -245,7 +247,7 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
       expect(submitAvaliacaoMock).toHaveBeenCalledWith(TOKEN, {
         decisao: 'Aprovado',
         opcaoPublicacao: 'automatico',
-        dataDesejada: '2026-09-26',
+        dataDesejada: dataFuturaDesejada,
         horarioDesejado: '12:00',
         legendaDesejada: undefined,
       });

@@ -353,7 +353,7 @@ describe('getLinkAvaliacaoAtual (item 7 — rodada final)', () => {
                   data: [
                     {
                       created_at: '2026-09-20T10:00:00Z',
-                      expires_at: '2026-09-27T10:00:00Z',
+                      expires_at: new Date(Date.now() + 100_000).toISOString(),
                       revoked_at: null,
                       used_at: null,
                       whatsapp_notificado_em: null,
@@ -391,7 +391,7 @@ describe('getLinkAvaliacaoAtual (item 7 — rodada final)', () => {
                   data: [
                     {
                       created_at: '2026-09-22T10:00:00Z',
-                      expires_at: '2026-09-29T10:00:00Z',
+                      expires_at: new Date(Date.now() + 100_000).toISOString(),
                       revoked_at: null,
                       used_at: null,
                       whatsapp_notificado_em: '2026-09-22T10:00:01Z',
