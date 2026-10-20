@@ -42,6 +42,27 @@ function assertOAuthClientConfigured(): void {
       'INSTAGRAM_APP_ID/INSTAGRAM_APP_SECRET ausentes — conexão do Instagram indisponível até a credencial ser configurada.',
     );
   }
+
+  /**
+   * CAUSA RAIZ da vinculação "não funcionar": o produto "Instagram API with
+   * Instagram Login" exige um Valid OAuth Redirect URI **HTTPS** cadastrado
+   * no App. Como `PUBLIC_BACKEND_URL` tem default de desenvolvimento
+   * (`http://localhost:3001`), quando ela não está definida o sistema montava
+   * silenciosamente um `redirect_uri` que a Meta sempre rejeita, e o usuário
+   * só via uma tela de erro genérica do instagram.com — sem nenhuma pista do
+   * que corrigir.
+   *
+   * Falhar aqui, com o nome da variável a configurar, é estritamente melhor
+   * do que gerar uma URL que nunca pode funcionar. O valor efetivo continua
+   * observável em `/api/health` (`instagramOAuthRedirectUri`) para conferir
+   * byte a byte contra o cadastrado no App da Meta.
+   */
+  const uri = getInstagramRedirectUri();
+  if (!uri.startsWith('https://') || /localhost|127\.0\.0\.1/.test(uri)) {
+    throw new BlockedExternalCredentialError(
+      'PUBLIC_BACKEND_URL precisa ser uma URL HTTPS pública para a conexão do Instagram: a Meta só aceita Valid OAuth Redirect URI em HTTPS e rejeita endereços locais. Configure PUBLIC_BACKEND_URL e cadastre o mesmo valor de /api/health (instagramOAuthRedirectUri) no App da Meta.',
+    );
+  }
 }
 
 /** Monta a URL de autorização para o Cliente (ou quem administra a conta) aprovar o acesso. */

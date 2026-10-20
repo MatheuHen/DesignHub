@@ -44,9 +44,26 @@ describe('InstagramStatusPage (item 12.2/13.3 — destino público do callback O
     renderPage('?resultado=erro');
 
     expect(screen.getByText('Não foi possível conectar o Instagram')).toBeInTheDocument();
-    expect(
-      screen.getByText('Peça um novo link de conexão ao designer responsável e tente novamente.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Peça um novo link de conexão ao designer responsável/)).toBeInTheDocument();
+  });
+
+  /**
+   * Antes, qualquer falha do callback mostrava exatamente o mesmo texto — o
+   * usuário não sabia se havia abandonado a autorização no Instagram ou se o
+   * link já não valia mais. O backend passa um código fixo de motivo (nunca
+   * detalhe técnico nem mensagem da Meta).
+   */
+  it('diferencia a autorização não concluída no Instagram do link inválido/expirado', () => {
+    renderPage('?resultado=erro&motivo=autorizacao_nao_concluida');
+
+    expect(screen.getByText(/A autorização não foi concluída no Instagram/)).toBeInTheDocument();
+    expect(screen.queryByText(/Peça um novo link de conexão/)).not.toBeInTheDocument();
+  });
+
+  it('motivo desconhecido/ausente cai na orientação de pedir um novo link (fail-safe)', () => {
+    renderPage('?resultado=erro&motivo=valor_inesperado');
+
+    expect(screen.getByText(/Peça um novo link de conexão ao designer responsável/)).toBeInTheDocument();
   });
 
   it('trata qualquer valor diferente de "conectado" como erro (fail-safe)', () => {

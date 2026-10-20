@@ -54,7 +54,17 @@ export function InstagramStatusPage() {
         ) : (
           <>
             <h1>Não foi possível conectar o Instagram</h1>
-            <p role="alert">Peça um novo link de conexão ao designer responsável e tente novamente.</p>
+            {/*
+              O backend envia um código fixo de motivo (nunca detalhe técnico
+              nem mensagem da Meta) — antes a tela mostrava sempre o mesmo
+              texto, e o usuário não sabia se havia recusado a autorização ou
+              se o link já não valia mais.
+            */}
+            <p role="alert">
+              {searchParams.get('motivo') === 'autorizacao_nao_concluida'
+                ? 'A autorização não foi concluída no Instagram. Abra o link novamente e conclua a autorização até o fim para conectar sua conta.'
+                : 'O link de conexão não é mais válido ou já foi utilizado. Peça um novo link de conexão ao designer responsável e tente novamente.'}
+            </p>
           </>
         )}
         {mostrarVoltarParaClientes && <Link to="/designer/clientes">Voltar para Clientes</Link>}

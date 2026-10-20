@@ -77,7 +77,18 @@ function redirectToInstagramStatus(query: string): string {
 instagramOAuthRouter.get('/callback', callbackRateLimit, async (request, response) => {
   const parsed = callbackQuerySchema.safeParse(request.query);
   if (!parsed.success || parsed.data.error || !parsed.data.code || !parsed.data.state) {
-    response.redirect(302, redirectToInstagramStatus('resultado=erro'));
+    /**
+     * Auditoria: antes NADA era registrado quando o callback falhava — a
+     * falha era literalmente engolida, e não havia como distinguir "cliente
+     * recusou a autorização" de "App da Meta mal configurado". Só o CÓDIGO de
+     * erro da Meta é logado (`error`, ex.: `access_denied`); nunca `code`,
+     * `state` ou mensagem da Meta (seção 12.5/12.6).
+     */
+    console.error('[designhub:instagram] callback OAuth sem code/state utilizáveis', {
+      metaError: parsed.success ? parsed.data.error : undefined,
+      querySchemaValido: parsed.success,
+    });
+    response.redirect(302, redirectToInstagramStatus('resultado=erro&motivo=autorizacao_nao_concluida'));
     return;
   }
 
@@ -87,10 +98,15 @@ instagramOAuthRouter.get('/callback', callbackRateLimit, async (request, respons
       302,
       origem === 'designer' ? redirectToClientes('instagram=conectado') : redirectToInstagramStatus('resultado=conectado'),
     );
-  } catch {
-    // Nunca expõe detalhe técnico/payload da Meta na URL pública (seção 12.6) — só o resultado.
+  } catch (error) {
+    // Nunca expõe detalhe técnico/payload da Meta na URL pública (seção 12.6)
+    // — só o resultado e um código fixo de motivo, útil para o usuário e para
+    // o suporte sem revelar nada do erro original.
+    console.error('[designhub:instagram] falha ao processar callback OAuth', {
+      motivo: error instanceof Error ? error.name : 'desconhecido',
+    });
     // A origem não é conhecida aqui (o state pode não ter sido consumido) — destino público seguro por padrão.
-    response.redirect(302, redirectToInstagramStatus('resultado=erro'));
+    response.redirect(302, redirectToInstagramStatus('resultado=erro&motivo=vinculacao_falhou'));
   }
 });
 
