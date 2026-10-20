@@ -15,12 +15,11 @@ import { getClienteById } from '../repositories/cliente.repository.js';
 import {
   consumeOAuthState,
   createDataDeletionRequest,
-  createOAuthState,
+  emitirOAuthState,
   deleteConexao,
   deleteConexaoByInstagramUserId,
   getDataDeletionRequestStatus,
   getStatusConexao,
-  invalidateUnusedOAuthStates,
   upsertConexao,
   type ClienteInstagramStatus,
 } from '../repositories/clienteInstagram.repository.js';
@@ -45,10 +44,15 @@ export async function gerarAutorizacaoInstagramUrl(
   await assertOwnedCliente(userClient, idCliente);
 
   const { raw, hash } = generateOpaqueToken();
-  const adminClient = getSupabaseAdminClient();
-  await createOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId, origem: 'designer' });
+  // Mesma ordem de `enviarLinkConexaoInstagram`: valida a configuração do
+  // OAuth antes de gravar, para não deixar state órfão quando o ambiente
+  // estiver incompleto.
+  const url = buildAuthorizeUrl(raw);
 
-  return { url: buildAuthorizeUrl(raw) };
+  const adminClient = getSupabaseAdminClient();
+  await emitirOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId, origem: 'designer' });
+
+  return { url };
 }
 
 export interface EnviarLinkInstagramResult {
@@ -74,13 +78,24 @@ export async function enviarLinkConexaoInstagram(
   const cliente = await getClienteById(userClient, idCliente);
   if (!cliente) throw new NotFoundError('Cliente não encontrado.');
 
-  const adminClient = getSupabaseAdminClient();
-  // Idempotência do link: no máximo um link de vinculação válido por cliente.
-  await invalidateUnusedOAuthStates(adminClient, idCliente);
-
   const { raw, hash } = generateOpaqueToken();
-  await createOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId, origem: 'cliente_link' });
+  /**
+   * `buildAuthorizeUrl` valida a configuração do OAuth e lança
+   * `BlockedExternalCredentialError` se faltar credencial ou se o
+   * `redirect_uri` não for utilizável. Fica ANTES de qualquer escrita para
+   * que uma configuração ausente não deixe state órfão no banco nem
+   * invalide o link anterior, que continua válido.
+   */
   const url = buildAuthorizeUrl(raw);
+
+  const adminClient = getSupabaseAdminClient();
+  /**
+   * Idempotência do link: emissão ATÔMICA — insere o novo state e invalida os
+   * anteriores não consumidos na mesma transação, sob lock do cliente. Dois
+   * cliques simultâneos não podem mais se invalidar mutuamente e deixar o
+   * cliente sem nenhum link válido.
+   */
+  await emitirOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId, origem: 'cliente_link' });
 
   const message =
     'Para habilitar a publicação pelo DesignHub, conecte sua conta do Instagram pelo link abaixo:\n\n' +

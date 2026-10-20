@@ -32,44 +32,34 @@ interface OAuthStateRow {
   origem: InstagramOAuthOrigem;
 }
 
-/** Persiste o estado (hash) do handshake OAuth, vinculado ao cliente/designer que iniciaram a conexão. */
-export async function createOAuthState(
+/**
+ * RF014/seção 12.1: emite o state do handshake OAuth garantindo que exista no
+ * máximo UM link de vinculação válido por cliente — a RPC
+ * `emitir_instagram_oauth_state` insere o novo e invalida os anteriores ainda
+ * não consumidos na MESMA transação, sob lock da linha do cliente.
+ *
+ * Fazer isso em duas chamadas separadas do backend tinha um defeito de
+ * concorrência real: em dois cliques quase simultâneos as duas emissões se
+ * invalidavam mutuamente e o cliente ficava sem nenhum link válido (ver
+ * `supabase/migrations/20261020100000_instagram_oauth_state_emissao_atomica.sql`).
+ *
+ * Retorna quantos links anteriores foram invalidados.
+ */
+export async function emitirOAuthState(
   adminClient: SupabaseClient,
   params: { stateHash: string; idCliente: number; idDesigner: string; origem: InstagramOAuthOrigem },
-): Promise<void> {
-  const expiresAt = new Date(Date.now() + OAUTH_STATE_TTL_SECONDS * 1000).toISOString();
-  const result: unknown = await adminClient.from('instagram_oauth_state').insert({
-    state_hash: params.stateHash,
-    id_cliente: params.idCliente,
-    id_designer: params.idDesigner,
-    expires_at: expiresAt,
-    origem: params.origem,
-  });
-  const { error } = result as { error: { message: string } | null };
-  if (error) throw new Error(`Falha ao iniciar conexão com o Instagram: ${error.message}`);
-}
-
-/**
- * RF014/seção 12.1: invalida os states ainda não consumidos do mesmo cliente
- * antes de emitir um novo link de vinculação. Garante que exista no máximo
- * UM link de autorização válido por cliente a cada momento — se o designer
- * clicar duas vezes, o link anterior deixa de funcionar em vez de ficarem
- * vários tokens vivos ao mesmo tempo. Idempotente: nenhuma linha para
- * atualizar é um resultado válido.
- */
-export async function invalidateUnusedOAuthStates(
-  adminClient: SupabaseClient,
-  idCliente: number,
 ): Promise<number> {
-  const result: unknown = await adminClient
-    .from('instagram_oauth_state')
-    .update({ used_at: new Date().toISOString() })
-    .eq('id_cliente', idCliente)
-    .is('used_at', null)
-    .select('state_hash');
-  const { data, error } = result as { data: unknown[] | null; error: { message: string } | null };
-  if (error) throw new Error(`Falha ao invalidar links anteriores do Instagram: ${error.message}`);
-  return data?.length ?? 0;
+  const expiresAt = new Date(Date.now() + OAUTH_STATE_TTL_SECONDS * 1000).toISOString();
+  const result: unknown = await adminClient.rpc('emitir_instagram_oauth_state', {
+    p_id_cliente: params.idCliente,
+    p_id_designer: params.idDesigner,
+    p_state_hash: params.stateHash,
+    p_expires_at: expiresAt,
+    p_origem: params.origem,
+  });
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao iniciar conexão com o Instagram: ${error.message}`);
+  return typeof data === 'number' ? data : 0;
 }
 
 const oauthStateRowSchema = z.object({

@@ -6,7 +6,7 @@ const {
   getClienteByIdMock,
   buildAuthorizeUrlMock,
   exchangeCodeForLongLivedTokenMock,
-  createOAuthStateMock,
+  emitirOAuthStateMock,
   consumeOAuthStateMock,
   getStatusConexaoMock,
   deleteConexaoMock,
@@ -16,14 +16,13 @@ const {
   upsertConexaoMock,
   sendTextMessageMock,
   verifyInstagramSignedRequestMock,
-  invalidateUnusedOAuthStatesMock,
   sendInstagramLinkTemplateMessageMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   getClienteByIdMock: vi.fn(),
   buildAuthorizeUrlMock: vi.fn(),
   exchangeCodeForLongLivedTokenMock: vi.fn(),
-  createOAuthStateMock: vi.fn(),
+  emitirOAuthStateMock: vi.fn(),
   consumeOAuthStateMock: vi.fn(),
   getStatusConexaoMock: vi.fn(),
   deleteConexaoMock: vi.fn(),
@@ -33,7 +32,6 @@ const {
   upsertConexaoMock: vi.fn(),
   sendTextMessageMock: vi.fn(),
   verifyInstagramSignedRequestMock: vi.fn(),
-  invalidateUnusedOAuthStatesMock: vi.fn(),
   sendInstagramLinkTemplateMessageMock: vi.fn(),
 }));
 
@@ -67,10 +65,9 @@ vi.mock('../integrations/whatsapp/whatsappClient.js', () => ({
   WhatsAppReengagementRequiredError: WhatsAppReengagementRequiredErrorStub,
 }));
 vi.mock('../repositories/clienteInstagram.repository.js', () => ({
-  createOAuthState: createOAuthStateMock,
+  emitirOAuthState: emitirOAuthStateMock,
   consumeOAuthState: consumeOAuthStateMock,
   getStatusConexao: getStatusConexaoMock,
-  invalidateUnusedOAuthStates: invalidateUnusedOAuthStatesMock,
   deleteConexao: deleteConexaoMock,
   deleteConexaoByInstagramUserId: deleteConexaoByInstagramUserIdMock,
   createDataDeletionRequest: createDataDeletionRequestMock,
@@ -92,7 +89,7 @@ const {
 describe('gerarAutorizacaoInstagramUrl (RF014/ADR 0005)', () => {
   beforeEach(() => {
     getClienteByIdMock.mockReset();
-    createOAuthStateMock.mockReset().mockResolvedValue(undefined);
+    emitirOAuthStateMock.mockReset().mockResolvedValue(undefined);
     buildAuthorizeUrlMock.mockReset().mockReturnValue('https://www.instagram.com/oauth/authorize?state=abc');
   });
 
@@ -102,7 +99,7 @@ describe('gerarAutorizacaoInstagramUrl (RF014/ADR 0005)', () => {
     await expect(
       gerarAutorizacaoInstagramUrl({} as never, 1, 'designer-1'),
     ).rejects.toBeInstanceOf(NotFoundError);
-    expect(createOAuthStateMock).not.toHaveBeenCalled();
+    expect(emitirOAuthStateMock).not.toHaveBeenCalled();
   });
 
   it('gera o state e devolve a URL de autorização quando o cliente pertence ao designer', async () => {
@@ -111,7 +108,7 @@ describe('gerarAutorizacaoInstagramUrl (RF014/ADR 0005)', () => {
     const result = await gerarAutorizacaoInstagramUrl({} as never, 1, 'designer-1');
 
     expect(result).toEqual({ url: 'https://www.instagram.com/oauth/authorize?state=abc' });
-    expect(createOAuthStateMock).toHaveBeenCalledWith(
+    expect(emitirOAuthStateMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ idCliente: 1, idDesigner: 'designer-1', origem: 'designer' }),
     );
@@ -157,10 +154,9 @@ describe('getInstagramStatus/removerInstagramConexao (ownership)', () => {
 describe('enviarLinkConexaoInstagram (item 4 — rodada correções Instagram)', () => {
   beforeEach(() => {
     getClienteByIdMock.mockReset();
-    createOAuthStateMock.mockReset().mockResolvedValue(undefined);
+    emitirOAuthStateMock.mockReset().mockResolvedValue(undefined);
     buildAuthorizeUrlMock.mockReset().mockReturnValue('https://www.instagram.com/oauth/authorize?state=abc');
     sendTextMessageMock.mockReset();
-    invalidateUnusedOAuthStatesMock.mockReset().mockResolvedValue(0);
     sendInstagramLinkTemplateMessageMock.mockReset();
   });
 
@@ -168,7 +164,7 @@ describe('enviarLinkConexaoInstagram (item 4 — rodada correções Instagram)',
     getClienteByIdMock.mockResolvedValue(null);
 
     await expect(enviarLinkConexaoInstagram({} as never, 1, 'designer-1')).rejects.toBeInstanceOf(NotFoundError);
-    expect(createOAuthStateMock).not.toHaveBeenCalled();
+    expect(emitirOAuthStateMock).not.toHaveBeenCalled();
     expect(sendTextMessageMock).not.toHaveBeenCalled();
   });
 
@@ -179,7 +175,7 @@ describe('enviarLinkConexaoInstagram (item 4 — rodada correções Instagram)',
     const result = await enviarLinkConexaoInstagram({} as never, 1, 'designer-1');
 
     expect(result).toEqual({ url: 'https://www.instagram.com/oauth/authorize?state=abc', whatsappNotified: true });
-    expect(createOAuthStateMock).toHaveBeenCalledWith(
+    expect(emitirOAuthStateMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ idCliente: 1, idDesigner: 'designer-1', origem: 'cliente_link' }),
     );
@@ -242,16 +238,36 @@ describe('enviarLinkConexaoInstagram (item 4 — rodada correções Instagram)',
     expect(result.url).toBe('https://www.instagram.com/oauth/authorize?state=abc');
   });
 
-  it('idempotência do link: invalida os links anteriores não usados antes de emitir um novo', async () => {
+  /**
+   * A garantia de "um link válido por cliente" passou a ser ATÔMICA no banco
+   * (RPC `emitir_instagram_oauth_state`): o serviço faz uma única chamada, e a
+   * invalidação dos links anteriores acontece na mesma transação. Dois cliques
+   * simultâneos não podem mais se invalidar mutuamente.
+   */
+  it('idempotência do link: emite o state por uma única chamada atômica', async () => {
     getClienteByIdMock.mockResolvedValue({ id: 1, idDesigner: 'designer-1', whatsapp: '5511988887777' });
     sendTextMessageMock.mockResolvedValue({ wamid: 'wamid-1' });
 
     await enviarLinkConexaoInstagram({} as never, 1, 'designer-1');
 
-    expect(invalidateUnusedOAuthStatesMock).toHaveBeenCalledWith(expect.anything(), 1);
-    expect(invalidateUnusedOAuthStatesMock.mock.invocationCallOrder[0]!).toBeLessThan(
-      createOAuthStateMock.mock.invocationCallOrder[0]!,
+    expect(emitirOAuthStateMock).toHaveBeenCalledTimes(1);
+    expect(emitirOAuthStateMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ idCliente: 1, idDesigner: 'designer-1', origem: 'cliente_link' }),
     );
+  });
+
+  it('configuração de OAuth inválida NÃO deixa state órfão nem invalida o link anterior', async () => {
+    getClienteByIdMock.mockResolvedValue({ id: 1, idDesigner: 'designer-1', whatsapp: '5511988887777' });
+    buildAuthorizeUrlMock.mockImplementation(() => {
+      throw new BlockedExternalCredentialError('PUBLIC_BACKEND_URL precisa ser HTTPS');
+    });
+
+    await expect(enviarLinkConexaoInstagram({} as never, 1, 'designer-1')).rejects.toBeInstanceOf(
+      BlockedExternalCredentialError,
+    );
+    expect(emitirOAuthStateMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
   });
 });
 

@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   consumeOAuthState,
-  invalidateUnusedOAuthStates,
   createDataDeletionRequest,
-  createOAuthState,
+  emitirOAuthState,
   deleteConexao,
   deleteConexaoByInstagramUserId,
   getConexaoAtiva,
@@ -14,89 +13,47 @@ import {
 
 type AnyClient = Parameters<typeof getConexaoAtiva>[0];
 
-describe('createOAuthState (RF014/ADR 0005)', () => {
-  it('insere o estado do handshake OAuth com a origem informada (item 12.2/13.3)', async () => {
-    const insert = (payload: unknown) => {
-      expect(payload).toMatchObject({
-        state_hash: 'hash-1',
-        id_cliente: 1,
-        id_designer: 'designer-1',
-        origem: 'designer',
-      });
-      return Promise.resolve({ error: null });
-    };
-    const client = { from: () => ({ insert }) } as unknown as AnyClient;
+describe('emitirOAuthState (RF014 — emissão atômica, um link válido por cliente)', () => {
+  it('chama a RPC atômica com cliente/designer/hash/origem e expiração calculada', async () => {
+    let chamada: { fn: string; args: Record<string, string | number> } | undefined;
+    const client = {
+      rpc: (fn: string, args: Record<string, string | number>) => {
+        chamada = { fn, args };
+        return Promise.resolve({ data: 2, error: null });
+      },
+    } as unknown as AnyClient;
 
     await expect(
-      createOAuthState(client, { stateHash: 'hash-1', idCliente: 1, idDesigner: 'designer-1', origem: 'designer' }),
-    ).resolves.toBeUndefined();
+      emitirOAuthState(client, { stateHash: 'hash-1', idCliente: 1, idDesigner: 'designer-1', origem: 'designer' }),
+    ).resolves.toBe(2);
+
+    expect(chamada?.fn).toBe('emitir_instagram_oauth_state');
+    expect(chamada?.args).toMatchObject({
+      p_id_cliente: 1,
+      p_id_designer: 'designer-1',
+      p_state_hash: 'hash-1',
+      p_origem: 'designer',
+    });
+    // Expiração enviada pelo backend, nunca um default implícito do banco.
+    expect(new Date(String(chamada?.args.p_expires_at)).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('nenhum link anterior para invalidar devolve 0 (idempotente)', async () => {
+    const client = { rpc: () => Promise.resolve({ data: 0, error: null }) } as unknown as AnyClient;
+
+    await expect(
+      emitirOAuthState(client, { stateHash: 'h', idCliente: 1, idDesigner: 'd', origem: 'cliente_link' }),
+    ).resolves.toBe(0);
   });
 
   it('propaga erro do banco', async () => {
-    const client = { from: () => ({ insert: () => Promise.resolve({ error: { message: 'falhou' } }) }) } as unknown as AnyClient;
+    const client = {
+      rpc: () => Promise.resolve({ data: null, error: { message: 'falhou' } }),
+    } as unknown as AnyClient;
 
     await expect(
-      createOAuthState(client, { stateHash: 'hash-1', idCliente: 1, idDesigner: 'designer-1', origem: 'designer' }),
+      emitirOAuthState(client, { stateHash: 'h', idCliente: 1, idDesigner: 'd', origem: 'designer' }),
     ).rejects.toThrow(/falhou/);
-  });
-});
-
-describe('invalidateUnusedOAuthStates (RF014 — um link de vinculação válido por cliente)', () => {
-  it('marca como usados os states ainda não consumidos do cliente e devolve a quantidade', async () => {
-    const filtros: Record<string, unknown> = {};
-    const client = {
-      from: () => ({
-        update: (payload: { used_at: string }) => {
-          filtros.payloadUsedAt = payload.used_at;
-          return {
-            eq: (coluna: string, valor: unknown) => {
-              filtros[coluna] = valor;
-              return {
-                is: (colunaIs: string, valorIs: unknown) => {
-                  filtros[colunaIs] = valorIs;
-                  return {
-                    select: () => Promise.resolve({ data: [{ state_hash: 'h1' }, { state_hash: 'h2' }], error: null }),
-                  };
-                },
-              };
-            },
-          };
-        },
-      }),
-    } as unknown as AnyClient;
-
-    await expect(invalidateUnusedOAuthStates(client, 7)).resolves.toBe(2);
-    expect(filtros.id_cliente).toBe(7);
-    expect(filtros.payloadUsedAt).toEqual(expect.any(String));
-    // Só os ainda NÃO consumidos (`.is('used_at', null)`) — nunca reescreve
-    // o used_at de um state já usado.
-    expect(filtros.used_at).toBeNull();
-  });
-
-  it('é idempotente: nenhum state pendente devolve 0 sem erro', async () => {
-    const client = {
-      from: () => ({
-        update: () => ({
-          eq: () => ({ is: () => ({ select: () => Promise.resolve({ data: [], error: null }) }) }),
-        }),
-      }),
-    } as unknown as AnyClient;
-
-    await expect(invalidateUnusedOAuthStates(client, 7)).resolves.toBe(0);
-  });
-
-  it('propaga erro do banco', async () => {
-    const client = {
-      from: () => ({
-        update: () => ({
-          eq: () => ({
-            is: () => ({ select: () => Promise.resolve({ data: null, error: { message: 'falhou' } }) }),
-          }),
-        }),
-      }),
-    } as unknown as AnyClient;
-
-    await expect(invalidateUnusedOAuthStates(client, 7)).rejects.toThrow(/falhou/);
   });
 });
 
