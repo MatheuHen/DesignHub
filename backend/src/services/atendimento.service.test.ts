@@ -28,7 +28,6 @@ const {
   completeAtendimentoAndCreateSolicitacaoMock,
   syncDesignerBloqueioMock,
   getDesignerByIdMock,
-  classificarConfirmacaoComGeminiMock,
   classificarRespostaPerguntaComGeminiMock,
 } = vi.hoisted(() => ({
   sendTextMessageMock: vi.fn(),
@@ -56,7 +55,6 @@ const {
   completeAtendimentoAndCreateSolicitacaoMock: vi.fn(),
   syncDesignerBloqueioMock: vi.fn(),
   getDesignerByIdMock: vi.fn(),
-  classificarConfirmacaoComGeminiMock: vi.fn(),
   classificarRespostaPerguntaComGeminiMock: vi.fn(),
 }));
 
@@ -106,7 +104,6 @@ vi.mock('../repositories/designer.repository.js', () => ({
 }));
 
 vi.mock('../integrations/ai/geminiClient.js', () => ({
-  classificarConfirmacaoComGemini: classificarConfirmacaoComGeminiMock,
   classificarRespostaPerguntaComGemini: classificarRespostaPerguntaComGeminiMock,
 }));
 
@@ -284,7 +281,6 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     sendTextMessageMock.mockReset().mockResolvedValue({ wamid: 'wamid.out' });
     downloadMediaFromWhatsAppMock.mockReset();
     uploadArquivoToStorageMock.mockReset().mockResolvedValue(undefined);
-    classificarConfirmacaoComGeminiMock.mockReset().mockResolvedValue(null);
     classificarRespostaPerguntaComGeminiMock.mockReset().mockResolvedValue(null);
   });
 
@@ -648,7 +644,7 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     );
   });
 
-  it('rodada correções (item 28): figurinha na pergunta de confirmação não conta como "sim" (comportamento já correto, regressão)', async () => {
+  it('rodada correções (item 28): figurinha na pergunta de confirmação não conta como "sim" (o gate de tipo roda antes da interpretação)', async () => {
     listActiveAtendimentosMock.mockResolvedValue([
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
     ]);
@@ -657,7 +653,11 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     await processInboundWebhook(webhookPayload(inboundMessage({ type: 'sticker', text: undefined })));
 
     expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
-    expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Não entendi sua resposta'));
+    // Mensagem mais precisa que a genérica de confirmação inválida: o problema é o TIPO da mensagem.
+    expect(sendTextMessageMock).toHaveBeenCalledWith(
+      '5511999999999',
+      expect.stringContaining('Responda com uma mensagem de texto'),
+    );
   });
 
   it('baixa e armazena a imagem de referência via Media API quando a pergunta atual é a última (item 14)', async () => {
@@ -753,7 +753,12 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
 
     await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'talvez' } })));
 
-    expect(classificarConfirmacaoComGeminiMock).toHaveBeenCalledWith('talvez');
+    // Interpretação unificada: o classificador recebe a PERGUNTA ATIVA, não só o texto cru.
+    expect(classificarRespostaPerguntaComGeminiMock).toHaveBeenCalledWith(
+      expect.stringContaining('Podemos continuar?'),
+      'talvez',
+      expect.any(Array),
+    );
     expect(insertRespostaMock).not.toHaveBeenCalled();
     expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
     expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Não entendi'));
@@ -768,7 +773,7 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
 
     await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'Sim, pode continuar' } })));
 
-    expect(classificarConfirmacaoComGeminiMock).not.toHaveBeenCalled();
+    expect(classificarRespostaPerguntaComGeminiMock).not.toHaveBeenCalled();
     expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
   });
 
@@ -778,11 +783,27 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     ]);
     countRespostasMock.mockResolvedValue(0);
     registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 1 });
-    classificarConfirmacaoComGeminiMock.mockResolvedValue({ confirmacao: 'sim' });
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue({
+      classificacao: 'resposta_valida',
+      confianca: 'alta',
+      intencao_confirmacao: 'sim',
+    });
 
-    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'por mim tudo certo, pode seguir' } })));
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'por mim tudo certo, segue' } })));
 
-    expect(classificarConfirmacaoComGeminiMock).toHaveBeenCalledWith('por mim tudo certo, pode seguir');
+    expect(classificarRespostaPerguntaComGeminiMock).toHaveBeenCalledWith(
+      expect.stringContaining('Podemos continuar?'),
+      'por mim tudo certo, segue',
+      expect.any(Array),
+    );
+    // A intenção normalizada é o que fica persistido — nunca o texto cru.
+    expect(registerRespostaEAvancarMock).toHaveBeenCalledWith(
+      expect.anything(),
+      1,
+      expect.any(Array),
+      'Sim',
+      expect.any(String),
+    );
     expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
     expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
   });
@@ -792,9 +813,13 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
     ]);
     countRespostasMock.mockResolvedValue(0);
-    classificarConfirmacaoComGeminiMock.mockResolvedValue({ confirmacao: 'nao' });
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue({
+      classificacao: 'resposta_valida',
+      confianca: 'alta',
+      intencao_confirmacao: 'nao',
+    });
 
-    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'acho que não quero fazer isso agora' } })));
+    await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'acho melhor deixar para depois' } })));
 
     expect(markAtendimentoRecusadoMock).toHaveBeenCalledWith(expect.anything(), 1);
     expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('não vamos continuar'));
@@ -805,13 +830,148 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
     ]);
     countRespostasMock.mockResolvedValue(0);
-    classificarConfirmacaoComGeminiMock.mockResolvedValue(null);
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue(null);
 
     await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'sei la' } })));
 
     expect(insertRespostaMock).not.toHaveBeenCalled();
     expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
     expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Não entendi'));
+  });
+
+  /**
+   * Bug real reportado (print do WhatsApp): o cliente respondeu
+   * "Podemos s" e, na mesma mensagem, perguntou "Vc e uma ia ou um chat
+   * bot?" — e o sistema respondeu "Não entendi sua resposta". Os testes
+   * abaixo travam esse comportamento nos dois cenários de disponibilidade
+   * da IA, porque a correção precisa funcionar também sem GEMINI_API_KEY.
+   */
+  describe('interpretação de mensagem natural na pergunta de confirmação (bug reportado)', () => {
+    function confirmacaoAtiva() {
+      listActiveAtendimentosMock.mockResolvedValue([
+        { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999', status: 'em_andamento' },
+      ]);
+      countRespostasMock.mockResolvedValue(0);
+      registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 1 });
+    }
+
+    const MENSAGEM_DA_EVIDENCIA = 'Podemos s\n\nVc e uma ia ou um chat bot?';
+
+    it('mensagem mista ("Podemos s" + pergunta sobre IA) avança o fluxo SEM depender do Gemini', async () => {
+      confirmacaoAtiva();
+      classificarRespostaPerguntaComGeminiMock.mockResolvedValue(null); // IA indisponível
+
+      await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: MENSAGEM_DA_EVIDENCIA } })));
+
+      // Avançou: a intenção válida foi consumida.
+      expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
+      expect(registerRespostaEAvancarMock).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        expect.any(Array),
+        // A pergunta sobre IA NUNCA é persistida como dado de negócio (RN09).
+        'Sim',
+        expect.any(String),
+      );
+      // E a pergunta fora do fluxo foi respondida junto da próxima pergunta.
+      const [, textoEnviado] = sendTextMessageMock.mock.calls.at(-1) as [string, string];
+      expect(textoEnviado).toContain('inteligência artificial');
+      expect(textoEnviado).toContain('Qual é o tema da arte');
+      expect(textoEnviado).not.toContain('Não entendi sua resposta');
+    });
+
+    it('mensagem mista também avança quando o Gemini está disponível e sinaliza a dúvida sobre o sistema', async () => {
+      confirmacaoAtiva();
+      classificarRespostaPerguntaComGeminiMock.mockResolvedValue({
+        classificacao: 'resposta_valida',
+        confianca: 'alta',
+        intencao_confirmacao: 'sim',
+        duvida_sistema_adicional: true,
+      });
+
+      await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'Sim, podemos. Você é uma IA?' } })));
+
+      expect(registerRespostaEAvancarMock).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        expect.any(Array),
+        'Sim',
+        expect.any(String),
+      );
+      const [, textoEnviado] = sendTextMessageMock.mock.calls.at(-1) as [string, string];
+      expect(textoEnviado).toContain('inteligência artificial');
+      expect(textoEnviado).toContain('Qual é o tema da arte');
+    });
+
+    it.each([
+      ['podemos', 'confirma'],
+      ['podemos s', 'confirma'],
+      ['claro', 'confirma'],
+      ['pode começar', 'confirma'],
+      ['bora', 'confirma'],
+      ['beleza', 'confirma'],
+    ])('reconhece "%s" como confirmação sem consultar a IA', async (texto) => {
+      confirmacaoAtiva();
+
+      await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: texto } })));
+
+      expect(classificarRespostaPerguntaComGeminiMock).not.toHaveBeenCalled();
+      expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
+      expect(registerRespostaEAvancarMock).toHaveBeenCalledOnce();
+    });
+
+    it.each([['não quero'], ['melhor não'], ['nao podemos, mas vc e um robo?']])(
+      'reconhece "%s" como recusa e encerra sem criar solicitação',
+      async (texto) => {
+        confirmacaoAtiva();
+
+        await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: texto } })));
+
+        expect(markAtendimentoRecusadoMock).toHaveBeenCalledWith(expect.anything(), 1);
+        expect(insertRespostaMock).toHaveBeenCalledWith(expect.anything(), 1, expect.any(String), 'Não');
+        expect(completeAtendimentoAndCreateSolicitacaoMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it('"não sei" NÃO é recusa — não encerra o atendimento (regressão do lookahead negativo)', async () => {
+      confirmacaoAtiva();
+      classificarRespostaPerguntaComGeminiMock.mockResolvedValue(null);
+
+      await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'nao sei' } })));
+
+      expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
+      expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+      expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Não entendi'));
+    });
+
+    it('mensagem que é APENAS a pergunta sobre o sistema não avança nem persiste, e explica mantendo a pergunta pendente', async () => {
+      confirmacaoAtiva();
+      classificarRespostaPerguntaComGeminiMock.mockResolvedValue(null);
+
+      await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'Vc e uma ia ou um chat bot?' } })));
+
+      expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+      expect(insertRespostaMock).not.toHaveBeenCalled();
+      expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
+      const [, textoEnviado] = sendTextMessageMock.mock.calls.at(-1) as [string, string];
+      expect(textoEnviado).toContain('inteligência artificial');
+      expect(textoEnviado).toContain('Podemos continuar?');
+    });
+
+    it('resposta inválida de schema/confiança baixa da IA não avança (fail closed)', async () => {
+      confirmacaoAtiva();
+      classificarRespostaPerguntaComGeminiMock.mockResolvedValue({
+        classificacao: 'resposta_valida',
+        confianca: 'baixa',
+        intencao_confirmacao: 'sim',
+      });
+
+      await processInboundWebhook(webhookPayload(inboundMessage({ text: { body: 'hmmm talvez quem sabe' } })));
+
+      expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+      expect(markAtendimentoRecusadoMock).not.toHaveBeenCalled();
+      expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Não entendi'));
+    });
   });
 
   it('item 3.3: pedido de cancelamento em qualquer pergunta pede confirmação sem registrar como resposta', async () => {

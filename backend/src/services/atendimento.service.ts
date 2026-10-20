@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import {
-  classificarConfirmacaoComGemini,
   classificarRespostaPerguntaComGemini,
   type HistoricoAtendimentoItem,
 } from '../integrations/ai/geminiClient.js';
@@ -54,6 +53,7 @@ import {
   CONFIRMACAO_INVALIDA_MESSAGE,
   RECUSA_MESSAGE,
   DUVIDA_SISTEMA_MESSAGE,
+  DUVIDA_SISTEMA_RESPONDIDA_MESSAGE,
   RESPOSTA_NAO_PERTINENTE_MESSAGE,
   TIPO_MENSAGEM_NAO_SUPORTADA_MESSAGE,
   TIPO_MENSAGEM_NAO_SUPORTADA_REFERENCIA_MESSAGE,
@@ -216,8 +216,26 @@ function normalizeText(value: string): string {
   return value.normalize('NFD').replace(DIACRITIC_MARKS_PATTERN, '').trim().toLowerCase();
 }
 
-const YES_PATTERN = /^(sim|s|yes|ok(ay)?|okey|claro|pode|confirmo|confirmado)\b/;
-const NO_PATTERN = /^(nao|n|no|nunca|negativo)\b/;
+/**
+ * Correção (bug real reportado): o padrão anterior
+ * (`^(sim|s|yes|ok|okey|claro|pode|confirmo|confirmado)\b`) rejeitava
+ * flexões verbais comuns — "podemos" NÃO casava, porque a alternativa
+ * `pode` exigia fronteira de palavra e o caractere seguinte era `m`. Com
+ * isso, a mensagem real "Podemos s\n\nVc e uma ia ou um chat bot?" caía em
+ * 'indefinido' e o cliente recebia "Não entendi sua resposta". Agora as
+ * flexões estão explícitas e o reconhecimento é feito LINHA A LINHA (ver
+ * `classificarConfirmacaoRegex`), porque o cliente costuma mandar a
+ * confirmação e uma pergunta solta em linhas diferentes da mesma mensagem.
+ */
+const YES_PATTERN =
+  /^(sim|s|yes|ok(ay|ey)?|claro|pod(e|emos|eria|eriamos)|vamos|bora|beleza|blz|certo|positivo|afirmativo|combinado|aceito|concordo|perfeito|tranquilo|isso|uhum|aham|confirmo|confirmado)\b/;
+/**
+ * `nao sei`/`nao tenho certeza` NÃO são recusa — antes eram lidos como
+ * "não" e encerravam o atendimento. O lookahead negativo deixa esses casos
+ * para a camada de interpretação (IA) ou para o pedido de esclarecimento.
+ */
+const NO_PATTERN =
+  /^(melhor nao|agora nao|prefiro nao|nao quero|nao|n|no|nunca|negativo|jamais)\b(?!\s*(sei|tenho certeza|tenho ideia))/;
 /**
  * Item 3.3: reconhece intenção de cancelar em qualquer ponto do
  * questionário. Regex propositalmente restrita a termos inequívocos de
@@ -232,34 +250,22 @@ const CANCEL_CONFIRM_PATTERN = /^(cancelar|confirmar|confirmo|sim)\b/;
 
 type ConfirmacaoClassificacao = 'sim' | 'nao' | 'indefinido';
 
-function classificarConfirmacaoRegex(message: WhatsAppInboundMessage): ConfirmacaoClassificacao {
-  if (message.type !== 'text' || !message.text) return 'indefinido';
-  const normalized = normalizeText(message.text.body);
-  if (YES_PATTERN.test(normalized)) return 'sim';
-  if (NO_PATTERN.test(normalized)) return 'nao';
-  return 'indefinido';
-}
-
 /**
- * Item 16 (rodada correções — IA autorizada nesta rodada): a regra
- * determinística acima cobre as respostas inequívocas de sempre ("sim",
- * "não", "pode", "claro"...) e nunca é sobrescrita quando já decide algo —
- * o classificador Gemini (`classificarConfirmacaoComGemini`) só é consultado
- * quando ela retorna 'indefinido' e a mensagem é texto real, como uma
- * segunda tentativa de entender respostas mais naturais ("por mim tudo
- * certo", "acho que não quero agora") antes de pedir esclarecimento ao
- * cliente. Em qualquer indisponibilidade da IA (sem chave, timeout, erro,
- * limite local) o resultado permanece 'indefinido' — comportamento idêntico
- * ao existente antes deste item, nunca bloqueia nem muda o fluxo por conta
- * própria.
+ * Camada determinística da confirmação (RN08). Avalia LINHA A LINHA do
+ * texto já normalizado: a primeira linha que carrega uma intenção
+ * inequívoca decide. Dentro de uma mesma linha, recusa tem precedência
+ * ("não podemos" nunca é lido como "sim"). Linhas que não carregam intenção
+ * — tipicamente a pergunta solta do cliente — são simplesmente ignoradas
+ * aqui; quem decide o que fazer com elas é `interpretarMensagem`.
  */
-async function classificarConfirmacao(message: WhatsAppInboundMessage): Promise<ConfirmacaoClassificacao> {
-  const classificacaoRegex = classificarConfirmacaoRegex(message);
-  if (classificacaoRegex !== 'indefinido') return classificacaoRegex;
-  if (message.type !== 'text' || !message.text) return 'indefinido';
-
-  const iaResultado = await classificarConfirmacaoComGemini(message.text.body);
-  return iaResultado?.confirmacao ?? 'indefinido';
+export function classificarConfirmacaoRegex(textoNormalizado: string): ConfirmacaoClassificacao {
+  for (const linha of textoNormalizado.split(/\r?\n+/)) {
+    const candidata = linha.trim();
+    if (candidata === '') continue;
+    if (NO_PATTERN.test(candidata)) return 'nao';
+    if (YES_PATTERN.test(candidata)) return 'sim';
+  }
+  return 'indefinido';
 }
 
 function textoBrutoDaMensagem(message: WhatsAppInboundMessage): string | null {
@@ -297,7 +303,35 @@ const PERGUNTA_DO_CLIENTE_PATTERN = /\?\s*$|^(o que|oq|que|qual|quais|como|quand
 const DUVIDA_SISTEMA_PATTERN =
   /\bgemini\b|inteligencia artificial|\bia\b|\brobo\b|\bchatbot\b|\bautomatiz|\bbot\b/;
 
-type PertinenciaDecisao = 'aceitar' | 'esclarecer' | 'duvida_sistema' | 'cancelar' | 'reenviar_pergunta';
+type PertinenciaDecisao =
+  | 'aceitar'
+  /** Pergunta de confirmação (RN08): cliente concordou em continuar. */
+  | 'confirmar'
+  /** Pergunta de confirmação (RN08): cliente recusou — encerra sem criar solicitação. */
+  | 'recusar'
+  | 'esclarecer'
+  | 'duvida_sistema'
+  | 'cancelar'
+  | 'reenviar_pergunta';
+
+/**
+ * Resultado da camada de INTERPRETAÇÃO de linguagem natural. É só uma
+ * leitura da mensagem: nenhuma regra de negócio é decidida aqui, nenhum
+ * estado é alterado e nenhum texto livre do cliente/modelo é propagado.
+ * Quem consome (`handleInboundMessage`) continua sendo o único a decidir
+ * qual pergunta está ativa, o que pode ser persistido e se o fluxo avança.
+ */
+interface InterpretacaoMensagem {
+  decisao: PertinenciaDecisao;
+  /**
+   * A mensagem trouxe, ALÉM da resposta à pergunta ativa, uma pergunta do
+   * cliente sobre o próprio atendimento automatizado — caso real "Podemos s
+   * / Vc e uma ia ou um chat bot?". A parte fora do fluxo NUNCA é
+   * persistida como dado de negócio; só acrescenta o esclarecimento à
+   * mensagem de saída.
+   */
+  duvidaSistemaAdicional: boolean;
+}
 
 /**
  * Rodada correções (item 12.2/12.3): antes, QUALQUER texto com ao menos um
@@ -318,37 +352,122 @@ type PertinenciaDecisao = 'aceitar' | 'esclarecer' | 'duvida_sistema' | 'cancela
  *    provedor externo seria uma regressão de disponibilidade pior que o bug
  *    original, então só o padrão claro de pergunta é barrado.
  */
-async function avaliarPertinenciaResposta(
+async function interpretarMensagem(
   question: QuestionDefinition,
   texto: string,
   historico: readonly HistoricoAtendimentoItem[],
-): Promise<PertinenciaDecisao> {
+): Promise<InterpretacaoMensagem> {
   const normalized = normalizeText(texto);
+  const mencionaSistema = DUVIDA_SISTEMA_PATTERN.test(normalized);
 
-  if (CONTINUAR_INTENT_PATTERN.test(normalized)) return 'reenviar_pergunta';
+  if (question.key === 'confirmacao') {
+    return interpretarConfirmacao(question, texto, normalized, historico, mencionaSistema);
+  }
+
+  if (CONTINUAR_INTENT_PATTERN.test(normalized)) {
+    return { decisao: 'reenviar_pergunta', duvidaSistemaAdicional: false };
+  }
   // "não tenho" é resposta legítima para cores/observações/referência (o
   // próprio prompt a sugere), mas não diz nada sobre o TEMA da arte.
   if (SEM_PREFERENCIA_PATTERN.test(normalized)) {
-    return question.key === 'tema' ? 'esclarecer' : 'aceitar';
+    return {
+      decisao: question.key === 'tema' ? 'esclarecer' : 'aceitar',
+      duvidaSistemaAdicional: false,
+    };
   }
   // Item 14.4/14.6: checagem determinística, independente do Gemini estar
   // disponível — cobre o caso mais comum de meta-conversa reportado em uso
-  // real sem depender de uma chamada externa.
-  if (DUVIDA_SISTEMA_PATTERN.test(normalized)) return 'duvida_sistema';
+  // real sem depender de uma chamada externa. Para as perguntas livres o
+  // comportamento continua fail-closed: nada é gravado como dado da arte.
+  if (mencionaSistema) return { decisao: 'duvida_sistema', duvidaSistemaAdicional: false };
 
   const ia = await classificarRespostaPerguntaComGemini(question.prompt, texto, historico);
   if (ia === null) {
-    return PERGUNTA_DO_CLIENTE_PATTERN.test(normalized) ? 'esclarecer' : 'aceitar';
+    return {
+      decisao: PERGUNTA_DO_CLIENTE_PATTERN.test(normalized) ? 'esclarecer' : 'aceitar',
+      duvidaSistemaAdicional: false,
+    };
   }
-  if (ia.classificacao === 'cancelar') return 'cancelar';
-  if (ia.classificacao === 'continuar') return 'reenviar_pergunta';
-  if (ia.classificacao === 'duvida_sistema') return 'duvida_sistema';
-  if (ia.confianca === 'baixa') return 'esclarecer';
-  if (ia.classificacao === 'duvida' || ia.classificacao === 'fora_de_contexto') return 'esclarecer';
+  if (ia.classificacao === 'cancelar') return { decisao: 'cancelar', duvidaSistemaAdicional: false };
+  if (ia.classificacao === 'continuar') return { decisao: 'reenviar_pergunta', duvidaSistemaAdicional: false };
+  if (ia.classificacao === 'duvida_sistema') return { decisao: 'duvida_sistema', duvidaSistemaAdicional: false };
+  if (ia.confianca === 'baixa') return { decisao: 'esclarecer', duvidaSistemaAdicional: false };
+  if (ia.classificacao === 'duvida' || ia.classificacao === 'fora_de_contexto') {
+    return { decisao: 'esclarecer', duvidaSistemaAdicional: false };
+  }
   if (ia.classificacao === 'sem_preferencia') {
-    return question.key === 'tema' ? 'esclarecer' : 'aceitar';
+    return {
+      decisao: question.key === 'tema' ? 'esclarecer' : 'aceitar',
+      duvidaSistemaAdicional: false,
+    };
   }
-  return 'aceitar';
+  // Conteúdo extra de alta confiança numa pergunta livre continua fail
+  // closed (`esclarecer`): recortar o texto exigiria confiar no modelo para
+  // PRODUZIR conteúdo, e o desenho aqui é propositalmente só de rótulos.
+  if (ia.duvida_sistema_adicional === true) {
+    return { decisao: 'duvida_sistema', duvidaSistemaAdicional: false };
+  }
+  return { decisao: 'aceitar', duvidaSistemaAdicional: false };
+}
+
+/**
+ * Pergunta de confirmação (RN08) — domínio de resposta restrito a sim/não.
+ *
+ * Correção do bug reportado: antes, a confirmação era classificada por um
+ * classificador próprio que recebia APENAS o texto cru, sem a pergunta
+ * ativa, e só podia emitir um rótulo único (sim/não/indefinido). Uma
+ * mensagem que é simultaneamente uma confirmação e uma pergunta sobre o
+ * sistema ("Podemos s / Vc e uma ia ou um chat bot?") não tinha
+ * representação possível, e o `DUVIDA_SISTEMA_PATTERN` nunca era alcançado
+ * nesta etapa — o cliente recebia "Não entendi sua resposta" e o
+ * questionário travava na etapa 0.
+ *
+ * Agora a confirmação usa o MESMO classificador de pertinência das demais
+ * perguntas (que recebe a pergunta ativa e o histórico) e a interpretação
+ * ocorre antes de qualquer REJEIÇÃO: a mensagem só é recusada depois que a
+ * camada de linguagem natural teve a chance de entendê-la. A decisão de
+ * negócio (persistir, avançar, encerrar) permanece integralmente no fluxo
+ * determinístico.
+ */
+async function interpretarConfirmacao(
+  question: QuestionDefinition,
+  texto: string,
+  normalized: string,
+  historico: readonly HistoricoAtendimentoItem[],
+  mencionaSistema: boolean,
+): Promise<InterpretacaoMensagem> {
+  const regex = classificarConfirmacaoRegex(normalized);
+  if (regex === 'sim') return { decisao: 'confirmar', duvidaSistemaAdicional: mencionaSistema };
+  if (regex === 'nao') return { decisao: 'recusar', duvidaSistemaAdicional: mencionaSistema };
+
+  const ia = await classificarRespostaPerguntaComGemini(question.prompt, texto, historico);
+  if (ia === null) {
+    // IA indisponível (sem chave, timeout, erro, limite): fallback
+    // determinístico seguro. Nunca encerra nem avança por conta própria —
+    // e passa a tratar a meta-pergunta sobre o sistema também nesta etapa,
+    // que antes era o único ponto do fluxo sem essa proteção.
+    return {
+      decisao: mencionaSistema ? 'duvida_sistema' : 'esclarecer',
+      duvidaSistemaAdicional: false,
+    };
+  }
+  if (ia.classificacao === 'cancelar') return { decisao: 'cancelar', duvidaSistemaAdicional: false };
+  if (ia.classificacao === 'continuar') return { decisao: 'reenviar_pergunta', duvidaSistemaAdicional: false };
+
+  const duvidaSistemaAdicional = ia.duvida_sistema_adicional === true || mencionaSistema;
+
+  // Só uma intenção de confirmação explícita e de alta confiança pode fazer
+  // o fluxo avançar ou encerrar (fail closed).
+  if (ia.intencao_confirmacao != null && ia.confianca === 'alta') {
+    return {
+      decisao: ia.intencao_confirmacao === 'sim' ? 'confirmar' : 'recusar',
+      duvidaSistemaAdicional,
+    };
+  }
+  if (ia.classificacao === 'duvida_sistema' || duvidaSistemaAdicional) {
+    return { decisao: 'duvida_sistema', duvidaSistemaAdicional: false };
+  }
+  return { decisao: 'esclarecer', duvidaSistemaAdicional: false };
 }
 
 /** RN08/item 28: uma resposta só de emoji/símbolo (sem letra nem número) não carrega informação real. */
@@ -458,24 +577,6 @@ async function handleInboundMessage(
     return;
   }
 
-  // Item 3.1/3.2: a pergunta de confirmação tem domínio de resposta
-  // restrito (sim/não) — "não" encerra sem avançar; resposta ambígua pede
-  // esclarecimento e repete a pergunta, sem inventar dado nem avançar.
-  if (question.key === 'confirmacao') {
-    const classificacao = await classificarConfirmacao(message);
-    if (classificacao === 'nao') {
-      const answerText = await extractAnswerText(match.id, question, message);
-      await insertResposta(adminClient, match.id, question.prompt, answerText);
-      await markAtendimentoRecusado(adminClient, match.id);
-      await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, RECUSA_MESSAGE);
-      return;
-    }
-    if (classificacao === 'indefinido') {
-      await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, CONFIRMACAO_INVALIDA_MESSAGE);
-      return;
-    }
-  }
-
   // Item 28: figurinha/reação/áudio/vídeo/emoji isolado nunca contam como
   // resposta válida — pede esclarecimento e NÃO avança o questionário
   // (sem isso, `extractAnswerText` caía no fallback genérico e gravava um
@@ -489,13 +590,19 @@ async function handleInboundMessage(
 
   /**
    * Item 12.2/12.3: só agora — depois de garantir que o tipo da mensagem é
-   * aceitável — avalia se o TEXTO de fato responde à pergunta. Sem esta
-   * etapa, uma pergunta do cliente era gravada como tema/cores/observação.
-   * Não se aplica à confirmação (já classificada acima) nem a referência
-   * enviada como imagem/documento (o arquivo é a resposta).
+   * aceitável — a mensagem é INTERPRETADA (linguagem natural) e só então o
+   * fluxo determinístico decide o que fazer. Vale para TODAS as perguntas de
+   * texto, incluindo a de confirmação (antes ela tinha um caminho próprio
+   * que não conseguia entender "podemos" nem mensagens mistas). Referência
+   * enviada como imagem/documento não passa por aqui — o arquivo é a
+   * resposta.
    */
   const textoResposta = textoBrutoDaMensagem(message);
-  if (question.key !== 'confirmacao' && textoResposta !== null) {
+  /** Esclarecimento a prefixar na mensagem de saída quando a mensagem trouxe conteúdo fora do fluxo. */
+  let prefixoForaDoFluxo = '';
+  /** Texto a persistir: para a confirmação é a intenção normalizada, nunca o texto cru (não guarda conteúdo fora do fluxo). */
+  let respostaNormalizada: string | null = null;
+  if (textoResposta !== null) {
     // Item 18: respostas já dadas nesta mesma conversa, como contexto para o
     // classificador de pertinência — RN08 é sequencial, então são sempre as
     // perguntas anteriores à corrente, na mesma ordem fixa do questionário.
@@ -503,7 +610,21 @@ async function handleInboundMessage(
     const historico: HistoricoAtendimentoItem[] = ATENDIMENTO_QUESTIONS.slice(0, respostasAnteriores.length).map(
       (q, index) => ({ pergunta: q.prompt, resposta: respostasAnteriores[index] ?? '' }),
     );
-    const decisao = await avaliarPertinenciaResposta(question, textoResposta, historico);
+    const { decisao, duvidaSistemaAdicional } = await interpretarMensagem(question, textoResposta, historico);
+    if (duvidaSistemaAdicional) prefixoForaDoFluxo = `${DUVIDA_SISTEMA_RESPONDIDA_MESSAGE} `;
+
+    // RN08: "não" na confirmação encerra o atendimento sem criar
+    // solicitação. Persiste a INTENÇÃO normalizada, não o texto cru — uma
+    // eventual pergunta solta na mesma mensagem nunca vira dado de negócio.
+    if (decisao === 'recusar') {
+      await insertResposta(adminClient, match.id, question.prompt, 'Não');
+      await markAtendimentoRecusado(adminClient, match.id);
+      await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, `${prefixoForaDoFluxo}${RECUSA_MESSAGE}`);
+      return;
+    }
+    if (decisao === 'confirmar') {
+      respostaNormalizada = 'Sim';
+    }
     if (decisao === 'cancelar') {
       await markAtendimentoAguardandoCancelamento(adminClient, match.id);
       await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, CANCELAMENTO_CONFIRMACAO_PROMPT);
@@ -518,10 +639,14 @@ async function handleInboundMessage(
       return;
     }
     if (decisao === 'esclarecer') {
+      // A confirmação mantém sua mensagem própria (domínio sim/não), as
+      // perguntas livres repetem a pergunta pendente.
       await sendTextMessageBestEffort(
         match.id,
         match.clienteWhatsapp,
-        `${RESPOSTA_NAO_PERTINENTE_MESSAGE} ${question.prompt}`,
+        question.key === 'confirmacao'
+          ? CONFIRMACAO_INVALIDA_MESSAGE
+          : `${RESPOSTA_NAO_PERTINENTE_MESSAGE} ${question.prompt}`,
       );
       return;
     }
@@ -539,7 +664,7 @@ async function handleInboundMessage(
   // INSERT ocorrem atomicamente sob lock do atendimento (fecha a corrida
   // entre duas mensagens quase simultâneas — a versão anterior lia a
   // contagem aqui fora de qualquer lock).
-  const answerText = await extractAnswerText(match.id, question, message);
+  const answerText = respostaNormalizada ?? (await extractAnswerText(match.id, question, message));
   const { inserted, answeredCount: answeredCountAfter } = await registerRespostaEAvancar(
     adminClient,
     match.id,
@@ -553,7 +678,7 @@ async function handleInboundMessage(
 
   const nextQuestion = ATENDIMENTO_QUESTIONS[answeredCountAfter];
   if (nextQuestion) {
-    await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, nextQuestion.prompt);
+    await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, `${prefixoForaDoFluxo}${nextQuestion.prompt}`);
     return;
   }
 
@@ -564,7 +689,7 @@ async function handleInboundMessage(
     cores: respostas[2] ?? '',
     observacoes: respostas[3] ?? '',
   });
-  await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, CLOSING_MESSAGE);
+  await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, `${prefixoForaDoFluxo}${CLOSING_MESSAGE}`);
 }
 
 /** RF004: processa o payload recebido do webhook da WhatsApp Cloud API. */

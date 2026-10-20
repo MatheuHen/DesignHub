@@ -119,3 +119,16 @@ export const RESPOSTA_NAO_PERTINENTE_MESSAGE =
 export const DUVIDA_SISTEMA_MESSAGE =
   'O DesignHub usa inteligência artificial como apoio para interpretar algumas respostas do atendimento. ' +
   'O fluxo continua seguindo as etapas do sistema. Agora, respondendo à pergunta anterior:';
+
+/**
+ * Mensagem MISTA: o cliente respondeu a pergunta ativa E, na mesma mensagem,
+ * perguntou sobre o atendimento automatizado (caso real: "Podemos s / Vc e
+ * uma ia ou um chat bot?"). Diferente de `DUVIDA_SISTEMA_MESSAGE`, aqui a
+ * resposta válida FOI aproveitada e o fluxo avança — por isso o fecho é
+ * "seguimos" em vez de "respondendo à pergunta anterior". A parte fora do
+ * fluxo é respondida, mas nunca persistida como dado de negócio (RN09).
+ */
+export const DUVIDA_SISTEMA_RESPONDIDA_MESSAGE =
+  'Sobre sua pergunta: o DesignHub usa inteligência artificial como apoio para interpretar algumas ' +
+  'respostas do atendimento, mas o fluxo segue as etapas definidas pelo sistema. Registrei sua resposta ' +
+  'e seguimos:';
