@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   consumeOAuthState,
+  invalidateUnusedOAuthStates,
   createDataDeletionRequest,
   createOAuthState,
   deleteConexao,
@@ -37,6 +38,65 @@ describe('createOAuthState (RF014/ADR 0005)', () => {
     await expect(
       createOAuthState(client, { stateHash: 'hash-1', idCliente: 1, idDesigner: 'designer-1', origem: 'designer' }),
     ).rejects.toThrow(/falhou/);
+  });
+});
+
+describe('invalidateUnusedOAuthStates (RF014 — um link de vinculação válido por cliente)', () => {
+  it('marca como usados os states ainda não consumidos do cliente e devolve a quantidade', async () => {
+    const filtros: Record<string, unknown> = {};
+    const client = {
+      from: () => ({
+        update: (payload: { used_at: string }) => {
+          filtros.payloadUsedAt = payload.used_at;
+          return {
+            eq: (coluna: string, valor: unknown) => {
+              filtros[coluna] = valor;
+              return {
+                is: (colunaIs: string, valorIs: unknown) => {
+                  filtros[colunaIs] = valorIs;
+                  return {
+                    select: () => Promise.resolve({ data: [{ state_hash: 'h1' }, { state_hash: 'h2' }], error: null }),
+                  };
+                },
+              };
+            },
+          };
+        },
+      }),
+    } as unknown as AnyClient;
+
+    await expect(invalidateUnusedOAuthStates(client, 7)).resolves.toBe(2);
+    expect(filtros.id_cliente).toBe(7);
+    expect(filtros.payloadUsedAt).toEqual(expect.any(String));
+    // Só os ainda NÃO consumidos (`.is('used_at', null)`) — nunca reescreve
+    // o used_at de um state já usado.
+    expect(filtros.used_at).toBeNull();
+  });
+
+  it('é idempotente: nenhum state pendente devolve 0 sem erro', async () => {
+    const client = {
+      from: () => ({
+        update: () => ({
+          eq: () => ({ is: () => ({ select: () => Promise.resolve({ data: [], error: null }) }) }),
+        }),
+      }),
+    } as unknown as AnyClient;
+
+    await expect(invalidateUnusedOAuthStates(client, 7)).resolves.toBe(0);
+  });
+
+  it('propaga erro do banco', async () => {
+    const client = {
+      from: () => ({
+        update: () => ({
+          eq: () => ({
+            is: () => ({ select: () => Promise.resolve({ data: null, error: { message: 'falhou' } }) }),
+          }),
+        }),
+      }),
+    } as unknown as AnyClient;
+
+    await expect(invalidateUnusedOAuthStates(client, 7)).rejects.toThrow(/falhou/);
   });
 });
 

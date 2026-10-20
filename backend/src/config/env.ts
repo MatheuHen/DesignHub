@@ -63,6 +63,18 @@ const schema = z.object({
    */
   WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER: z.string().min(1).optional(),
   /**
+   * RF014: template dedicado para enviar ao CLIENTE o link de vinculação da
+   * conta do Instagram. Este envio é, por natureza, business-initiated — o
+   * designer dispara a ação sem que o cliente tenha escrito nos últimos
+   * 24h —, então a Cloud API rejeita texto livre (erro 131047) na maioria
+   * dos casos reais. Era exatamente por isso que o link "não chegava": o
+   * fluxo só tentava `sendTextMessage` e não tinha template de fallback como
+   * os demais avisos. Precisa de UMA variável no corpo (a URL de
+   * autorização) e de aprovação própria da Meta. Sem ele, o envio fica
+   * `BLOCKED_EXTERNAL` e o designer ainda pode copiar o link manualmente.
+   */
+  WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK: z.string().min(1).optional(),
+  /**
    * RF014/ADR 0005: credenciais do App Meta usadas só para o handshake OAuth
    * ("Instagram API with Instagram Login") que autoriza a conta de CADA
    * cliente individualmente — nunca para publicar diretamente. O token de
@@ -208,6 +220,8 @@ export const whatsappConfigStatus = {
   hasPublicacaoTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME_PUBLICACAO),
   /** Item 8.6: template dedicado do alerta ao designer (cancelamento de agendamento pelo cliente). */
   hasAlertaDesignerTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER),
+  /** RF014: template dedicado do link de vinculação da conta do Instagram do cliente. */
+  hasInstagramLinkTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK),
 } as const;
 
 export const instagramConfigStatus = {

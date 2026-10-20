@@ -16,6 +16,8 @@ const {
   upsertConexaoMock,
   sendTextMessageMock,
   verifyInstagramSignedRequestMock,
+  invalidateUnusedOAuthStatesMock,
+  sendInstagramLinkTemplateMessageMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   getClienteByIdMock: vi.fn(),
@@ -31,11 +33,14 @@ const {
   upsertConexaoMock: vi.fn(),
   sendTextMessageMock: vi.fn(),
   verifyInstagramSignedRequestMock: vi.fn(),
+  invalidateUnusedOAuthStatesMock: vi.fn(),
+  sendInstagramLinkTemplateMessageMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
 vi.mock('../config/env.js', () => ({
   env: { INSTAGRAM_TOKEN_ENC_KEY: 'chave-de-teste-com-32-caracteres', PUBLIC_BACKEND_URL: 'https://api.designhub.test' },
+  whatsappConfigStatus: { hasInstagramLinkTemplateConfigured: true },
 }));
 vi.mock('../repositories/cliente.repository.js', () => ({ getClienteById: getClienteByIdMock }));
 vi.mock('../integrations/instagram/instagramOAuth.js', () => ({
@@ -45,11 +50,27 @@ vi.mock('../integrations/instagram/instagramOAuth.js', () => ({
 vi.mock('../integrations/instagram/instagramSignedRequest.js', () => ({
   verifyInstagramSignedRequest: verifyInstagramSignedRequestMock,
 }));
-vi.mock('../integrations/whatsapp/whatsappClient.js', () => ({ sendTextMessage: sendTextMessageMock }));
+/**
+ * `WhatsAppReengagementRequiredError` precisa ser uma classe real aqui: o
+ * serviço decide o fallback de template por `instanceof` sobre o export
+ * deste mesmo módulo (fora da janela de 24h da Cloud API).
+ */
+class WhatsAppReengagementRequiredErrorStub extends Error {
+  constructor(message = 'fora da janela de 24h') {
+    super(message);
+    this.name = 'WhatsAppReengagementRequiredError';
+  }
+}
+vi.mock('../integrations/whatsapp/whatsappClient.js', () => ({
+  sendTextMessage: sendTextMessageMock,
+  sendInstagramLinkTemplateMessage: sendInstagramLinkTemplateMessageMock,
+  WhatsAppReengagementRequiredError: WhatsAppReengagementRequiredErrorStub,
+}));
 vi.mock('../repositories/clienteInstagram.repository.js', () => ({
   createOAuthState: createOAuthStateMock,
   consumeOAuthState: consumeOAuthStateMock,
   getStatusConexao: getStatusConexaoMock,
+  invalidateUnusedOAuthStates: invalidateUnusedOAuthStatesMock,
   deleteConexao: deleteConexaoMock,
   deleteConexaoByInstagramUserId: deleteConexaoByInstagramUserIdMock,
   createDataDeletionRequest: createDataDeletionRequestMock,
@@ -139,6 +160,8 @@ describe('enviarLinkConexaoInstagram (item 4 — rodada correções Instagram)',
     createOAuthStateMock.mockReset().mockResolvedValue(undefined);
     buildAuthorizeUrlMock.mockReset().mockReturnValue('https://www.instagram.com/oauth/authorize?state=abc');
     sendTextMessageMock.mockReset();
+    invalidateUnusedOAuthStatesMock.mockReset().mockResolvedValue(0);
+    sendInstagramLinkTemplateMessageMock.mockReset();
   });
 
   it('rejeita quando o cliente não pertence ao designer', async () => {
@@ -180,6 +203,55 @@ describe('enviarLinkConexaoInstagram (item 4 — rodada correções Instagram)',
     expect(result.whatsappNotified).toBe(false);
     expect(result.url).toBe('https://www.instagram.com/oauth/authorize?state=abc');
     expect(result.whatsappError).toContain('Falha ao enviar mensagem');
+    // Erro genérico não é "fora da janela de 24h": não tenta o template.
+    expect(sendInstagramLinkTemplateMessageMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * CAUSA RAIZ do "link de vinculação não chega": o envio é
+   * business-initiated, cai fora da janela de 24h da Cloud API (131047) e o
+   * fluxo não tinha template de fallback — era o único aviso do sistema sem
+   * esse caminho.
+   */
+  it('fora da janela de 24h, envia o link pelo template aprovado (regressão: antes o link simplesmente não chegava)', async () => {
+    getClienteByIdMock.mockResolvedValue({ id: 1, idDesigner: 'designer-1', whatsapp: '5511988887777' });
+    sendTextMessageMock.mockRejectedValue(new WhatsAppReengagementRequiredErrorStub());
+    sendInstagramLinkTemplateMessageMock.mockResolvedValue({ wamid: 'wamid-template-1' });
+
+    const result = await enviarLinkConexaoInstagram({} as never, 1, 'designer-1');
+
+    expect(sendInstagramLinkTemplateMessageMock).toHaveBeenCalledWith('5511988887777', [
+      'https://www.instagram.com/oauth/authorize?state=abc',
+    ]);
+    expect(result.whatsappNotified).toBe(true);
+    expect(result.whatsappError).toBeUndefined();
+  });
+
+  it('sem template aprovado configurado, marca BLOCKED_EXTERNAL e NUNCA registra como enviado', async () => {
+    getClienteByIdMock.mockResolvedValue({ id: 1, idDesigner: 'designer-1', whatsapp: '5511988887777' });
+    sendTextMessageMock.mockRejectedValue(new WhatsAppReengagementRequiredErrorStub());
+    sendInstagramLinkTemplateMessageMock.mockRejectedValue(
+      new BlockedExternalCredentialError('WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK ausente'),
+    );
+
+    const result = await enviarLinkConexaoInstagram({} as never, 1, 'designer-1');
+
+    expect(result.whatsappNotified).toBe(false);
+    expect(result.whatsappError).toContain('template aprovado');
+    // O fallback documental é preservado: o designer ainda copia o link.
+    expect(result.url).toBe('https://www.instagram.com/oauth/authorize?state=abc');
+  });
+
+  it('idempotência do link: invalida os links anteriores não usados antes de emitir um novo', async () => {
+    getClienteByIdMock.mockResolvedValue({ id: 1, idDesigner: 'designer-1', whatsapp: '5511988887777' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid-1' });
+
+    await enviarLinkConexaoInstagram({} as never, 1, 'designer-1');
+
+    expect(invalidateUnusedOAuthStatesMock).toHaveBeenCalledWith(expect.anything(), 1);
+    expect(invalidateUnusedOAuthStatesMock.mock.invocationCallOrder[0]!).toBeLessThan(
+      createOAuthStateMock.mock.invocationCallOrder[0]!,
+    );
   });
 });
 

@@ -9,6 +9,7 @@ const { envMock, whatsappConfigStatusMock } = vi.hoisted(() => ({
     WHATSAPP_TEMPLATE_LANGUAGE: 'pt_BR',
     WHATSAPP_TEMPLATE_NAME_PUBLICACAO: 'arte_publicada',
     WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER: 'agendamento_cancelado_cliente',
+    WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK: 'conectar_instagram_designhub',
   },
   whatsappConfigStatusMock: {
     hasSendingClient: true,
@@ -16,6 +17,7 @@ const { envMock, whatsappConfigStatusMock } = vi.hoisted(() => ({
     hasTemplateConfigured: true,
     hasPublicacaoTemplateConfigured: true,
     hasAlertaDesignerTemplateConfigured: true,
+    hasInstagramLinkTemplateConfigured: true,
   },
 }));
 
@@ -29,6 +31,7 @@ const {
   sendTemplateMessage,
   sendPublicacaoTemplateMessage,
   sendAlertaDesignerTemplateMessage,
+  sendInstagramLinkTemplateMessage,
   downloadMediaFromWhatsApp,
   WhatsAppReengagementRequiredError,
 } = await import('./whatsappClient.js');
@@ -43,6 +46,7 @@ describe('whatsappClient (RF004/seção 2.1, items 14/20)', () => {
     whatsappConfigStatusMock.hasTemplateConfigured = true;
     whatsappConfigStatusMock.hasPublicacaoTemplateConfigured = true;
     whatsappConfigStatusMock.hasAlertaDesignerTemplateConfigured = true;
+    whatsappConfigStatusMock.hasInstagramLinkTemplateConfigured = true;
   });
 
   afterEach(() => {
@@ -188,6 +192,56 @@ describe('whatsappClient (RF004/seção 2.1, items 14/20)', () => {
           parameters: [{ type: 'text', text: 'Maria Oliveira' }, { type: 'text', text: 'Promoção' }],
         },
       ]);
+    });
+  });
+
+  /**
+   * RF014: fallback do link de vinculação do Instagram. A ausência deste
+   * caminho era a causa de o link não chegar ao cliente — o envio é
+   * business-initiated e a Cloud API recusa texto livre fora da janela de 24h.
+   */
+  describe('sendInstagramLinkTemplateMessage (RF014 — link de vinculação do Instagram)', () => {
+    it('lança BlockedExternalCredentialError quando WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK não está configurado (BLOCKED_EXTERNAL)', async () => {
+      whatsappConfigStatusMock.hasInstagramLinkTemplateConfigured = false;
+
+      await expect(
+        sendInstagramLinkTemplateMessage('5511999999999', ['https://www.instagram.com/oauth/authorize?state=abc']),
+      ).rejects.toBeInstanceOf(BlockedExternalCredentialError);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('envia type:template com o template dedicado e a URL de autorização como única variável do corpo', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ messages: [{ id: 'wamid.777' }] }), { status: 200 }),
+      );
+
+      const result = await sendInstagramLinkTemplateMessage('5511999999999', [
+        'https://www.instagram.com/oauth/authorize?state=abc',
+      ]);
+
+      expect(result).toEqual({ wamid: 'wamid.777' });
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as {
+        type: string;
+        template: { name: string; components?: unknown };
+      };
+      expect(body.type).toBe('template');
+      // Template próprio: nunca reaproveita o do RF004 nem os dois de aviso.
+      expect(body.template.name).toBe('conectar_instagram_designhub');
+      expect(body.template.components).toEqual([
+        {
+          type: 'body',
+          parameters: [{ type: 'text', text: 'https://www.instagram.com/oauth/authorize?state=abc' }],
+        },
+      ]);
+    });
+
+    it('NUNCA considera enviado quando a Meta responde sem id de mensagem', async () => {
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({ messages: [] }), { status: 200 }));
+
+      await expect(
+        sendInstagramLinkTemplateMessage('5511999999999', ['https://www.instagram.com/oauth/authorize?state=abc']),
+      ).rejects.toThrow(/sem id de mensagem/);
     });
   });
 

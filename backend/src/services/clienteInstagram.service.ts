@@ -1,10 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { env } from '../config/env.js';
+import { env, whatsappConfigStatus } from '../config/env.js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import { buildAuthorizeUrl, exchangeCodeForLongLivedToken } from '../integrations/instagram/instagramOAuth.js';
 import { verifyInstagramSignedRequest } from '../integrations/instagram/instagramSignedRequest.js';
-import { sendTextMessage } from '../integrations/whatsapp/whatsappClient.js';
+import {
+  WhatsAppReengagementRequiredError,
+  sendInstagramLinkTemplateMessage,
+  sendTextMessage,
+} from '../integrations/whatsapp/whatsappClient.js';
 import { generateOpaqueToken, hashOpaqueToken } from '../lib/tokens.js';
 import { BlockedExternalCredentialError, ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { getClienteById } from '../repositories/cliente.repository.js';
@@ -16,6 +20,7 @@ import {
   deleteConexaoByInstagramUserId,
   getDataDeletionRequestStatus,
   getStatusConexao,
+  invalidateUnusedOAuthStates,
   upsertConexao,
   type ClienteInstagramStatus,
 } from '../repositories/clienteInstagram.repository.js';
@@ -69,8 +74,11 @@ export async function enviarLinkConexaoInstagram(
   const cliente = await getClienteById(userClient, idCliente);
   if (!cliente) throw new NotFoundError('Cliente não encontrado.');
 
-  const { raw, hash } = generateOpaqueToken();
   const adminClient = getSupabaseAdminClient();
+  // Idempotência do link: no máximo um link de vinculação válido por cliente.
+  await invalidateUnusedOAuthStates(adminClient, idCliente);
+
+  const { raw, hash } = generateOpaqueToken();
   await createOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId, origem: 'cliente_link' });
   const url = buildAuthorizeUrl(raw);
 
@@ -79,18 +87,47 @@ export async function enviarLinkConexaoInstagram(
     `${url}\n\n` +
     'A autorização é feita diretamente pela Meta. O DesignHub não solicita sua senha.';
 
-  let whatsappNotified = true;
+  let whatsappNotified = false;
   let whatsappError: string | undefined;
   try {
+    // `whatsappNotified` só vira `true` quando a Cloud API devolve o id da
+    // mensagem (`postToGraphMessages` lança em qualquer outro caso) — nunca
+    // é registrado como enviado sem confirmação da Meta.
     await sendTextMessage(cliente.whatsapp, message);
+    whatsappNotified = true;
   } catch (error) {
-    whatsappNotified = false;
-    // Nunca loga `message`/`url` (contêm o token bruto) — só o erro do SDK/HTTP, truncado.
-    whatsappError = error instanceof Error ? error.message.slice(0, 200) : 'Erro desconhecido.';
-    console.error('[designhub:instagram] falha ao enviar link de conexão via WhatsApp', {
-      idCliente,
-      message: whatsappError,
-    });
+    if (error instanceof WhatsAppReengagementRequiredError) {
+      /**
+       * CAUSA RAIZ do "link não chega": este envio é business-initiated (o
+       * designer dispara a ação), então quase sempre está FORA da janela de
+       * 24h e a Cloud API responde 131047. Antes, o fluxo parava aqui — era
+       * o único aviso do sistema sem template de fallback. Agora segue o
+       * mesmo padrão de `publicacao.service`/`avaliacao.service`.
+       */
+      try {
+        await sendInstagramLinkTemplateMessage(cliente.whatsapp, [url]);
+        whatsappNotified = true;
+      } catch (templateError) {
+        whatsappError =
+          templateError instanceof BlockedExternalCredentialError
+            ? 'Canal WhatsApp indisponível para esta mensagem: nenhum template aprovado pela Meta está configurado para o link de vinculação. Copie e envie o link manualmente.'
+            : 'Não foi possível enviar o link pelo WhatsApp. Copie e envie o link manualmente.';
+        console.error('[designhub:instagram] BLOCKED_EXTERNAL_WHATSAPP_INSTAGRAM_LINK', {
+          idCliente,
+          etapa: 'template_fallback',
+          // Nunca loga `message`/`url` (contêm o token bruto) — só o nome do erro.
+          motivo: templateError instanceof Error ? templateError.name : 'desconhecido',
+          templateConfigurado: whatsappConfigStatus.hasInstagramLinkTemplateConfigured,
+        });
+      }
+    } else {
+      whatsappError = error instanceof Error ? error.message.slice(0, 200) : 'Erro desconhecido.';
+      console.error('[designhub:instagram] falha ao enviar link de conexão via WhatsApp', {
+        idCliente,
+        etapa: 'texto_livre',
+        message: whatsappError,
+      });
+    }
   }
 
   return { url, whatsappNotified, ...(whatsappError ? { whatsappError } : {}) };

@@ -49,6 +49,29 @@ export async function createOAuthState(
   if (error) throw new Error(`Falha ao iniciar conexão com o Instagram: ${error.message}`);
 }
 
+/**
+ * RF014/seção 12.1: invalida os states ainda não consumidos do mesmo cliente
+ * antes de emitir um novo link de vinculação. Garante que exista no máximo
+ * UM link de autorização válido por cliente a cada momento — se o designer
+ * clicar duas vezes, o link anterior deixa de funcionar em vez de ficarem
+ * vários tokens vivos ao mesmo tempo. Idempotente: nenhuma linha para
+ * atualizar é um resultado válido.
+ */
+export async function invalidateUnusedOAuthStates(
+  adminClient: SupabaseClient,
+  idCliente: number,
+): Promise<number> {
+  const result: unknown = await adminClient
+    .from('instagram_oauth_state')
+    .update({ used_at: new Date().toISOString() })
+    .eq('id_cliente', idCliente)
+    .is('used_at', null)
+    .select('state_hash');
+  const { data, error } = result as { data: unknown[] | null; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao invalidar links anteriores do Instagram: ${error.message}`);
+  return data?.length ?? 0;
+}
+
 const oauthStateRowSchema = z.object({
   id_cliente: z.number(),
   id_designer: z.string(),

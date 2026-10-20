@@ -258,6 +258,59 @@ export async function sendAlertaDesignerTemplateMessage(
   return { wamid };
 }
 
+/**
+ * RF014: envia ao CLIENTE o link de vinculação da conta do Instagram por
+ * template aprovado (business-initiated). Mesmo mecanismo de
+ * `sendPublicacaoTemplateMessage`/`sendAlertaDesignerTemplateMessage`, com
+ * template próprio (`WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK`), porque o texto
+ * é diferente dos demais e a Meta aprova cada template individualmente.
+ *
+ * Causa raiz que esta função fecha: o fluxo de envio do link só tentava
+ * `sendTextMessage`; fora da janela de 24h a Cloud API responde 131047 e a
+ * mensagem simplesmente não era entregue — sem nenhum caminho alternativo,
+ * ao contrário de todos os outros avisos do sistema.
+ *
+ * `bodyParams` deve conter a URL de autorização (única variável do
+ * template). A Cloud API rejeita parâmetros de corpo com quebra de linha ou
+ * tabulação, então o chamador passa apenas a URL, nunca o texto completo.
+ */
+export async function sendInstagramLinkTemplateMessage(
+  toPhoneNumber: string,
+  bodyParams: readonly string[],
+): Promise<SendMessageResult> {
+  if (!whatsappConfigStatus.hasSendingClient) {
+    throw new BlockedExternalCredentialError(
+      'WHATSAPP_ACCESS_TOKEN/WHATSAPP_PHONE_NUMBER_ID ausentes — envio de mensagem indisponível até a credencial ser configurada.',
+    );
+  }
+  if (!whatsappConfigStatus.hasInstagramLinkTemplateConfigured) {
+    throw new BlockedExternalCredentialError(
+      'WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK ausente — nenhum template aprovado pela Meta configurado para enviar o link de vinculação do Instagram fora da janela de 24h.',
+    );
+  }
+
+  const data = await postToGraphMessages({
+    messaging_product: 'whatsapp',
+    to: toPhoneNumber,
+    type: 'template',
+    template: {
+      name: env.WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK,
+      language: { code: env.WHATSAPP_TEMPLATE_LANGUAGE },
+      ...(bodyParams.length > 0
+        ? { components: [{ type: 'body', parameters: bodyParams.map((text) => ({ type: 'text', text })) }] }
+        : {}),
+    },
+  });
+
+  // Seção 12.3: só é "enviado" quando a Meta devolve o id da mensagem.
+  const wamid = data.messages?.[0]?.id;
+  if (!wamid) {
+    throw new Error('Resposta inesperada da WhatsApp Cloud API: sem id de mensagem.');
+  }
+  logOutboundMessage('template', wamid);
+  return { wamid };
+}
+
 interface WhatsAppMediaUrlResponse {
   url?: string;
   file_size?: number;
