@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 import { startOfDaySaoPaulo, startOfNextDaySaoPaulo } from '../lib/timezone.js';
 import { SOLICITACAO_STATUSES } from '../lib/statusTransitions.js';
+import { isSolicitacaoAtrasada, statusTemPrazoDesigner } from '../domain/prazoCiclo.js';
 import type { ListSolicitacoesQuery, UpdateSolicitacaoInput } from '../schemas/solicitacao.schemas.js';
 
 /** Mesmo padrão de `cliente.repository.ts`/`designer.repository.ts`: escapa caracteres especiais do ILIKE do PostgREST. */
@@ -22,13 +23,17 @@ const solicitacaoStatusEnum = z.enum(SOLICITACAO_STATUSES);
  * Item 6/6.1/6.2 (rodada final): o prazo relevante muda com a etapa atual —
  * "Prazo 1ª versão" deixava de fazer sentido depois da primeira versão
  * enviada. Cada tipo usa exclusivamente um prazo REAL já documentado
- * (RF006/RN11 para a 1ª versão; validade técnica do link de avaliação
- * RF009/seção 12.1; data/horário do agendamento RF012) — nunca um SLA
- * inventado. Etapas sem prazo de negócio documentado (`Ajustes`, `Aprovado`)
- * usam `sem_prazo_definido`; estados terminais usam `terminal`.
+ * (RF006/RN11 para a 1ª versão e para cada versão seguinte; validade técnica
+ * do link de avaliação RF009/seção 12.1; data/horário do agendamento RF012) —
+ * nunca um SLA inventado. Etapas sem prazo de negócio documentado
+ * (`Aprovado`) usam `sem_prazo_definido`; estados terminais usam `terminal`.
+ *
+ * `nova_versao` é o prazo de 5 dias do ciclo corrente quando a solicitação
+ * está em `Ajustes` (RN11/RN24/RN26: o pedido de ajuste reinicia a contagem).
  */
 export type PrazoAtualTipo =
   | 'primeira_versao'
+  | 'nova_versao'
   | 'validade_link_avaliacao'
   | 'agendamento'
   | 'sem_prazo_definido'
@@ -114,17 +119,17 @@ async function computePrazoAtual(
   const result = new Map<number, PrazoAtual>();
 
   for (const row of rows) {
-    if (row.status === 'Em produção') {
+    if (row.status === 'Cancelado' || row.status === 'Publicado') {
+      result.set(row.id_solicitacao, TERMINAL);
+    } else if (statusTemPrazoDesigner(row.status)) {
+      // RN11/RN12: o prazo de 5 dias vale para a primeira versão E para cada
+      // versão seguinte — `prazo_primeira_versao` guarda o prazo do ciclo
+      // CORRENTE, reiniciado pela trigger a cada novo ciclo/reatribuição.
       result.set(row.id_solicitacao, {
-        tipo: 'primeira_versao',
+        tipo: row.status === 'Em produção' ? 'primeira_versao' : 'nova_versao',
         dataHora: row.prazo_primeira_versao,
         responsavel: 'designer',
       });
-    } else if (row.status === 'Cancelado' || row.status === 'Publicado') {
-      result.set(row.id_solicitacao, TERMINAL);
-    } else if (row.status === 'Ajustes') {
-      // RN25: designer produz a nova versão externamente — sem prazo de negócio documentado (item 6.2).
-      result.set(row.id_solicitacao, { ...SEM_PRAZO_DEFINIDO, responsavel: 'designer' });
     } else if (row.status === 'Aprovado') {
       // Aguardando agendamento (RF012) — sem SLA documentado para quando ele deve ser criado.
       result.set(row.id_solicitacao, SEM_PRAZO_DEFINIDO);
@@ -690,7 +695,7 @@ export interface PendenciaDesignerRow {
   clienteNome: string;
   tema: string | null;
   status: z.infer<typeof solicitacaoStatusEnum>;
-  /** Só considerada para 'Em produção' (RF006/RN11) — nunca inventa SLA para as demais etapas (item 6.2). */
+  /** RF006/RN11/RN12: considerada nos status com prazo do designer ('Em produção' e 'Ajustes') — ver `domain/prazoCiclo.ts`. */
   atrasada: boolean;
 }
 
@@ -722,7 +727,7 @@ export async function listPendenciasByDesigner(
       clienteNome: row.cliente?.nome ?? '—',
       tema: row.tema,
       status: row.status,
-      atrasada: row.status === 'Em produção' && new Date(row.prazo_primeira_versao).getTime() < agora,
+      atrasada: isSolicitacaoAtrasada(row.status, row.prazo_primeira_versao, agora),
     }));
 }
 

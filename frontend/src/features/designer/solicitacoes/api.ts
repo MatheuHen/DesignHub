@@ -16,10 +16,12 @@ export type SolicitacaoStatus = (typeof SOLICITACAO_STATUSES)[number];
  * estático de "1ª versão" depois que ela já foi entregue. Cada `tipo` usa
  * exclusivamente um prazo real já documentado (RF006/RF009/RF012); etapas
  * sem SLA de negócio documentado usam `sem_prazo_definido` em vez de um
- * valor inventado.
+ * valor inventado. `nova_versao` é o prazo de 5 dias do ciclo corrente
+ * quando o cliente pediu ajuste (RN11/RN24/RN26).
  */
 export type PrazoAtualTipo =
   | 'primeira_versao'
+  | 'nova_versao'
   | 'validade_link_avaliacao'
   | 'agendamento'
   | 'sem_prazo_definido'

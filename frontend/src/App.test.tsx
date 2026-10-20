@@ -245,6 +245,10 @@ describe('App routing por perfil (RF002)', () => {
             nomeCompleto: 'Dora Designer',
             perfil: 'designer',
             status: 'ativo',
+            // O mock genérico responde a TODAS as chamadas, inclusive as
+            // listagens do dashboard (uma por status com prazo do designer).
+            items: [],
+            total: 0,
           }),
       }),
     );
@@ -280,6 +284,10 @@ describe('App routing por perfil (RF002)', () => {
             nomeCompleto: 'Dora Designer',
             perfil: 'designer',
             status: 'ativo',
+            // O mock genérico responde a TODAS as chamadas, inclusive as
+            // listagens do dashboard (uma por status com prazo do designer).
+            items: [],
+            total: 0,
           }),
       }),
     );

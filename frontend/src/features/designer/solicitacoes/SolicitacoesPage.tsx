@@ -50,7 +50,12 @@ function PrazoAtualCell({ prazoAtual }: { prazoAtual: PrazoAtual }) {
   }
 
   const tag = prazoAtualTag(prazoAtual.dataHora);
-  const rotulo = prazoAtual.tipo === 'validade_link_avaliacao' ? 'Link válido até' : null;
+  const rotulo =
+    prazoAtual.tipo === 'validade_link_avaliacao'
+      ? 'Link válido até'
+      : prazoAtual.tipo === 'nova_versao'
+        ? 'Nova versão até'
+        : null;
 
   return (
     <div className="prazo-atual-cell">

@@ -16,6 +16,14 @@ interface TileCount {
 /** Dias de antecedência para considerar um prazo "próximo" no Dashboard (RN11/RN12). */
 const PRAZO_PROXIMO_DIAS = 5;
 
+/**
+ * RN11/RN12: status em que a entrega está com o designer e o prazo de 5 dias
+ * do ciclo de versão corre. Espelha `STATUS_COM_PRAZO_DESIGNER` do backend
+ * (`backend/src/domain/prazoCiclo.ts`) e o predicado de
+ * `public.sync_designer_bloqueio`.
+ */
+const STATUS_COM_PRAZO_DESIGNER: readonly SolicitacaoStatus[] = ['Em produção', 'Ajustes'];
+
 function prazoTag(prazoIso: string): { label: string; className: string } {
   const prazo = new Date(prazoIso);
   const hoje = new Date();
@@ -36,7 +44,8 @@ function prazoTag(prazoIso: string): { label: string; className: string } {
  * Dashboard do Designer (RF005/RF011/RN13-RN14, FIGURA 7/15/22 do TFC):
  * 7 indicadores por status (dados reais da API de listagem, sem números
  * fixos) + tabela de prazos próximos derivada de `prazoPrimeiraVersao`
- * (RN11) das solicitações "Em produção".
+ * (RN11) das solicitações em que a entrega está com o designer
+ * ("Em produção" e "Ajustes" — ver STATUS_COM_PRAZO_DESIGNER).
  */
 export function DesignerHome() {
   const { profile, refreshProfile } = useAuth();
@@ -67,14 +76,17 @@ export function DesignerHome() {
           listSolicitacoes({ status }).then((result) => ({ status, total: result.total })),
         ),
       ),
-      listSolicitacoes({ status: 'Em produção' }),
+      // RN11/RN12: o prazo de 5 dias corre tanto na primeira versão
+      // ('Em produção') quanto em cada versão seguinte ('Ajustes') — ambos
+      // podem bloquear o designer, então ambos aparecem nos prazos próximos.
+      Promise.all(STATUS_COM_PRAZO_DESIGNER.map((status) => listSolicitacoes({ status }))),
       listAgendamentos({ status: 'Agendado' }),
     ])
-      .then(([tileResults, emProducaoResult, agendamentosResult]) => {
+      .then(([tileResults, comPrazoResults, agendamentosResult]) => {
         if (cancelled) return;
         setTiles(tileResults);
         setEmProducao(
-          [...emProducaoResult.items].sort(
+          [...comPrazoResults.flatMap((result) => result.items)].sort(
             (a, b) => new Date(a.prazoPrimeiraVersao).getTime() - new Date(b.prazoPrimeiraVersao).getTime(),
           ),
         );
@@ -119,8 +131,8 @@ export function DesignerHome() {
 
       {profile?.bloqueado && (
         <p role="alert" className="auth-error dashboard-bloqueio-alert">
-          Você está bloqueado para iniciar novos atendimentos: há uma solicitação vencida sem a
-          primeira versão enviada. Envie a versão pendente ou aguarde o cancelamento para
+          Você está bloqueado para iniciar novos atendimentos: há uma solicitação com o prazo de
+          entrega da versão vencido. Envie a versão pendente ou aguarde o cancelamento para
           ser desbloqueado.
         </p>
       )}

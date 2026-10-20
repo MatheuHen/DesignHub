@@ -187,7 +187,7 @@ describe('listSolicitacoes — prazoAtual dinâmico (item 6/6.1/6.2, rodada fina
     });
   });
 
-  it('"Ajustes"/"Aprovado": sem SLA documentado — nunca inventa prazo (item 6.2)', async () => {
+  it('"Ajustes": prazo do ciclo de versão corrente (RN11/RN24/RN26) — nova_versao com responsável designer', async () => {
     const { client } = multiTableClient({
       solicitacaoRows: [
         solicitacaoRow({ id_solicitacao: 1, status: 'Ajustes' }),
@@ -197,7 +197,12 @@ describe('listSolicitacoes — prazoAtual dinâmico (item 6/6.1/6.2, rodada fina
 
     const result = await listSolicitacoes(client, { page: 1, pageSize: 20 });
 
-    expect(result.items[0]!.prazoAtual).toEqual({ tipo: 'sem_prazo_definido', dataHora: null, responsavel: 'designer' });
+    expect(result.items[0]!.prazoAtual).toEqual({
+      tipo: 'nova_versao',
+      dataHora: '2026-09-06T00:00:00Z',
+      responsavel: 'designer',
+    });
+    // 'Aprovado' continua sem SLA documentado — nunca inventa prazo (item 6.2).
     expect(result.items[1]!.prazoAtual).toEqual({ tipo: 'sem_prazo_definido', dataHora: null, responsavel: null });
   });
 
