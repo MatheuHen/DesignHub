@@ -113,6 +113,15 @@ export function ClientesPage() {
       if (resultado === 'conectado') {
         setInstagramFeedback({ id: -1, type: 'success', message: 'Instagram conectado com sucesso.' });
         reload();
+      } else if (resultado === 'ja_conectado') {
+        // Link de autorização reaberto depois de já ter sido usado com
+        // sucesso: a conexão continua valendo, então isto não é erro.
+        setInstagramFeedback({
+          id: -1,
+          type: 'success',
+          message: 'Esta conta do Instagram já estava conectada — a vinculação continua válida.',
+        });
+        reload();
       } else if (resultado === 'erro') {
         setInstagramFeedback({
           id: -1,
@@ -264,6 +273,7 @@ export function ClientesPage() {
     await createCliente({
       nome: values.nome,
       whatsapp: values.whatsapp,
+      observacao: values.observacao.trim() || undefined,
     });
     setPanel({ mode: 'closed' });
     reload();
@@ -273,6 +283,7 @@ export function ClientesPage() {
     await updateCliente(cliente.id, {
       nome: values.nome,
       whatsapp: values.whatsapp,
+      observacao: values.observacao.trim() || null,
     });
     setPanel({ mode: 'closed' });
     reload();
@@ -375,6 +386,11 @@ export function ClientesPage() {
                   <span className="clientes-nome-text" title={cliente.nome}>
                     {cliente.nome}
                   </span>
+                  {cliente.observacao && (
+                    <span className="clientes-observacao-text" title={cliente.observacao}>
+                      {cliente.observacao}
+                    </span>
+                  )}
                 </td>
                 <td data-label="WhatsApp" className="clientes-cell-whatsapp">
                   {cliente.whatsapp}

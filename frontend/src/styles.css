@@ -1085,6 +1085,17 @@ p {
   vertical-align: bottom;
 }
 
+.clientes-observacao-text {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85em;
+  color: var(--text-muted, #6b7280);
+  margin-top: 2px;
+}
+
 .clientes-cell-whatsapp {
   white-space: nowrap;
 }
@@ -1221,6 +1232,13 @@ p {
   }
 
   .clientes-nome-text {
+    max-width: 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .clientes-observacao-text {
     max-width: 100%;
     white-space: normal;
     overflow: visible;

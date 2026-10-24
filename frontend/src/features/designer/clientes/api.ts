@@ -6,6 +6,7 @@ export interface Cliente {
   nome: string;
   whatsapp: string;
   instagram: string | null;
+  observacao: string | null;
 }
 
 export interface ListClientesResult {
@@ -25,12 +26,14 @@ export interface CreateClienteInput {
   nome: string;
   whatsapp: string;
   instagram?: string | undefined;
+  observacao?: string | undefined;
 }
 
 export interface UpdateClienteInput {
   nome?: string;
   whatsapp?: string;
   instagram?: string | null;
+  observacao?: string | null;
 }
 
 /** RF003: lista/pesquisa os clientes do próprio designer. */

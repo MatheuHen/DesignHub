@@ -62,6 +62,7 @@ const sampleCliente: Cliente = {
   nome: 'Cliente Teste',
   whatsapp: '5511988887777',
   instagram: null,
+  observacao: null,
 };
 
 function renderPage() {
@@ -340,6 +341,7 @@ describe('ClientesPage (RF003)', () => {
       nome: 'Cliente Teste',
       whatsapp: '5511977776666',
       instagram: null,
+      observacao: null,
     };
     listClientesMock.mockResolvedValue({ items: [sampleCliente, outroCliente], total: 2, page: 1, pageSize: 20 });
 

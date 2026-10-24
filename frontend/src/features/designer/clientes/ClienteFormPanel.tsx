@@ -4,6 +4,7 @@ import type { Cliente } from './api';
 export interface ClienteFormValues {
   nome: string;
   whatsapp: string;
+  observacao: string;
 }
 
 interface CreatePanelProps {
@@ -26,6 +27,7 @@ export function ClienteFormPanel(props: ClienteFormPanelProps) {
   const isCreate = props.mode === 'create';
   const [nome, setNome] = useState(isCreate ? '' : props.cliente.nome);
   const [whatsapp, setWhatsapp] = useState(isCreate ? '' : props.cliente.whatsapp);
+  const [observacao, setObservacao] = useState(isCreate ? '' : props.cliente.observacao ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +37,7 @@ export function ClienteFormPanel(props: ClienteFormPanelProps) {
     setError(null);
 
     void props
-      .onSubmit({ nome, whatsapp })
+      .onSubmit({ nome, whatsapp, observacao })
       .catch((submitError: unknown) => {
         setError(submitError instanceof Error ? submitError.message : 'Não foi possível salvar.');
       })
@@ -60,6 +62,15 @@ export function ClienteFormPanel(props: ClienteFormPanelProps) {
         minLength={8}
         value={whatsapp}
         onChange={(event) => setWhatsapp(event.target.value)}
+      />
+
+      <label htmlFor="cliente-observacao">Observação (opcional)</label>
+      <textarea
+        id="cliente-observacao"
+        maxLength={1000}
+        rows={3}
+        value={observacao}
+        onChange={(event) => setObservacao(event.target.value)}
       />
 
       {error && (
