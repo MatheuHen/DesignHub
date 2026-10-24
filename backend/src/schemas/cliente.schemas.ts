@@ -15,12 +15,19 @@ const whatsappSchema = z
   .max(20)
   .refine((value) => value.replace(/\D/g, '').length >= 12, {
     message: 'Informe o WhatsApp com o código do país, DDD e número.',
-  });
+  })
+  // RF003/item 2.2: normaliza para somente dígitos antes de gravar, para que
+  // "(64) 98403-5274" e "5564984035274" não sejam tratados como registros
+  // diferentes apenas por causa da máscara/formatação digitada.
+  .transform((value) => value.replace(/\D/g, ''));
+
+const observacaoSchema = z.string().trim().max(1000);
 
 export const createClienteSchema = z.object({
   nome: z.string().trim().min(2).max(150),
   whatsapp: whatsappSchema,
   instagram: z.string().trim().max(60).optional(),
+  observacao: observacaoSchema.optional(),
 });
 export type CreateClienteInput = z.infer<typeof createClienteSchema>;
 
@@ -29,6 +36,7 @@ export const updateClienteSchema = z
     nome: z.string().trim().min(2).max(150).optional(),
     whatsapp: whatsappSchema.optional(),
     instagram: z.string().trim().max(60).nullable().optional(),
+    observacao: observacaoSchema.nullable().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, { message: 'Nenhum campo para atualizar.' });
 export type UpdateClienteInput = z.infer<typeof updateClienteSchema>;

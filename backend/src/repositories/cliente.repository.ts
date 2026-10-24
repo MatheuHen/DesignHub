@@ -13,6 +13,7 @@ export interface Cliente {
   nome: string;
   whatsapp: string;
   instagram: string | null;
+  observacao: string | null;
 }
 
 const clienteRowSchema = z.object({
@@ -21,6 +22,7 @@ const clienteRowSchema = z.object({
   nome: z.string(),
   whatsapp: z.string(),
   instagram: z.string().nullable(),
+  observacao: z.string().nullable(),
 });
 
 function toCliente(row: z.infer<typeof clienteRowSchema>): Cliente {
@@ -30,6 +32,7 @@ function toCliente(row: z.infer<typeof clienteRowSchema>): Cliente {
     nome: row.nome,
     whatsapp: row.whatsapp,
     instagram: row.instagram,
+    observacao: row.observacao,
   };
 }
 
@@ -49,12 +52,19 @@ export async function listClientes(
 ): Promise<{ items: Cliente[]; total: number }> {
   let query = client
     .from('cliente')
-    .select('id_cliente, id_designer, nome, whatsapp, instagram', { count: 'exact' })
+    .select('id_cliente, id_designer, nome, whatsapp, instagram, observacao', { count: 'exact' })
     .order('nome', { ascending: true });
 
   if (filters.search) {
     const term = escapeIlikeTerm(filters.search);
-    query = query.or(`nome.ilike.%${term}%,whatsapp.ilike.%${term}%`);
+    // Item 2.2 (correções): whatsapp é gravado só com dígitos — normaliza o
+    // termo de busca para esse formato também, senão buscar por
+    // "(64) 98403-5274" não encontra o registro gravado como "5564984035274".
+    const digitsOnlyTerm = escapeIlikeTerm(filters.search.replace(/\D/g, ''));
+    const whatsappCondition = digitsOnlyTerm
+      ? `whatsapp.ilike.%${digitsOnlyTerm}%`
+      : `whatsapp.ilike.%${term}%`;
+    query = query.or(`nome.ilike.%${term}%,${whatsappCondition}`);
   }
 
   const from = (filters.page - 1) * filters.pageSize;
@@ -79,7 +89,7 @@ export async function listClientes(
 export async function getClienteById(client: SupabaseClient, id: number): Promise<Cliente | null> {
   const result: unknown = await client
     .from('cliente')
-    .select('id_cliente, id_designer, nome, whatsapp, instagram')
+    .select('id_cliente, id_designer, nome, whatsapp, instagram, observacao')
     .eq('id_cliente', id)
     .maybeSingle();
 
@@ -103,8 +113,9 @@ export async function insertCliente(
       nome: input.nome,
       whatsapp: input.whatsapp,
       instagram: input.instagram ?? null,
+      observacao: input.observacao ?? null,
     })
-    .select('id_cliente, id_designer, nome, whatsapp, instagram')
+    .select('id_cliente, id_designer, nome, whatsapp, instagram, observacao')
     .single();
 
   const { data, error } = result as { data: unknown; error: { message: string } | null };
@@ -131,6 +142,7 @@ export async function updateCliente(
   if (changes.nome !== undefined) payload.nome = changes.nome;
   if (changes.whatsapp !== undefined) payload.whatsapp = changes.whatsapp;
   if (changes.instagram !== undefined) payload.instagram = changes.instagram;
+  if (changes.observacao !== undefined) payload.observacao = changes.observacao;
 
   const result: unknown = await adminClient
     .from('cliente')
