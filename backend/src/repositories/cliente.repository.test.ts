@@ -1,6 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
-import { deleteCliente, listClientes, updateCliente } from './cliente.repository.js';
+import { deleteCliente, findClienteDuplicadoPorWhatsapp, listClientes, updateCliente } from './cliente.repository.js';
+
+function createFindDuplicadoClient(
+  response: { data: unknown; error: { message: string; code?: string } | null },
+  capturedFilters: { idDesigner?: string; whatsapp?: string; excludedId?: number } = {},
+) {
+  return {
+    from: () => ({
+      select: () => ({
+        eq: (col: string, value: string) => {
+          if (col === 'id_designer') capturedFilters.idDesigner = value;
+          if (col === 'whatsapp') capturedFilters.whatsapp = value;
+          return {
+            eq: (col2: string, value2: string) => {
+              if (col2 === 'whatsapp') capturedFilters.whatsapp = value2;
+              return {
+                neq: (col3: string, value3: number) => {
+                  if (col3 === 'id_cliente') capturedFilters.excludedId = value3;
+                  return { maybeSingle: () => Promise.resolve(response) };
+                },
+                maybeSingle: () => Promise.resolve(response),
+              };
+            },
+          };
+        },
+      }),
+    }),
+  } as unknown as Parameters<typeof findClienteDuplicadoPorWhatsapp>[0];
+}
 
 function createListClient(capturedOr: { value?: string }) {
   const range = () => Promise.resolve({ data: [], error: null, count: 0 });
@@ -78,6 +106,42 @@ describe('listClientes — busca por WhatsApp mascarado (bug real de smoke test 
     const client = createListClient(captured);
     await listClientes(client, { search: '(64) 98403-5274', page: 1, pageSize: 20 });
     expect(captured.value).toContain('nome.ilike."%(64) 98403-5274%"');
+  });
+});
+
+describe('findClienteDuplicadoPorWhatsapp (RF003 — WhatsApp único por designer)', () => {
+  it('retorna null quando não há duplicado', async () => {
+    const client = createFindDuplicadoClient({ data: null, error: null });
+    await expect(
+      findClienteDuplicadoPorWhatsapp(client, 'designer-1', '5564984035274'),
+    ).resolves.toBeNull();
+  });
+
+  it('retorna o id do cliente duplicado encontrado', async () => {
+    const client = createFindDuplicadoClient({ data: { id_cliente: 7 }, error: null });
+    await expect(
+      findClienteDuplicadoPorWhatsapp(client, 'designer-1', '5564984035274'),
+    ).resolves.toBe(7);
+  });
+
+  it('trata PGRST116 (mais de uma linha — duplicidade antiga pré-existente) como duplicidade confirmada', async () => {
+    const client = createFindDuplicadoClient({
+      data: null,
+      error: { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116' },
+    });
+    await expect(
+      findClienteDuplicadoPorWhatsapp(client, 'designer-1', '5564984035274'),
+    ).resolves.toBe(-1);
+  });
+
+  it('propaga outros erros do banco', async () => {
+    const client = createFindDuplicadoClient({
+      data: null,
+      error: { message: 'erro de conexão' },
+    });
+    await expect(
+      findClienteDuplicadoPorWhatsapp(client, 'designer-1', '5564984035274'),
+    ).rejects.toThrow('Falha ao verificar WhatsApp duplicado');
   });
 });
 

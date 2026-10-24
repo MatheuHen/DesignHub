@@ -112,6 +112,46 @@ export async function getClienteById(client: SupabaseClient, id: number): Promis
   return toCliente(clienteRowSchema.parse(data));
 }
 
+/**
+ * RF003 (regra desta rodada): WhatsApp é único POR DESIGNER, nunca
+ * globalmente — dois designers diferentes podem ter clientes com o mesmo
+ * número. `whatsapp` já chega normalizado (schema Zod faz a transformação
+ * antes de qualquer chamada ao repository), então a comparação aqui é
+ * sempre entre valores já normalizados. `excludeId` permite a edição de um
+ * cliente manter o próprio WhatsApp sem se bloquear.
+ */
+export async function findClienteDuplicadoPorWhatsapp(
+  adminClient: SupabaseClient,
+  idDesigner: string,
+  whatsappNormalizado: string,
+  excludeId?: number,
+): Promise<number | null> {
+  let query = adminClient
+    .from('cliente')
+    .select('id_cliente')
+    .eq('id_designer', idDesigner)
+    .eq('whatsapp', whatsappNormalizado);
+  if (excludeId !== undefined) {
+    query = query.neq('id_cliente', excludeId);
+  }
+
+  const result: unknown = await query.maybeSingle();
+  const { data, error } = result as {
+    data: { id_cliente: number } | null;
+    error: { message: string; code?: string } | null;
+  };
+  // PGRST116 = "more than one row" do .maybeSingle(): já existe mais de um
+  // duplicado antigo para este designer+número (ex.: os 4 pares conhecidos).
+  // Qualquer um dos dois confirma duplicidade — não escolhemos qual.
+  if (error && error.code !== 'PGRST116') {
+    throw new Error(`Falha ao verificar WhatsApp duplicado: ${error.message}`);
+  }
+  if (error?.code === 'PGRST116') {
+    return -1;
+  }
+  return data?.id_cliente ?? null;
+}
+
 export async function insertCliente(
   adminClient: SupabaseClient,
   input: CreateClienteInput & { idDesigner: string },

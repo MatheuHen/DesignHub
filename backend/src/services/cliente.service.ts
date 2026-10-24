@@ -1,8 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
-import { NotFoundError } from '../lib/errors.js';
+import { ConflictError, NotFoundError } from '../lib/errors.js';
 import {
   deleteCliente as deleteClienteRow,
+  findClienteDuplicadoPorWhatsapp,
   getClienteById,
   insertCliente,
   listClientes as listClientesRepo,
@@ -36,12 +37,45 @@ export async function getCliente(userClient: SupabaseClient, id: number): Promis
   return assertOwnedCliente(userClient, id);
 }
 
+/**
+ * RF003 (regra desta rodada): WhatsApp é único por designer — não
+ * globalmente. `whatsapp` já chega normalizado (transform do schema Zod),
+ * então a checagem aqui é sempre contra o mesmo formato gravado no banco.
+ *
+ * Risco de concorrência conhecido e aceito nesta etapa: entre esta
+ * consulta e o INSERT/UPDATE há uma janela em que duas requisições
+ * simultâneas do mesmo designer, para o mesmo WhatsApp, poderiam ambas
+ * passar a checagem (TOCTOU). Não há `UNIQUE (id_designer, whatsapp)` no
+ * banco ainda — ver nota no relatório de entrega sobre por quê (4 pares
+ * antigos duplicados impedem criar a constraint sem saneamento prévio). Em
+ * volume normal de cadastro manual pelo designer (não é um endpoint de
+ * alta concorrência), o risco residual é baixo; registrar como pendência
+ * técnica para reforço no banco após o saneamento dos dados antigos.
+ */
+async function assertWhatsappNaoDuplicado(
+  adminClient: SupabaseClient,
+  idDesigner: string,
+  whatsappNormalizado: string,
+  excludeId?: number,
+): Promise<void> {
+  const duplicado = await findClienteDuplicadoPorWhatsapp(
+    adminClient,
+    idDesigner,
+    whatsappNormalizado,
+    excludeId,
+  );
+  if (duplicado !== null) {
+    throw new ConflictError('Você já tem um cliente cadastrado com este WhatsApp.');
+  }
+}
+
 /** RF003/RN07: nome e WhatsApp obrigatórios, Instagram opcional. */
 export async function createCliente(
   idDesigner: string,
   input: CreateClienteInput,
 ): Promise<Cliente> {
   const adminClient = getSupabaseAdminClient();
+  await assertWhatsappNaoDuplicado(adminClient, idDesigner, input.whatsapp);
   return insertCliente(adminClient, { idDesigner, ...input });
 }
 
@@ -56,6 +90,9 @@ export async function updateCliente(
 ): Promise<void> {
   const owned = await assertOwnedCliente(userClient, id);
   const adminClient = getSupabaseAdminClient();
+  if (changes.whatsapp !== undefined && changes.whatsapp !== owned.whatsapp) {
+    await assertWhatsappNaoDuplicado(adminClient, owned.idDesigner, changes.whatsapp, id);
+  }
   await updateClienteRow(adminClient, id, owned.idDesigner, changes);
 }
 
