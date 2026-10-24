@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
-import { deleteCliente, updateCliente } from './cliente.repository.js';
+import { deleteCliente, listClientes, updateCliente } from './cliente.repository.js';
+
+function createListClient(capturedOr: { value?: string }) {
+  const range = () => Promise.resolve({ data: [], error: null, count: 0 });
+  const or = (value: string) => {
+    capturedOr.value = value;
+    return { range };
+  };
+  return {
+    from: () => ({
+      select: () => ({
+        order: () => ({ or, range }),
+      }),
+    }),
+  } as unknown as Parameters<typeof listClientes>[0];
+}
 
 function createUpdateClient(returnedRows: unknown[]) {
   return {
@@ -41,6 +56,28 @@ describe('updateCliente (RF003 — defesa em profundidade de ownership)', () => 
   it('resolve quando exatamente uma linha é atualizada', async () => {
     const client = createUpdateClient([{ id_cliente: 1 }]);
     await expect(updateCliente(client, 1, 'designer-x', { nome: 'Novo' })).resolves.toBeUndefined();
+  });
+});
+
+describe('listClientes — busca por WhatsApp mascarado (bug real de smoke test em produção)', () => {
+  it('escapa parênteses/vírgula com aspas duplas (sintaxe do PostgREST), nunca com barra invertida', async () => {
+    const captured: { value?: string } = {};
+    const client = createListClient(captured);
+    await listClientes(client, { search: '(64) 98403-5274', page: 1, pageSize: 20 });
+    expect(captured.value).toBeDefined();
+    // Backslash antes de parênteses corrompe o filtro or() do PostgREST —
+    // regressão do bug encontrado em produção (busca retornava 0 resultados).
+    expect(captured.value).not.toMatch(/\\\(/);
+    expect(captured.value).not.toMatch(/\\\)/);
+    // O termo de WhatsApp buscado deve estar normalizado para dígitos.
+    expect(captured.value).toContain('whatsapp.ilike."%64984035274%"');
+  });
+
+  it('usa aspas duplas em volta do valor do nome quando há parênteses', async () => {
+    const captured: { value?: string } = {};
+    const client = createListClient(captured);
+    await listClientes(client, { search: '(64) 98403-5274', page: 1, pageSize: 20 });
+    expect(captured.value).toContain('nome.ilike."%(64) 98403-5274%"');
   });
 });
 

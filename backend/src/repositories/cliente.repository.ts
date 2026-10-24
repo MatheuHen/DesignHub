@@ -36,8 +36,18 @@ function toCliente(row: z.infer<typeof clienteRowSchema>): Cliente {
   };
 }
 
+/**
+ * Bug real encontrado em smoke test de produção (busca por WhatsApp
+ * mascarado, ex. "(64) 98403-5274", retornava 0 resultados mesmo existindo
+ * o cliente): o PostgREST trata vírgula/parênteses como estruturais dentro
+ * de um filtro `or()` — escapar com barra invertida não é a sintaxe
+ * correta e corrompe o filtro inteiro. A sintaxe correta é envolver o
+ * valor em aspas duplas; dentro delas, apenas aspas e barra invertida
+ * literais precisam de escape (e os wildcards do ILIKE, % e _, para busca
+ * literal).
+ */
 function escapeIlikeTerm(term: string): string {
-  return term.replace(/[%,()]/g, (match) => `\\${match}`);
+  return term.replace(/[%_\\"]/g, (match) => `\\${match}`);
 }
 
 /**
@@ -62,9 +72,9 @@ export async function listClientes(
     // "(64) 98403-5274" não encontra o registro gravado como "5564984035274".
     const digitsOnlyTerm = escapeIlikeTerm(filters.search.replace(/\D/g, ''));
     const whatsappCondition = digitsOnlyTerm
-      ? `whatsapp.ilike.%${digitsOnlyTerm}%`
-      : `whatsapp.ilike.%${term}%`;
-    query = query.or(`nome.ilike.%${term}%,${whatsappCondition}`);
+      ? `whatsapp.ilike."%${digitsOnlyTerm}%"`
+      : `whatsapp.ilike."%${term}%"`;
+    query = query.or(`nome.ilike."%${term}%",${whatsappCondition}`);
   }
 
   const from = (filters.page - 1) * filters.pageSize;
