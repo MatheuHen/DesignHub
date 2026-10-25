@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import { useAutoDismiss } from '../../../lib/useAutoDismiss';
@@ -339,6 +339,17 @@ export function ClientesPage() {
           + Novo Cliente
         </button>
       </div>
+      {/*
+        Divisão de responsabilidade das telas (rodada UX): esta página é o
+        cadastro/gestão cadastral do cliente (RF003); o acompanhamento das
+        artes/solicitações fica no Dashboard, logo abaixo de "Iniciar
+        Atendimento". Nenhuma função do RF003 foi removida daqui.
+      */}
+      <p className="clientes-foco-hint">
+        Esta tela é para cadastrar e manter os dados dos clientes. Para acompanhar artes e
+        solicitações em andamento, use o <Link to="/designer">Dashboard</Link>.
+      </p>
+
       <div className="designer-filters clientes-search">
         <label htmlFor="cliente-search">Buscar</label>
         <input

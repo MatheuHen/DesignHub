@@ -1091,6 +1091,43 @@ p {
   margin: 0 0 0.75rem;
 }
 
+.clientes-foco-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted, #6b7280);
+  margin: 0 0 1rem;
+}
+
+/* Acompanhamento de clientes + artes no Dashboard (abaixo do CTA). */
+.dashboard-acompanhamento {
+  margin-top: 1.5rem;
+}
+
+.dashboard-acompanhamento-solicitacoes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.dashboard-acompanhamento-solicitacoes li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.dashboard-acompanhamento-vazio {
+  font-size: 0.85rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.dashboard-acompanhamento-table td.clientes-cell-nome {
+  max-width: 220px;
+}
+
 .clientes-observacao-text {
   display: block;
   max-width: 100%;

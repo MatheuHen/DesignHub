@@ -5,12 +5,19 @@ import { ApiError } from '../../lib/apiClient';
 import { statusSlug } from '../../lib/statusStyle';
 import { listAgendamentos, type Agendamento } from './agendamentos/api';
 import { useAuth } from '../auth/useAuth';
+import { listClientes, type Cliente } from './clientes/api';
 import { NotificationsCta } from './notifications/NotificationsCta';
 import { listSolicitacoes, SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from './solicitacoes/api';
 
 interface TileCount {
   status: SolicitacaoStatus;
   total: number;
+}
+
+/** Linha do acompanhamento: um cliente (RF003) + suas solicitações (RF005). */
+interface AcompanhamentoRow {
+  cliente: Cliente;
+  solicitacoes: Solicitacao[];
 }
 
 /** Dias de antecedência para considerar um prazo "próximo" no Dashboard (RN11/RN12). */
@@ -62,6 +69,8 @@ export function DesignerHome() {
   const [tiles, setTiles] = useState<TileCount[] | null>(null);
   const [emProducao, setEmProducao] = useState<Solicitacao[] | null>(null);
   const [agendamentos, setAgendamentos] = useState<Agendamento[] | null>(null);
+  const [clientes, setClientes] = useState<Cliente[] | null>(null);
+  const [todasSolicitacoes, setTodasSolicitacoes] = useState<Solicitacao[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,7 +82,11 @@ export function DesignerHome() {
     Promise.all([
       Promise.all(
         SOLICITACAO_STATUSES.map((status) =>
-          listSolicitacoes({ status }).then((result) => ({ status, total: result.total })),
+          listSolicitacoes({ status }).then((result) => ({
+            status,
+            total: result.total,
+            items: result.items,
+          })),
         ),
       ),
       // RN11/RN12: o prazo de 5 dias corre tanto na primeira versão
@@ -81,10 +94,17 @@ export function DesignerHome() {
       // podem bloquear o designer, então ambos aparecem nos prazos próximos.
       Promise.all(STATUS_COM_PRAZO_DESIGNER.map((status) => listSolicitacoes({ status }))),
       listAgendamentos({ status: 'Agendado' }),
+      // RF003: os clientes do próprio designer (mesma API da tela Clientes,
+      // nenhuma fonte de dados nova) para o acompanhamento abaixo do CTA.
+      listClientes({ pageSize: 100 }),
     ])
-      .then(([tileResults, comPrazoResults, agendamentosResult]) => {
+      .then(([tileResults, comPrazoResults, agendamentosResult, clientesResult]) => {
         if (cancelled) return;
-        setTiles(tileResults);
+        setTiles(tileResults.map(({ status, total }) => ({ status, total })));
+        // Reaproveita exatamente as solicitações já carregadas para os tiles —
+        // não existe requisição nem lógica de listagem adicional aqui.
+        setTodasSolicitacoes(tileResults.flatMap((result) => result.items));
+        setClientes(clientesResult.items);
         setEmProducao(
           [...comPrazoResults.flatMap((result) => result.items)].sort(
             (a, b) => new Date(a.prazoPrimeiraVersao).getTime() - new Date(b.prazoPrimeiraVersao).getTime(),
@@ -111,6 +131,30 @@ export function DesignerHome() {
       cancelled = true;
     };
   }, []);
+
+  /**
+   * Acompanhamento do Dashboard: junta o cliente (RF003) às suas
+   * solicitações/artes (RF005) em memória, a partir dos dados já carregados
+   * acima. Clientes com solicitação aparecem primeiro, e dentro de cada
+   * cliente a solicitação mais recente vem antes.
+   */
+  const acompanhamento = useMemo<AcompanhamentoRow[]>(() => {
+    if (!clientes || !todasSolicitacoes) return [];
+    const porCliente = new Map<number, Solicitacao[]>();
+    for (const solicitacao of todasSolicitacoes) {
+      const lista = porCliente.get(solicitacao.idCliente);
+      if (lista) lista.push(solicitacao);
+      else porCliente.set(solicitacao.idCliente, [solicitacao]);
+    }
+    return clientes
+      .map((cliente) => ({
+        cliente,
+        solicitacoes: (porCliente.get(cliente.id) ?? []).sort(
+          (a, b) => new Date(b.dataCriacao).getTime() - new Date(a.dataCriacao).getTime(),
+        ),
+      }))
+      .sort((a, b) => b.solicitacoes.length - a.solicitacoes.length);
+  }, [clientes, todasSolicitacoes]);
 
   const prazosProximos = useMemo(() => {
     if (!emProducao) return [];
@@ -145,6 +189,71 @@ export function DesignerHome() {
       </Link>
 
       {loading && <p role="status">Carregando dashboard…</p>}
+
+      {/*
+        RF003 + RF005: acompanhamento rápido logo abaixo do CTA — cliente e
+        as artes/solicitações dele, com status real e link para a tela de
+        detalhe já existente. Usa as mesmas APIs de Clientes e Solicitações
+        (nenhum dado duplicado, nenhuma regra nova): a tela Clientes segue
+        responsável pelo cadastro/gestão cadastral.
+      */}
+      {!loading && !error && (
+        <section className="dashboard-acompanhamento" aria-labelledby="acompanhamento-title">
+          <h2 id="acompanhamento-title">Clientes e artes em andamento</h2>
+          {acompanhamento.length === 0 ? (
+            <p className="dashboard-prazos-empty">
+              Nenhum cliente cadastrado ainda. <Link to="/designer/clientes">Cadastrar cliente</Link>.
+            </p>
+          ) : (
+            <div className="table-scroll">
+              <table className="designer-table dashboard-acompanhamento-table">
+                <caption className="sr-only">
+                  Clientes e respectivas solicitações de arte ({acompanhamento.length} cliente(s))
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Cliente</th>
+                    <th scope="col">Artes / solicitações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {acompanhamento.map(({ cliente, solicitacoes }) => (
+                    <tr key={cliente.id}>
+                      <td data-label="Cliente" className="clientes-cell-nome">
+                        <span className="clientes-nome-text" title={cliente.nome}>
+                          {cliente.nome}
+                        </span>
+                      </td>
+                      <td data-label="Artes / solicitações">
+                        {solicitacoes.length === 0 ? (
+                          <span className="dashboard-acompanhamento-vazio">
+                            Nenhuma solicitação ainda
+                          </span>
+                        ) : (
+                          <ul className="dashboard-acompanhamento-solicitacoes">
+                            {solicitacoes.map((solicitacao) => (
+                              <li key={solicitacao.id}>
+                                <Link to={`/designer/solicitacoes/${solicitacao.id}`}>
+                                  {solicitacao.tema ?? `Solicitação #${solicitacao.id}`}
+                                </Link>{' '}
+                                <span
+                                  className={`status-badge status-badge--${statusSlug(solicitacao.status)}`}
+                                >
+                                  {solicitacao.status}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
       {error && (
         <p role="alert" className="auth-error">
           {error}

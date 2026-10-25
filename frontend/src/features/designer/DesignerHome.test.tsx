@@ -1,13 +1,19 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthContextValue } from '../auth/auth-context';
 
-const { listSolicitacoesMock, listAgendamentosMock, useAuthMock } = vi.hoisted(() => ({
+const { listSolicitacoesMock, listAgendamentosMock, listClientesMock, useAuthMock } = vi.hoisted(() => ({
   listSolicitacoesMock: vi.fn(),
   listAgendamentosMock: vi.fn(),
+  listClientesMock: vi.fn(),
   useAuthMock: vi.fn(),
 }));
+
+vi.mock('./clientes/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./clientes/api')>();
+  return { ...actual, listClientes: listClientesMock };
+});
 
 vi.mock('./solicitacoes/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./solicitacoes/api')>();
@@ -64,7 +70,80 @@ describe('DesignerHome — Dashboard (RF005/RF011/RN13-RN14, FIGURA 7/15/22)', (
   beforeEach(() => {
     listSolicitacoesMock.mockReset();
     listAgendamentosMock.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    listClientesMock.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
     useAuthMock.mockReset().mockReturnValue(baseAuth);
+  });
+
+  describe('acompanhamento de clientes e artes (RF003 + RF005, abaixo do CTA)', () => {
+    it('lista cada cliente com suas solicitações e status reais, linkando para o detalhe', async () => {
+      listClientesMock.mockResolvedValue({
+        items: [
+          { id: 7, idDesigner: 'designer-1', nome: 'Cliente Com Arte', whatsapp: '5564999990000', instagram: null, observacao: null },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      });
+      listSolicitacoesMock.mockImplementation(({ status }: { status: string }) =>
+        Promise.resolve({
+          items:
+            status === 'Ajustes'
+              ? [
+                  {
+                    id: 99,
+                    idCliente: 7,
+                    clienteNome: 'Cliente Com Arte',
+                    idDesigner: 'designer-1',
+                    tema: 'Post de lançamento',
+                    status: 'Ajustes',
+                    dataCriacao: new Date().toISOString(),
+                    prazoPrimeiraVersao: new Date().toISOString(),
+                    prazoAtual: { tipo: 'nova_versao', dataHora: null, responsavel: 'designer' },
+                  },
+                ]
+              : [],
+          total: status === 'Ajustes' ? 1 : 0,
+          page: 1,
+          pageSize: 20,
+        }),
+      );
+
+      renderPage();
+
+      const titulo = await screen.findByText('Clientes e artes em andamento');
+      // O nome do cliente também aparece em "prazos próximos" (status
+      // 'Ajustes' tem prazo de designer) — por isso a busca é escopada à
+      // seção de acompanhamento, não global.
+      const secao = titulo.closest('section') as HTMLElement;
+      expect(within(secao).getByText('Cliente Com Arte')).toBeInTheDocument();
+      const link = within(secao).getByRole('link', { name: 'Post de lançamento' });
+      expect(link).toHaveAttribute('href', '/designer/solicitacoes/99');
+      expect(within(secao).getByText('Ajustes')).toBeInTheDocument();
+    });
+
+    it('mostra que o cliente ainda não tem solicitação, sem inventar dado', async () => {
+      listClientesMock.mockResolvedValue({
+        items: [
+          { id: 8, idDesigner: 'designer-1', nome: 'Cliente Sem Arte', whatsapp: '5564999991111', instagram: null, observacao: null },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      });
+      mockCounts();
+
+      renderPage();
+
+      expect(await screen.findByText('Nenhuma solicitação ainda')).toBeInTheDocument();
+    });
+
+    it('mostra estado vazio quando o designer ainda não tem cliente', async () => {
+      mockCounts();
+
+      renderPage();
+
+      expect(await screen.findByText(/Nenhum cliente cadastrado ainda/)).toBeInTheDocument();
+    });
   });
 
   it('mostra um tile real por status, cada um linkando para a listagem filtrada', async () => {
