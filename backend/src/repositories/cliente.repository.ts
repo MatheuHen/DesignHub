@@ -152,6 +152,24 @@ export async function findClienteDuplicadoPorWhatsapp(
   return data?.id_cliente ?? null;
 }
 
+const UNIQUE_VIOLATION = '23505';
+const WHATSAPP_DUPLICADO_MESSAGE = 'Você já tem um cliente cadastrado com este WhatsApp.';
+
+/**
+ * RF003 (item 2.1 da rodada de WhatsApp único por designer): a checagem de
+ * aplicação (`assertWhatsappNaoDuplicado`) é a primeira camada, mas tem uma
+ * janela de corrida entre a consulta e o INSERT/UPDATE (TOCTOU). A
+ * constraint `cliente_designer_whatsapp_unico` (migration
+ * 20261025100000) é a segunda camada — isto aqui traduz a violação dela
+ * (23505) na mesma mensagem amigável, para nunca vazar erro cru do
+ * Postgres ao frontend.
+ */
+function isWhatsappUnicoViolation(error: { code?: string; message: string }): boolean {
+  return (
+    error.code === UNIQUE_VIOLATION && /cliente_designer_whatsapp_unico/.test(error.message)
+  );
+}
+
 export async function insertCliente(
   adminClient: SupabaseClient,
   input: CreateClienteInput & { idDesigner: string },
@@ -168,8 +186,14 @@ export async function insertCliente(
     .select('id_cliente, id_designer, nome, whatsapp, instagram, observacao')
     .single();
 
-  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  const { data, error } = result as {
+    data: unknown;
+    error: { code?: string; message: string } | null;
+  };
   if (error) {
+    if (isWhatsappUnicoViolation(error)) {
+      throw new ConflictError(WHATSAPP_DUPLICADO_MESSAGE);
+    }
     throw new Error(`Falha ao criar cliente: ${error.message}`);
   }
   return toCliente(clienteRowSchema.parse(data));
@@ -200,8 +224,14 @@ export async function updateCliente(
     .eq('id_cliente', id)
     .eq('id_designer', idDesigner)
     .select('id_cliente');
-  const { data, error } = result as { data: unknown[] | null; error: { message: string } | null };
+  const { data, error } = result as {
+    data: unknown[] | null;
+    error: { code?: string; message: string } | null;
+  };
   if (error) {
+    if (isWhatsappUnicoViolation(error)) {
+      throw new ConflictError(WHATSAPP_DUPLICADO_MESSAGE);
+    }
     throw new Error(`Falha ao atualizar cliente: ${error.message}`);
   }
   if (!data || data.length === 0) {

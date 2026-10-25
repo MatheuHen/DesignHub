@@ -1,6 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
-import { deleteCliente, findClienteDuplicadoPorWhatsapp, listClientes, updateCliente } from './cliente.repository.js';
+import {
+  deleteCliente,
+  findClienteDuplicadoPorWhatsapp,
+  insertCliente,
+  listClientes,
+  updateCliente,
+} from './cliente.repository.js';
+
+function createInsertClient(error: { code?: string; message: string } | null, data: unknown = null) {
+  return {
+    from: () => ({
+      insert: () => ({
+        select: () => ({
+          single: () => Promise.resolve({ data, error }),
+        }),
+      }),
+    }),
+  } as unknown as Parameters<typeof insertCliente>[0];
+}
+
+function createUpdateClientWithError(error: { code?: string; message: string } | null) {
+  return {
+    from: () => ({
+      update: () => ({
+        eq: () => ({
+          eq: () => ({
+            select: () => Promise.resolve({ data: error ? null : [{ id_cliente: 1 }], error }),
+          }),
+        }),
+      }),
+    }),
+  } as unknown as Parameters<typeof updateCliente>[0];
+}
 
 function createFindDuplicadoClient(
   response: { data: unknown; error: { message: string; code?: string } | null },
@@ -142,6 +174,40 @@ describe('findClienteDuplicadoPorWhatsapp (RF003 — WhatsApp único por designe
     await expect(
       findClienteDuplicadoPorWhatsapp(client, 'designer-1', '5564984035274'),
     ).rejects.toThrow('Falha ao verificar WhatsApp duplicado');
+  });
+});
+
+describe('insertCliente/updateCliente — violação da UNIQUE (id_designer, whatsapp) (409 amigável)', () => {
+  it('insertCliente traduz 23505 de cliente_designer_whatsapp_unico em ConflictError amigável', async () => {
+    const client = createInsertClient({
+      code: '23505',
+      message:
+        'duplicate key value violates unique constraint "cliente_designer_whatsapp_unico"',
+    });
+    await expect(
+      insertCliente(client, { idDesigner: 'designer-1', nome: 'Cliente', whatsapp: '5564999999999' }),
+    ).rejects.toThrow('Você já tem um cliente cadastrado com este WhatsApp.');
+  });
+
+  it('insertCliente propaga outros erros 23505 não relacionados sem mascarar', async () => {
+    const client = createInsertClient({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "outra_constraint_qualquer"',
+    });
+    await expect(
+      insertCliente(client, { idDesigner: 'designer-1', nome: 'Cliente', whatsapp: '5564999999999' }),
+    ).rejects.toThrow('Falha ao criar cliente');
+  });
+
+  it('updateCliente traduz 23505 de cliente_designer_whatsapp_unico em ConflictError amigável', async () => {
+    const client = createUpdateClientWithError({
+      code: '23505',
+      message:
+        'duplicate key value violates unique constraint "cliente_designer_whatsapp_unico"',
+    });
+    await expect(
+      updateCliente(client, 1, 'designer-1', { whatsapp: '5564999999999' }),
+    ).rejects.toBeInstanceOf(ConflictError);
   });
 });
 
