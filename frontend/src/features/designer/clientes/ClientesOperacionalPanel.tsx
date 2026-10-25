@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { AppShell } from '../../../app/AppShell';
 import { ApiError } from '../../../lib/apiClient';
 import { useAutoDismiss } from '../../../lib/useAutoDismiss';
 import { INSTAGRAM_OAUTH_MESSAGE_SOURCE } from '../../instagram/oauthMessage';
 import {
-  createCliente,
   deleteCliente,
   desconectarInstagram,
   enviarLinkInstagram,
@@ -19,7 +17,7 @@ import {
 } from './api';
 import { ClienteFormPanel, type ClienteFormValues } from './ClienteFormPanel';
 
-type PanelState = { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; cliente: Cliente };
+type PanelState = { mode: 'closed' } | { mode: 'edit'; cliente: Cliente };
 
 /** Mesmo breakpoint tablet/desktop já usado no restante do app (styles.css). */
 const POPUP_VIEWPORT_QUERY = '(min-width: 861px)';
@@ -30,7 +28,7 @@ function canUseOAuthPopup(): boolean {
 }
 
 /** RF003: gerenciamento dos próprios clientes pelo Designer. */
-export function ClientesPage() {
+export function ClientesOperacionalPanel() {
   const [items, setItems] = useState<Cliente[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
@@ -269,16 +267,6 @@ export function ClientesPage() {
       .finally(() => setConnectingInstagramId(null));
   }
 
-  async function handleCreate(values: ClienteFormValues) {
-    await createCliente({
-      nome: values.nome,
-      whatsapp: values.whatsapp,
-      observacao: values.observacao.trim() || undefined,
-    });
-    setPanel({ mode: 'closed' });
-    reload();
-  }
-
   async function handleEdit(cliente: Cliente, values: ClienteFormValues) {
     await updateCliente(cliente.id, {
       nome: values.nome,
@@ -332,23 +320,13 @@ export function ClientesPage() {
   }
 
   return (
-    <AppShell>
+    <section className="dashboard-clientes-operacional" aria-labelledby="clientes-operacional-title">
       <div className="page-header">
-        <h1>Clientes</h1>
-        <button type="button" className="page-primary-action" onClick={() => setPanel({ mode: 'create' })}>
+        <h2 id="clientes-operacional-title">Clientes cadastrados</h2>
+        <Link to="/designer/clientes" className="page-primary-action">
           + Novo Cliente
-        </button>
+        </Link>
       </div>
-      {/*
-        Divisão de responsabilidade das telas (rodada UX): esta página é o
-        cadastro/gestão cadastral do cliente (RF003); o acompanhamento das
-        artes/solicitações fica no Dashboard, logo abaixo de "Iniciar
-        Atendimento". Nenhuma função do RF003 foi removida daqui.
-      */}
-      <p className="clientes-foco-hint">
-        Esta tela é para cadastrar e manter os dados dos clientes. Para acompanhar artes e
-        solicitações em andamento, use o <Link to="/designer">Dashboard</Link>.
-      </p>
 
       <div className="designer-filters clientes-search">
         <label htmlFor="cliente-search">Buscar</label>
@@ -523,10 +501,6 @@ export function ClientesPage() {
         </div>
       )}
 
-      {panel.mode === 'create' && (
-        <ClienteFormPanel mode="create" onSubmit={handleCreate} onCancel={() => setPanel({ mode: 'closed' })} />
-      )}
-
       {panel.mode === 'edit' && (
         <ClienteFormPanel
           mode="edit"
@@ -535,6 +509,6 @@ export function ClientesPage() {
           onCancel={() => setPanel({ mode: 'closed' })}
         />
       )}
-    </AppShell>
+    </section>
   );
 }

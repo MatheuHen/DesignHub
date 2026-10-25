@@ -31,7 +31,11 @@ describe('instagramClient (RF014/ADR 0005 — Instagram API with Instagram Login
       await vi.advanceTimersByTimeAsync(1_500);
       const result = await resultPromise;
 
-      expect(result).toEqual({ mediaId: 'media-1', permalink: 'https://www.instagram.com/p/abc123/' });
+      expect(result).toEqual({
+        mediaId: 'media-1',
+        permalink: 'https://www.instagram.com/p/abc123/',
+        containerJaPublicado: false,
+      });
       expect(fetchMock).toHaveBeenCalledTimes(4);
 
       const [containerUrl, containerInit] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -128,7 +132,7 @@ describe('instagramClient (RF014/ADR 0005 — Instagram API with Instagram Login
       await vi.advanceTimersByTimeAsync(1_500);
       const result = await resultPromise;
 
-      expect(result).toEqual({ mediaId: 'media-1', permalink: null });
+      expect(result).toEqual({ mediaId: 'media-1', permalink: null, containerJaPublicado: false });
     } finally {
       vi.useRealTimers();
     }

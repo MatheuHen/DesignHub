@@ -8,6 +8,7 @@ const {
   exchangeCodeForLongLivedTokenMock,
   emitirOAuthStateMock,
   consumeOAuthStateMock,
+  findOAuthStateConsumidoMock,
   getStatusConexaoMock,
   deleteConexaoMock,
   deleteConexaoByInstagramUserIdMock,
@@ -24,6 +25,7 @@ const {
   exchangeCodeForLongLivedTokenMock: vi.fn(),
   emitirOAuthStateMock: vi.fn(),
   consumeOAuthStateMock: vi.fn(),
+  findOAuthStateConsumidoMock: vi.fn(),
   getStatusConexaoMock: vi.fn(),
   deleteConexaoMock: vi.fn(),
   deleteConexaoByInstagramUserIdMock: vi.fn(),
@@ -67,6 +69,7 @@ vi.mock('../integrations/whatsapp/whatsappClient.js', () => ({
 vi.mock('../repositories/clienteInstagram.repository.js', () => ({
   emitirOAuthState: emitirOAuthStateMock,
   consumeOAuthState: consumeOAuthStateMock,
+  findOAuthStateConsumido: findOAuthStateConsumidoMock,
   getStatusConexao: getStatusConexaoMock,
   deleteConexao: deleteConexaoMock,
   deleteConexaoByInstagramUserId: deleteConexaoByInstagramUserIdMock,
@@ -274,6 +277,7 @@ describe('enviarLinkConexaoInstagram (item 4 — rodada correções Instagram)',
 describe('processarCallbackInstagram (RF014/ADR 0005 — callback público)', () => {
   beforeEach(() => {
     consumeOAuthStateMock.mockReset();
+    findOAuthStateConsumidoMock.mockReset().mockResolvedValue(null);
     exchangeCodeForLongLivedTokenMock.mockReset();
     upsertConexaoMock.mockReset().mockResolvedValue(undefined);
   });
@@ -282,6 +286,31 @@ describe('processarCallbackInstagram (RF014/ADR 0005 — callback público)', ()
     consumeOAuthStateMock.mockResolvedValue(null);
 
     await expect(processarCallbackInstagram('state-invalido', 'code-1')).rejects.toBeInstanceOf(ConflictError);
+    expect(exchangeCodeForLongLivedTokenMock).not.toHaveBeenCalled();
+  });
+
+  it('bug reportado (falso positivo do link): reabrir um link já usado com sucesso responde "já conectado" em vez de erro, sem trocar o code de novo', async () => {
+    consumeOAuthStateMock.mockResolvedValue(null); // state já consumido
+    findOAuthStateConsumidoMock.mockResolvedValue({ idCliente: 7, origem: 'cliente_link' });
+    getStatusConexaoMock.mockResolvedValue({
+      conectado: true,
+      conectadoEm: '2026-10-21T00:00:00.000Z',
+      expiraEm: '2026-12-20T00:00:00.000Z',
+    });
+
+    const result = await processarCallbackInstagram('state-ja-usado', 'code-novo');
+
+    expect(result).toEqual({ idCliente: 7, origem: 'cliente_link', resultado: 'ja_conectado' });
+    expect(exchangeCodeForLongLivedTokenMock).not.toHaveBeenCalled();
+    expect(upsertConexaoMock).not.toHaveBeenCalled();
+  });
+
+  it('state já consumido mas SEM conexão ativa continua sendo erro — o cliente precisa de um link novo', async () => {
+    consumeOAuthStateMock.mockResolvedValue(null);
+    findOAuthStateConsumidoMock.mockResolvedValue({ idCliente: 7, origem: 'cliente_link' });
+    getStatusConexaoMock.mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
+
+    await expect(processarCallbackInstagram('state-ja-usado', 'code-novo')).rejects.toBeInstanceOf(ConflictError);
     expect(exchangeCodeForLongLivedTokenMock).not.toHaveBeenCalled();
   });
 
@@ -295,7 +324,7 @@ describe('processarCallbackInstagram (RF014/ADR 0005 — callback público)', ()
 
     const result = await processarCallbackInstagram('state-valido', 'code-1');
 
-    expect(result).toEqual({ idCliente: 7, origem: 'designer' });
+    expect(result).toEqual({ idCliente: 7, origem: 'designer', resultado: 'conectado' });
     expect(upsertConexaoMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -317,7 +346,7 @@ describe('processarCallbackInstagram (RF014/ADR 0005 — callback público)', ()
 
     const result = await processarCallbackInstagram('state-valido', 'code-1');
 
-    expect(result).toEqual({ idCliente: 7, origem: 'cliente_link' });
+    expect(result).toEqual({ idCliente: 7, origem: 'cliente_link', resultado: 'conectado' });
   });
 
   it('item N.5.5: rejeita (fail-closed) sem gravar nada quando INSTAGRAM_TOKEN_ENC_KEY está ausente', async () => {

@@ -102,6 +102,10 @@ describe('listAgendamentosVencidos (RF014/RN32)', () => {
         legenda: 'Legenda',
         instagramMediaIdPendente: null,
         instagramPermalinkPendente: null,
+        // Coluna nova (migration 20261021100000) — ausente na linha simulada
+        // de propósito: o job precisa continuar funcionando contra um banco
+        // ainda não migrado em vez de quebrar o lote inteiro.
+        instagramContainerIdPendente: null,
       },
     ]);
   });

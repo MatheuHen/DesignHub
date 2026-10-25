@@ -95,6 +95,36 @@ export async function consumeOAuthState(
   return { id_cliente: row.id_cliente, id_designer: row.id_designer, origem: row.origem };
 }
 
+/**
+ * Correção do "falso positivo" do link de autorização: o link enviado ao
+ * cliente aponta para a página de autorização DA META, que naturalmente
+ * continua abrindo depois de usada (não é uma rota nossa que possa ser
+ * fechada). Quando o cliente reabre o link, a Meta reautoriza e chama o
+ * callback com o MESMO `state`, que já foi consumido — antes isso produzia a
+ * mesma mensagem de erro de um link inválido, dando a impressão de que a
+ * vinculação anterior não tinha valido.
+ *
+ * Esta consulta identifica justamente esse caso: o state EXISTE e já foi
+ * consumido (ou expirou depois de usado). Só leitura, nunca altera nada.
+ */
+export async function findOAuthStateConsumido(
+  adminClient: SupabaseClient,
+  stateHash: string,
+): Promise<{ idCliente: number; origem: InstagramOAuthOrigem } | null> {
+  const result: unknown = await adminClient
+    .from('instagram_oauth_state')
+    .select('id_cliente, id_designer, origem, used_at')
+    .eq('state_hash', stateHash)
+    .not('used_at', 'is', null)
+    .maybeSingle();
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao validar conexão com o Instagram: ${error.message}`);
+  if (!data) return null;
+
+  const row = oauthStateRowSchema.parse(data);
+  return { idCliente: row.id_cliente, origem: row.origem };
+}
+
 export interface ClienteInstagramConexao {
   instagramUserId: string;
   accessToken: string;

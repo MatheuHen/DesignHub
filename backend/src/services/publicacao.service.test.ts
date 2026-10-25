@@ -160,6 +160,10 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
       { accessToken: 'token-cliente-10', accountId: 'conta-cliente-10' },
       expect.anything(),
       expect.anything(),
+      // Correção da publicação duplicada: o serviço passa o container de uma
+      // tentativa anterior (quando existe) e a função que o persiste ANTES de
+      // publicar — é esse par que impede o segundo post.
+      expect.objectContaining({ onContainerCreated: expect.any(Function) as unknown }),
     );
     expect(registerPublicacaoSucessoMock).toHaveBeenCalledWith(
       expect.anything(),

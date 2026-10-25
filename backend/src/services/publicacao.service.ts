@@ -26,6 +26,7 @@ import {
   listAgendamentosVencidos,
   registerPublicacaoFalha,
   registerPublicacaoSucesso,
+  setInstagramContainerPendente,
   setInstagramMediaPendente,
   setPublicacaoComprovante,
 } from '../repositories/publicacao.repository.js';
@@ -179,6 +180,7 @@ async function processarUmAgendamento(
     legenda: string | null;
     instagramMediaIdPendente: string | null;
     instagramPermalinkPendente: string | null;
+    instagramContainerIdPendente: string | null;
   },
 ): Promise<'publicado' | 'falha' | 'pendente'> {
   const versao = await getVersaoArteAtualDaSolicitacao(adminClient, agendamento.idSolicitacao);
@@ -228,29 +230,60 @@ async function processarUmAgendamento(
         DOWNLOAD_URL_EXPIRES_IN_SECONDS,
         false,
       );
+      /**
+       * Correção da PUBLICAÇÃO DUPLICADA real observada em produção (dois
+       * posts do mesmo agendamento, ~5 min e ~15 min após o horário).
+       *
+       * `onContainerCreated` grava o `creation_id` antes de `media_publish`, e
+       * `existingContainerId` faz a tentativa seguinte consultar o estado
+       * desse container na Meta em vez de criar outro. Com isso, mesmo que o
+       * processo seja MORTO no meio da publicação (era o que acontecia: o
+       * `net.http_post` do cron cortava a chamada em 5s), a recuperação
+       * descobre que o post já existe e só registra — nunca republica.
+       */
       const publishResult = await publishImage(
         { accessToken: conexao.accessToken, accountId: conexao.instagramUserId },
         imageUrl,
         agendamento.legenda ?? '',
+        {
+          existingContainerId: agendamento.instagramContainerIdPendente,
+          onContainerCreated: (containerId) =>
+            setInstagramContainerPendente(adminClient, agendamento.idAgendamento, containerId),
+        },
       );
       jaPublicadoNoInstagram = true;
       permalink = publishResult.permalink;
 
-      try {
-        await setInstagramMediaPendente(
-          adminClient,
-          agendamento.idAgendamento,
-          publishResult.mediaId,
-          permalink,
+      if (publishResult.containerJaPublicado) {
+        /**
+         * A Meta informou que o container de uma tentativa anterior já estava
+         * `PUBLISHED`: o post existe e NENHUMA publicação nova foi feita
+         * agora. Só falta concluir o registro (RN33/RN34/RN35). Não há
+         * `mediaId` por essa via da API, então não há marca de mídia a
+         * gravar; o permalink fica o que já houver persistido.
+         */
+        console.warn(
+          '[designhub:publicacao] container de tentativa anterior já constava PUBLISHED na Meta — concluindo apenas o registro, sem republicar',
+          { idAgendamento: agendamento.idAgendamento },
         );
-      } catch (persistError) {
-        console.error(
-          '[designhub:publicacao] falha ao persistir marca de recuperação pós-publicação (Instagram já publicou; registro segue normalmente)',
-          {
-            idAgendamento: agendamento.idAgendamento,
-            message: persistError instanceof Error ? persistError.message.slice(0, 200) : 'erro desconhecido',
-          },
-        );
+        permalink = agendamento.instagramPermalinkPendente;
+      } else if (publishResult.mediaId !== null) {
+        try {
+          await setInstagramMediaPendente(
+            adminClient,
+            agendamento.idAgendamento,
+            publishResult.mediaId,
+            permalink,
+          );
+        } catch (persistError) {
+          console.error(
+            '[designhub:publicacao] falha ao persistir marca de recuperação pós-publicação (Instagram já publicou; registro segue normalmente)',
+            {
+              idAgendamento: agendamento.idAgendamento,
+              message: persistError instanceof Error ? persistError.message.slice(0, 200) : 'erro desconhecido',
+            },
+          );
+        }
       }
     }
 

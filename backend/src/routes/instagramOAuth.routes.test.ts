@@ -58,7 +58,7 @@ describe('GET /api/instagram/oauth/callback (RF014/ADR 0005 — rota pública)',
   });
 
   it('sucesso com origem "designer" redireciona para a listagem de clientes do designer', async () => {
-    processarCallbackInstagramMock.mockResolvedValue({ idCliente: 7, origem: 'designer' });
+    processarCallbackInstagramMock.mockResolvedValue({ idCliente: 7, origem: 'designer', resultado: 'conectado' });
 
     const response = await request(createApp()).get(
       '/api/instagram/oauth/callback?code=abc&state=valido',
@@ -70,7 +70,7 @@ describe('GET /api/instagram/oauth/callback (RF014/ADR 0005 — rota pública)',
   });
 
   it('item 12.2/13.3 (rodada final): sucesso com origem "cliente_link" redireciona para a página pública de status — nunca a rota protegida do designer', async () => {
-    processarCallbackInstagramMock.mockResolvedValue({ idCliente: 7, origem: 'cliente_link' });
+    processarCallbackInstagramMock.mockResolvedValue({ idCliente: 7, origem: 'cliente_link', resultado: 'conectado' });
 
     const response = await request(createApp()).get(
       '/api/instagram/oauth/callback?code=abc&state=valido',
@@ -79,6 +79,22 @@ describe('GET /api/instagram/oauth/callback (RF014/ADR 0005 — rota pública)',
     expect(response.status).toBe(302);
     expect(response.headers.location).toContain('/instagram/status?resultado=conectado');
     expect(response.headers.location).not.toContain('/designer/clientes');
+  });
+
+  it('bug reportado (falso positivo do link): link reaberto após autorização bem-sucedida leva à página de status com "ja_conectado", nunca a um erro', async () => {
+    processarCallbackInstagramMock.mockResolvedValue({
+      idCliente: 7,
+      origem: 'designer',
+      resultado: 'ja_conectado',
+    });
+
+    const response = await request(createApp()).get(
+      '/api/instagram/oauth/callback?code=abc&state=ja-usado',
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toContain('/instagram/status?resultado=ja_conectado');
+    expect(response.headers.location).not.toContain('resultado=erro');
   });
 });
 

@@ -401,11 +401,16 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     );
   });
 
-  it('item 14.4 (rodada final): pergunta sobre o Gemini/IA não é gravada como resposta, explica e repete a pergunta pendente', async () => {
+  it('item 14.4: pergunta sobre o Gemini/IA não é gravada como resposta, explica e repete a pergunta pendente (fallback determinístico, IA indisponível)', async () => {
     listActiveAtendimentosMock.mockResolvedValue([
       { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
     ]);
     countRespostasMock.mockResolvedValue(3); // pergunta pendente: observações
+    // Correção do tema "IA": a checagem determinística de meta-conversa deixou
+    // de rodar ANTES do classificador (ela não conhece a pergunta ativa, então
+    // barrava "ia" como tema legítimo). Ela agora é a rede de segurança para a
+    // indisponibilidade do provedor — que é o cenário deste teste.
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue(null);
 
     await processInboundWebhook(
       webhookPayload(
@@ -414,12 +419,65 @@ describe('processInboundWebhook (RF004/RN08, idempotência)', () => {
     );
 
     expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
-    // Determinístico: nem precisa consultar a IA para este caso.
-    expect(classificarRespostaPerguntaComGeminiMock).not.toHaveBeenCalled();
     expect(sendTextMessageMock).toHaveBeenCalledOnce();
     const mensagemEnviada = sendTextMessageMock.mock.calls[0]![1] as string;
     expect(mensagemEnviada).toContain('inteligência artificial como apoio');
     expect(mensagemEnviada).toContain(ATENDIMENTO_QUESTIONS[3]!.prompt);
+  });
+
+  it('bug reportado: "ia" como TEMA da arte é gravado normalmente e o questionário avança — não é tratado como pergunta sobre o sistema', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(1); // pergunta pendente: tema
+    listRespostasOrdenadasMock.mockResolvedValue(['Sim']);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 2 });
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue({
+      classificacao: 'resposta_valida',
+      confianca: 'alta',
+    });
+
+    await processInboundWebhook(
+      webhookPayload(inboundMessage({ from: '5511999999999', text: { body: 'ia' } })),
+    );
+
+    expect(registerRespostaEAvancarMock).toHaveBeenCalled();
+    expect(registerRespostaEAvancarMock.mock.calls[0]![3]).toBe('ia');
+    const mensagemEnviada = sendTextMessageMock.mock.calls[0]![1] as string;
+    expect(mensagemEnviada).toContain(ATENDIMENTO_QUESTIONS[2]!.prompt); // avançou para cores
+    expect(mensagemEnviada).not.toContain('inteligência artificial como apoio');
+  });
+
+  it('bug reportado (fallback): mesmo com a IA indisponível, "tema ia" não é confundido com pergunta sobre o sistema', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(1); // pergunta pendente: tema
+    listRespostasOrdenadasMock.mockResolvedValue(['Sim']);
+    registerRespostaEAvancarMock.mockResolvedValue({ inserted: true, answeredCount: 2 });
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue(null);
+
+    await processInboundWebhook(
+      webhookPayload(inboundMessage({ from: '5511999999999', text: { body: 'tema ia' } })),
+    );
+
+    expect(registerRespostaEAvancarMock).toHaveBeenCalled();
+    expect(registerRespostaEAvancarMock.mock.calls[0]![3]).toBe('tema ia');
+  });
+
+  it('bug reportado (contraprova): "vc e uma ia?" continua sendo tratado como pergunta sobre o sistema no fallback determinístico', async () => {
+    listActiveAtendimentosMock.mockResolvedValue([
+      { id: 1, idCliente: 1, dataInicio: new Date().toISOString(), clienteWhatsapp: '5511999999999' },
+    ]);
+    countRespostasMock.mockResolvedValue(1); // pergunta pendente: tema
+    classificarRespostaPerguntaComGeminiMock.mockResolvedValue(null);
+
+    await processInboundWebhook(
+      webhookPayload(inboundMessage({ from: '5511999999999', text: { body: 'vc e uma ia?' } })),
+    );
+
+    expect(registerRespostaEAvancarMock).not.toHaveBeenCalled();
+    expect(sendTextMessageMock.mock.calls[0]![1]).toContain('inteligência artificial como apoio');
   });
 
   it('item 14.4 (rodada final): meta-conversa sobre a IA classificada pelo Gemini (sem palavra-chave determinística) também não avança nem grava', async () => {

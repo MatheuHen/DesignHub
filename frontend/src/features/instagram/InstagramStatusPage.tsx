@@ -15,7 +15,17 @@ import { INSTAGRAM_OAUTH_MESSAGE_SOURCE } from './oauthMessage';
  */
 export function InstagramStatusPage() {
   const [searchParams] = useSearchParams();
-  const resultado = searchParams.get('resultado') === 'conectado' ? 'conectado' : 'erro';
+  /**
+   * Correção do "falso positivo" do link de autorização: o link enviado ao
+   * cliente aponta para a página da Meta, que continua abrindo normalmente
+   * depois de usada — não é uma rota do DesignHub que possa ser "fechada".
+   * Quando o cliente reabre o link já usado, o backend agora responde
+   * `ja_conectado` em vez de um erro; esta tela precisa dizer isso, porque a
+   * mensagem de erro anterior fazia parecer que a vinculação não tinha valido.
+   */
+  const resultadoParam = searchParams.get('resultado');
+  const resultado =
+    resultadoParam === 'conectado' ? 'conectado' : resultadoParam === 'ja_conectado' ? 'ja_conectado' : 'erro';
   const { status, profile } = useAuth();
   const [isPopup] = useState(
     () => typeof window !== 'undefined' && window.opener != null && window.opener !== window,
@@ -50,6 +60,14 @@ export function InstagramStatusPage() {
           <>
             <h1>Instagram conectado com sucesso</h1>
             <p role="status">Você pode fechar esta página.</p>
+          </>
+        ) : resultado === 'ja_conectado' ? (
+          <>
+            <h1>Sua conta já está conectada</h1>
+            <p role="status">
+              Esta autorização já havia sido concluída e continua valendo. Não é necessário autorizar de novo — você
+              pode fechar esta página.
+            </p>
           </>
         ) : (
           <>

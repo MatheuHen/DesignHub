@@ -54,7 +54,7 @@ vi.mock('../../auth/useAuth', () => ({
   }),
 }));
 
-const { ClientesPage } = await import('./ClientesPage');
+const { ClientesOperacionalPanel } = await import('./ClientesOperacionalPanel');
 
 const sampleCliente: Cliente = {
   id: 1,
@@ -68,12 +68,12 @@ const sampleCliente: Cliente = {
 function renderPage() {
   return render(
     <MemoryRouter>
-      <ClientesPage />
+      <ClientesOperacionalPanel />
     </MemoryRouter>,
   );
 }
 
-describe('ClientesPage (RF003)', () => {
+describe('ClientesOperacionalPanel (RF003)', () => {
   beforeEach(() => {
     listClientesMock.mockReset();
     createClienteMock.mockReset();
@@ -144,40 +144,6 @@ describe('ClientesPage (RF003)', () => {
 
     expect(screen.queryByText(/possui solicitações vinculadas/)).not.toBeInTheDocument();
     vi.useRealTimers();
-  });
-
-  it('cria um novo cliente a partir do formulário', async () => {
-    listClientesMock.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
-    createClienteMock.mockResolvedValue(sampleCliente);
-
-    renderPage();
-    await screen.findByText('Nenhum cliente encontrado.');
-
-    fireEvent.click(screen.getByRole('button', { name: '+ Novo Cliente' }));
-
-    fireEvent.change(screen.getByLabelText('Nome *'), { target: { value: 'Cliente Teste' } });
-    fireEvent.change(screen.getByLabelText('WhatsApp * (ex.: 5564999998888, com DDI e DDD)'), { target: { value: '5511988887777' } });
-
-    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
-
-    await waitFor(() => {
-      expect(createClienteMock).toHaveBeenCalledWith({
-        nome: 'Cliente Teste',
-        whatsapp: '5511988887777',
-      });
-    });
-  });
-
-  it('não exibe mais o campo textual de @ do Instagram no formulário (rodada correções: só via Conectar Instagram)', async () => {
-    listClientesMock.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
-
-    renderPage();
-    await screen.findByText('Nenhum cliente encontrado.');
-
-    fireEvent.click(screen.getByRole('button', { name: '+ Novo Cliente' }));
-
-    expect(screen.queryByLabelText(/Instagram/)).not.toBeInTheDocument();
   });
 
   it('inicia atendimento e mostra confirmação (RF004)', async () => {

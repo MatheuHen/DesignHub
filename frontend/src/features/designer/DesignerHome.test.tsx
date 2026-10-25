@@ -121,7 +121,7 @@ describe('DesignerHome — Dashboard (RF005/RF011/RN13-RN14, FIGURA 7/15/22)', (
       expect(within(secao).getByText('Ajustes')).toBeInTheDocument();
     });
 
-    it('mostra que o cliente ainda não tem solicitação, sem inventar dado', async () => {
+    it('não polui o acompanhamento com cliente que ainda não tem arte', async () => {
       listClientesMock.mockResolvedValue({
         items: [
           { id: 8, idDesigner: 'designer-1', nome: 'Cliente Sem Arte', whatsapp: '5564999991111', instagram: null, observacao: null },
@@ -134,15 +134,19 @@ describe('DesignerHome — Dashboard (RF005/RF011/RN13-RN14, FIGURA 7/15/22)', (
 
       renderPage();
 
-      expect(await screen.findByText('Nenhuma solicitação ainda')).toBeInTheDocument();
+      // O painel operacional acima lista todos os clientes; a seção de
+      // acompanhamento só existe quando há arte/solicitação de verdade.
+      await screen.findByText('Nenhum prazo próximo no momento.');
+      expect(screen.queryByText('Clientes e artes em andamento')).not.toBeInTheDocument();
     });
 
-    it('mostra estado vazio quando o designer ainda não tem cliente', async () => {
+    it('não mostra a seção de acompanhamento quando o designer não tem cliente', async () => {
       mockCounts();
 
       renderPage();
 
-      expect(await screen.findByText(/Nenhum cliente cadastrado ainda/)).toBeInTheDocument();
+      await screen.findByText('Nenhum prazo próximo no momento.');
+      expect(screen.queryByText('Clientes e artes em andamento')).not.toBeInTheDocument();
     });
   });
 

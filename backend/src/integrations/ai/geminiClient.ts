@@ -256,7 +256,13 @@ export async function classificarRespostaPerguntaComGemini(
     'responde ao que foi perguntado. Use "duvida_sistema" quando o cliente pergunta sobre o próprio ' +
     'atendimento automatizado: se é um robô, um chatbot, uma inteligência artificial, se usa Gemini, se ' +
     'está funcionando, ou se consegue entender as mensagens dele — meta-pergunta sobre o sistema em si, ' +
-    'não sobre o tema da conversa. Use "duvida" quando o cliente faz uma pergunta sobre a PRÓPRIA ' +
+    'não sobre o sistema. ATENÇÃO (bug real corrigido): o ASSUNTO da arte pode ' +
+    'perfeitamente ser inteligência artificial, IA, robôs, chatbots ou tecnologia — quando o cliente ' +
+    'informa isso como TEMA, COR, OBSERVAÇÃO ou REFERÊNCIA pedida pela <pergunta_sistema> (ex.: pergunta ' +
+    '"Qual é o tema da arte?" e mensagem "ia", "tema ia", "inteligência artificial", "um robô"), isso é ' +
+    '"resposta_valida" com confiança alta e NÃO é "duvida_sistema". Só use "duvida_sistema" quando o ' +
+    'cliente estiver perguntando/afirmando sobre o atendimento em si (ex.: "você é uma IA?", "estou ' +
+    'falando com um robô?", "isso é automatizado?"). Use "duvida" quando o cliente faz uma pergunta sobre a PRÓPRIA ' +
     'pergunta que foi feita a ele (pede exemplo, não entendeu o que responder), sem ser sobre o ' +
     'sistema/IA. Use ' +
     '"sem_preferencia" quando ele declara não ter preferência, não ter o que informar ou deixar a ' +

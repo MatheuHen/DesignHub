@@ -18,6 +18,7 @@ import {
   emitirOAuthState,
   deleteConexao,
   deleteConexaoByInstagramUserId,
+  findOAuthStateConsumido,
   getDataDeletionRequestStatus,
   getStatusConexao,
   upsertConexao,
@@ -175,7 +176,7 @@ export async function removerInstagramConexao(userClient: SupabaseClient, idClie
 export async function processarCallbackInstagram(
   rawState: string,
   code: string,
-): Promise<{ idCliente: number; origem: 'designer' | 'cliente_link' }> {
+): Promise<{ idCliente: number; origem: 'designer' | 'cliente_link'; resultado: 'conectado' | 'ja_conectado' }> {
   // Item N.5.5: nunca grava o access_token sem cifrar — falha explícita
   // (fail-closed) em vez de persistir em texto puro.
   if (!env.INSTAGRAM_TOKEN_ENC_KEY) {
@@ -183,8 +184,24 @@ export async function processarCallbackInstagram(
   }
 
   const adminClient = getSupabaseAdminClient();
-  const state = await consumeOAuthState(adminClient, hashOpaqueToken(rawState));
+  const stateHash = hashOpaqueToken(rawState);
+  const state = await consumeOAuthState(adminClient, stateHash);
   if (!state) {
+    /**
+     * Correção do "falso positivo" relatado: reabrir o link já usado caía
+     * aqui e devolvia a mesma mensagem de um link inválido, fazendo parecer
+     * que a vinculação anterior não tinha funcionado. Antes de tratar como
+     * erro, verifica se este state é justamente o de uma autorização que JÁ
+     * deu certo e cuja conexão continua ativa — nesse caso a resposta
+     * honesta é "já está conectado", não um erro.
+     */
+    const consumido = await findOAuthStateConsumido(adminClient, stateHash);
+    if (consumido) {
+      const status = await getStatusConexao(adminClient, consumido.idCliente);
+      if (status.conectado) {
+        return { idCliente: consumido.idCliente, origem: consumido.origem, resultado: 'ja_conectado' };
+      }
+    }
     throw new ConflictError('Link de conexão do Instagram inválido ou expirado. Gere um novo link e tente novamente.');
   }
 
@@ -199,7 +216,7 @@ export async function processarCallbackInstagram(
     encKey: env.INSTAGRAM_TOKEN_ENC_KEY,
   });
 
-  return { idCliente: state.id_cliente, origem: state.origem };
+  return { idCliente: state.id_cliente, origem: state.origem, resultado: 'conectado' };
 }
 
 /**

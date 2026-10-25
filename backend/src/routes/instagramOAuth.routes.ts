@@ -93,7 +93,17 @@ instagramOAuthRouter.get('/callback', callbackRateLimit, async (request, respons
   }
 
   try {
-    const { origem } = await processarCallbackInstagram(parsed.data.state, parsed.data.code);
+    const { origem, resultado } = await processarCallbackInstagram(parsed.data.state, parsed.data.code);
+    /**
+     * Correção do "falso positivo" do link: `ja_conectado` é o caso de
+     * reabrir um link cujo uso já tinha dado certo. O destino é o mesmo, com
+     * um resultado próprio para a página dizer a verdade ("já está
+     * conectado, pode fechar") em vez da mensagem de erro que aparecia antes.
+     */
+    if (resultado === 'ja_conectado') {
+      response.redirect(302, redirectToInstagramStatus('resultado=ja_conectado'));
+      return;
+    }
     response.redirect(
       302,
       origem === 'designer' ? redirectToClientes('instagram=conectado') : redirectToInstagramStatus('resultado=conectado'),

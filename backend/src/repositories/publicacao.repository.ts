@@ -17,6 +17,10 @@ const agendamentoVencidoRowSchema = z.object({
   legenda: z.string().nullable(),
   instagram_media_id_pendente: z.string().nullable(),
   instagram_permalink_pendente: z.string().nullable(),
+  // `.nullish()` em vez de `.nullable()`: a coluna é criada pela migration
+  // 20261021100000 e o select pode rodar contra um banco onde ela ainda não
+  // exista (ambiente local não migrado) sem derrubar o job inteiro.
+  instagram_container_id_pendente: z.string().nullish(),
 });
 
 export interface AgendamentoVencido {
@@ -32,13 +36,22 @@ export interface AgendamentoVencido {
    */
   instagramMediaIdPendente: string | null;
   instagramPermalinkPendente: string | null;
+  /**
+   * Correção da publicação duplicada real observada em produção: container de
+   * mídia criado numa tentativa anterior cujo destino ainda é desconhecido
+   * (o processo foi interrompido antes de registrar). O chamador precisa
+   * consultar o estado dele na Meta antes de publicar — nunca criar outro.
+   */
+  instagramContainerIdPendente: string | null;
 }
 
 /** RF014/RN32: agendamentos ativos cujo horário planejado já passou (job de publicação). */
 export async function listAgendamentosVencidos(adminClient: SupabaseClient): Promise<AgendamentoVencido[]> {
   const result: unknown = await adminClient
     .from('agendamento_publicacao')
-    .select('id_agendamento, id_solicitacao, legenda, instagram_media_id_pendente, instagram_permalink_pendente')
+    .select(
+      'id_agendamento, id_solicitacao, legenda, instagram_media_id_pendente, instagram_permalink_pendente, instagram_container_id_pendente',
+    )
     .eq('status', 'Agendado')
     .lte('data_hora_publicacao', new Date().toISOString());
   const { data, error } = result as { data: unknown; error: { message: string } | null };
@@ -51,6 +64,7 @@ export async function listAgendamentosVencidos(adminClient: SupabaseClient): Pro
     legenda: row.legenda,
     instagramMediaIdPendente: row.instagram_media_id_pendente,
     instagramPermalinkPendente: row.instagram_permalink_pendente,
+    instagramContainerIdPendente: row.instagram_container_id_pendente ?? null,
   }));
 }
 
@@ -191,6 +205,28 @@ export async function setInstagramMediaPendente(
   });
   const { error } = result as { error: { message: string } | null };
   if (error) throw new Error(`Falha ao gravar marca de recuperação da publicação: ${error.message}`);
+}
+
+/**
+ * Correção da publicação duplicada real: grava o `creation_id` do container
+ * ANTES de `media_publish`. Diferente de `setInstagramMediaPendente` (que
+ * marca um post JÁ existente), esta marca registra uma publicação que ainda
+ * PODE acontecer — é o que permite à tentativa seguinte descobrir, pela
+ * própria Meta, se o post saiu ou não, em vez de assumir que não saiu e
+ * publicar de novo. Lança em erro de propósito: o chamador aborta a
+ * publicação em vez de publicar sem rastro.
+ */
+export async function setInstagramContainerPendente(
+  adminClient: SupabaseClient,
+  idAgendamento: number,
+  containerId: string,
+): Promise<void> {
+  const result: unknown = await adminClient.rpc('set_instagram_container_pendente', {
+    p_id_agendamento: idAgendamento,
+    p_container_id: containerId,
+  });
+  const { error } = result as { error: { message: string } | null };
+  if (error) throw new Error(`Falha ao gravar marca do container de publicação: ${error.message}`);
 }
 
 /**

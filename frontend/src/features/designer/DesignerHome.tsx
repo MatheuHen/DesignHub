@@ -6,6 +6,7 @@ import { statusSlug } from '../../lib/statusStyle';
 import { listAgendamentos, type Agendamento } from './agendamentos/api';
 import { useAuth } from '../auth/useAuth';
 import { listClientes, type Cliente } from './clientes/api';
+import { ClientesOperacionalPanel } from './clientes/ClientesOperacionalPanel';
 import { NotificationsCta } from './notifications/NotificationsCta';
 import { listSolicitacoes, SOLICITACAO_STATUSES, type Solicitacao, type SolicitacaoStatus } from './solicitacoes/api';
 
@@ -153,6 +154,9 @@ export function DesignerHome() {
           (a, b) => new Date(b.dataCriacao).getTime() - new Date(a.dataCriacao).getTime(),
         ),
       }))
+      // Só clientes que já têm arte/solicitação — a listagem completa dos
+      // clientes (inclusive sem solicitação) é o painel operacional acima.
+      .filter((row) => row.solicitacoes.length > 0)
       .sort((a, b) => b.solicitacoes.length - a.solicitacoes.length);
   }, [clientes, todasSolicitacoes]);
 
@@ -191,67 +195,62 @@ export function DesignerHome() {
       {loading && <p role="status">Carregando dashboard…</p>}
 
       {/*
-        RF003 + RF005: acompanhamento rápido logo abaixo do CTA — cliente e
-        as artes/solicitações dele, com status real e link para a tela de
-        detalhe já existente. Usa as mesmas APIs de Clientes e Solicitações
-        (nenhum dado duplicado, nenhuma regra nova): a tela Clientes segue
-        responsável pelo cadastro/gestão cadastral.
+        Centro operacional do Designer (rodada UX): o painel completo dos
+        clientes já cadastrados — iniciar atendimento, Instagram, editar,
+        excluir, buscar — é exatamente o mesmo componente/APIs que antes
+        viviam na tela Clientes, apenas reposicionado para cá. A tela
+        Clientes ficou dedicada ao cadastro de novo cliente.
       */}
-      {!loading && !error && (
+      <ClientesOperacionalPanel />
+
+      {/*
+        RF003 + RF005: acompanhamento das artes/solicitações por cliente,
+        reaproveitando as mesmas respostas de `listSolicitacoes` já buscadas
+        para os tiles (nenhuma requisição extra, nenhum dado duplicado).
+      */}
+      {!loading && !error && acompanhamento.length > 0 && (
         <section className="dashboard-acompanhamento" aria-labelledby="acompanhamento-title">
           <h2 id="acompanhamento-title">Clientes e artes em andamento</h2>
-          {acompanhamento.length === 0 ? (
-            <p className="dashboard-prazos-empty">
-              Nenhum cliente cadastrado ainda. <Link to="/designer/clientes">Cadastrar cliente</Link>.
-            </p>
-          ) : (
-            <div className="table-scroll">
-              <table className="designer-table dashboard-acompanhamento-table">
-                <caption className="sr-only">
-                  Clientes e respectivas solicitações de arte ({acompanhamento.length} cliente(s))
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Cliente</th>
-                    <th scope="col">Artes / solicitações</th>
+          <div className="table-scroll">
+            <table className="designer-table dashboard-acompanhamento-table">
+              <caption className="sr-only">
+                Clientes com solicitações de arte ({acompanhamento.length} cliente(s))
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Artes / solicitações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {acompanhamento.map(({ cliente, solicitacoes }) => (
+                  <tr key={cliente.id}>
+                    <td data-label="Cliente" className="clientes-cell-nome">
+                      <span className="clientes-nome-text" title={cliente.nome}>
+                        {cliente.nome}
+                      </span>
+                    </td>
+                    <td data-label="Artes / solicitações">
+                      <ul className="dashboard-acompanhamento-solicitacoes">
+                        {solicitacoes.map((solicitacao) => (
+                          <li key={solicitacao.id}>
+                            <Link to={`/designer/solicitacoes/${solicitacao.id}`}>
+                              {solicitacao.tema ?? `Solicitação #${solicitacao.id}`}
+                            </Link>{' '}
+                            <span
+                              className={`status-badge status-badge--${statusSlug(solicitacao.status)}`}
+                            >
+                              {solicitacao.status}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {acompanhamento.map(({ cliente, solicitacoes }) => (
-                    <tr key={cliente.id}>
-                      <td data-label="Cliente" className="clientes-cell-nome">
-                        <span className="clientes-nome-text" title={cliente.nome}>
-                          {cliente.nome}
-                        </span>
-                      </td>
-                      <td data-label="Artes / solicitações">
-                        {solicitacoes.length === 0 ? (
-                          <span className="dashboard-acompanhamento-vazio">
-                            Nenhuma solicitação ainda
-                          </span>
-                        ) : (
-                          <ul className="dashboard-acompanhamento-solicitacoes">
-                            {solicitacoes.map((solicitacao) => (
-                              <li key={solicitacao.id}>
-                                <Link to={`/designer/solicitacoes/${solicitacao.id}`}>
-                                  {solicitacao.tema ?? `Solicitação #${solicitacao.id}`}
-                                </Link>{' '}
-                                <span
-                                  className={`status-badge status-badge--${statusSlug(solicitacao.status)}`}
-                                >
-                                  {solicitacao.status}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
       {error && (

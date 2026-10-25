@@ -300,8 +300,39 @@ const PERGUNTA_DO_CLIENTE_PATTERN = /\?\s*$|^(o que|oq|que|qual|quais|como|quand
  */
 // Texto já passa por `normalizeText` (NFD + remoção de diacríticos) antes de
 // chegar aqui — o padrão é escrito sem acentos de propósito.
-const DUVIDA_SISTEMA_PATTERN =
-  /\bgemini\b|inteligencia artificial|\bia\b|\brobo\b|\bchatbot\b|\bautomatiz|\bbot\b/;
+//
+// Correção (bug real reportado): a versão anterior era
+// `\bgemini\b|inteligencia artificial|\bia\b|\brobo\b|...` — a simples
+// MENÇÃO a uma dessas palavras bastava. Com isso, "IA" como TEMA legítimo da
+// arte ("tema: ia", "ia", "post sobre inteligencia artificial") era lido como
+// uma meta-pergunta sobre o atendimento e NUNCA podia ser gravado: o cliente
+// informava o tema e recebia de volta a mesma pergunta, em loop (RN08/RN09).
+//
+// Agora o padrão exige a CONSTRUÇÃO de meta-pergunta, não a palavra solta:
+// alguém/algo (você, isso, esse chat, esse número) ser/estar/falar com uma
+// IA/robô/bot/chatbot/Gemini, ou o atendimento ser automatizado. "ia" como
+// assunto da arte não casa; "vc e uma ia?" casa.
+const ENTIDADE_IA_PATTERN = 'ia|inteligencia artificial|robo|robozinho|chatbot|chat bot|bot';
+/** Verbos que, junto da entidade, caracterizam pergunta sobre o atendimento em si. */
+const VERBO_META_PATTERN = 'funcionando|funciona|roda|rodando|usa|usando|utiliza|tem|conectad[oa]';
+const DUVIDA_SISTEMA_PATTERN = new RegExp(
+  [
+    // "você é uma IA", "isso é um bot", "esse chat e um robo", "é um robô?"
+    `\\b(voce|vc|tu|isso|esse chat|este chat|esse numero|aqui|ai)?\\s*(e|eh|es|sao|ta|esta)\\s+(uma?|o|a)?\\s*(${ENTIDADE_IA_PATTERN})\\b`,
+    // "falando com uma ia", "conversando com um robo", "atendido por bot"
+    `\\b(falando|conversando|atendido|respondendo)\\s+(com|por)\\s+(uma?|o|a)?\\s*(${ENTIDADE_IA_PATTERN})\\b`,
+    // "esta funcionando com o gemini", "usa ia", "tem ia nesse chat"
+    `\\b(${VERBO_META_PATTERN})\\b[^?]*\\b(com|no|na|de|do|da)?\\s*(uma?|o|a)?\\s*(${ENTIDADE_IA_PATTERN})\\b`,
+    '\\bautomatizad[oa]\\b',
+    /**
+     * `gemini` entra como menção simples de propósito: é o nome do provedor
+     * usado internamente, não um assunto que um cliente peça como arte. As
+     * demais palavras (ia, robô, bot...) exigem a construção acima justamente
+     * porque SÃO temas plausíveis de arte — era o bug relatado.
+     */
+    '\\bgemini\\b',
+  ].join('|'),
+);
 
 type PertinenciaDecisao =
   | 'aceitar'
@@ -375,14 +406,22 @@ async function interpretarMensagem(
       duvidaSistemaAdicional: false,
     };
   }
-  // Item 14.4/14.6: checagem determinística, independente do Gemini estar
-  // disponível — cobre o caso mais comum de meta-conversa reportado em uso
-  // real sem depender de uma chamada externa. Para as perguntas livres o
-  // comportamento continua fail-closed: nada é gravado como dado da arte.
-  if (mencionaSistema) return { decisao: 'duvida_sistema', duvidaSistemaAdicional: false };
-
+  /**
+   * Correção (bug real reportado): a checagem determinística de meta-conversa
+   * NÃO pode mais vir antes do classificador. Ela não conhece a pergunta
+   * ativa, então não tem como distinguir "vc e uma ia?" (meta-pergunta) de
+   * "ia" como TEMA da arte — e barrava as duas. O Gemini recebe a pergunta
+   * ativa e o histórico, então é ele quem decide quando está disponível; o
+   * padrão determinístico fica como rede de segurança para a indisponibilidade
+   * do provedor (RNF005), onde um falso positivo só custa uma repetição da
+   * pergunta e nunca grava dado errado (RN09).
+   */
   const ia = await classificarRespostaPerguntaComGemini(question.prompt, texto, historico);
-  if (ia === null) {
+  // `== null` cobre null e undefined: o classificador só devolve `T | null`,
+  // mas tratar os dois é o que mantém o fallback determinístico como o
+  // caminho garantido em qualquer ausência de resposta (fail closed).
+  if (ia == null) {
+    if (mencionaSistema) return { decisao: 'duvida_sistema', duvidaSistemaAdicional: false };
     return {
       decisao: PERGUNTA_DO_CLIENTE_PATTERN.test(normalized) ? 'esclarecer' : 'aceitar',
       duvidaSistemaAdicional: false,
@@ -441,7 +480,10 @@ async function interpretarConfirmacao(
   if (regex === 'nao') return { decisao: 'recusar', duvidaSistemaAdicional: mencionaSistema };
 
   const ia = await classificarRespostaPerguntaComGemini(question.prompt, texto, historico);
-  if (ia === null) {
+  // `== null` cobre null e undefined: o classificador só devolve `T | null`,
+  // mas tratar os dois é o que mantém o fallback determinístico como o
+  // caminho garantido em qualquer ausência de resposta (fail closed).
+  if (ia == null) {
     // IA indisponível (sem chave, timeout, erro, limite): fallback
     // determinístico seguro. Nunca encerra nem avança por conta própria —
     // e passa a tratar a meta-pergunta sobre o sistema também nesta etapa,

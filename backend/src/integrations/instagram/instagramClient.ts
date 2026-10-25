@@ -21,9 +21,38 @@ export interface InstagramCredentials {
 }
 
 export interface PublishImageResult {
-  mediaId: string;
+  /**
+   * `null` só no caso de recuperação em que a Meta informa que o container
+   * JÁ foi publicado (`status_code = 'PUBLISHED'`) — o post existe, mas a
+   * API não devolve o id da mídia por essa via. Ver `containerJaPublicado`.
+   */
+  mediaId: string | null;
   /** Item 9.1 (correções 13/09/2026): link público do post, quando a Meta o retorna ("permalink quando seguro"). */
   permalink: string | null;
+  /**
+   * Correção da publicação duplicada observada em produção: `true` quando o
+   * container informado em `existingContainerId` já constava como publicado
+   * na Meta, ou seja, uma tentativa anterior conseguiu publicar antes de o
+   * processo ser interrompido. Nenhuma nova publicação foi feita nesta
+   * chamada — o chamador deve apenas concluir o REGISTRO (RN34/RN35).
+   */
+  containerJaPublicado: boolean;
+}
+
+export interface PublishImageOptions {
+  /**
+   * Container de mídia criado numa tentativa anterior para este mesmo
+   * agendamento. Quando presente, NUNCA se cria um container novo antes de
+   * consultar o estado real deste na Meta — é o que impede o segundo post.
+   */
+  existingContainerId?: string | null;
+  /**
+   * Chamado logo após a Meta criar o container e ANTES de `media_publish`.
+   * Se lançar, a publicação é abortada de propósito (fail closed): é
+   * preferível não publicar a publicar sem deixar rastro recuperável, já que
+   * é justamente a ausência desse rastro que produz o post duplicado.
+   */
+  onContainerCreated?: (containerId: string) => Promise<void>;
 }
 
 interface CreateContainerResponse {
@@ -124,6 +153,27 @@ async function waitForContainerReady(accessToken: string, creationId: string): P
 }
 
 /**
+ * Correção da publicação duplicada: consulta o estado REAL de um container de
+ * uma tentativa anterior, sem qualquer espera — é essa leitura que decide se
+ * o post já existe (`PUBLISHED`, nada a republicar), se ainda pode ser
+ * publicado a partir do mesmo container (`FINISHED`/`IN_PROGRESS`) ou se o
+ * container se perdeu sem gerar post algum (`ERROR`/`EXPIRED`, único caso em
+ * que criar outro é seguro). Um erro de rede aqui propaga de propósito: sem
+ * saber o estado do container, publicar seria arriscar o segundo post.
+ */
+async function getContainerStatusCode(
+  accessToken: string,
+  creationId: string,
+): Promise<ContainerStatusResponse['status_code'] | undefined> {
+  const status = (await graphRequest(
+    accessToken,
+    'GET',
+    `${creationId}?fields=status_code`,
+  )) as ContainerStatusResponse;
+  return status.status_code;
+}
+
+/**
  * RF014/RN32/seção 2.1: publica uma imagem no feed do Instagram via API
  * oficial da Meta (Content Publishing API), nunca automação não oficial.
  * `imageUrl` precisa ser publicamente acessível o suficiente para os
@@ -137,17 +187,50 @@ export async function publishImage(
   credentials: InstagramCredentials,
   imageUrl: string,
   caption: string,
+  options: PublishImageOptions = {},
 ): Promise<PublishImageResult> {
   const { accessToken, accountId } = credentials;
 
-  const containerResult = (await graphPost(accessToken, `${accountId}/media`, {
-    image_url: imageUrl,
-    caption,
-  })) as CreateContainerResponse;
+  /**
+   * Retomada (correção do post duplicado): há um container de uma tentativa
+   * anterior. O estado dele na Meta é a única fonte de verdade sobre o post
+   * já existir ou não — consultado ANTES de qualquer escrita.
+   */
+  let creationId: string | null = null;
+  if (options.existingContainerId) {
+    const statusCode = await getContainerStatusCode(accessToken, options.existingContainerId);
+    if (statusCode === 'PUBLISHED') {
+      return { mediaId: null, permalink: null, containerJaPublicado: true };
+    }
+    if (statusCode !== 'ERROR' && statusCode !== 'EXPIRED') {
+      // FINISHED / IN_PROGRESS / desconhecido: o MESMO container é
+      // reaproveitado. Nunca se cria um segundo container para o mesmo
+      // agendamento enquanto o primeiro ainda pode virar post.
+      creationId = options.existingContainerId;
+    }
+    // ERROR/EXPIRED: nenhum post foi criado a partir dele — segue adiante e
+    // cria um container novo, que é o único caso seguro para isso.
+  }
 
-  const creationId = containerResult.id;
-  if (!creationId) {
-    throw new Error('Resposta inesperada da Instagram API: sem id de container de mídia.');
+  if (creationId === null) {
+    const containerResult = (await graphPost(accessToken, `${accountId}/media`, {
+      image_url: imageUrl,
+      caption,
+    })) as CreateContainerResponse;
+
+    if (!containerResult.id) {
+      throw new Error('Resposta inesperada da Instagram API: sem id de container de mídia.');
+    }
+    creationId = containerResult.id;
+
+    /**
+     * Persistência do rastro ANTES de publicar. Se isto lançar, a exceção
+     * propaga e `media_publish` nunca é chamado: sem o rastro, uma
+     * interrupção posterior produziria exatamente o post duplicado que esta
+     * correção elimina. O container não publicado expira sozinho na Meta
+     * (24h) sem nenhum efeito visível para o cliente.
+     */
+    await options.onContainerCreated?.(creationId);
   }
 
   await waitForContainerReady(accessToken, creationId);
@@ -162,7 +245,7 @@ export async function publishImage(
   }
 
   const permalink = await getMediaPermalinkBestEffort(accessToken, mediaId);
-  return { mediaId, permalink };
+  return { mediaId, permalink, containerJaPublicado: false };
 }
 
 /**
