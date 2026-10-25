@@ -51,6 +51,11 @@ playwright-report/
 
 # Local round checkpoint (not part of TFC source of truth)
 DESIGNHUB_CORRECOES_MELHORIAS_PROGRESS.md
+
+# Entregável binário de apresentação do seminário: fica só no disco do autor
+# por decisão dele (limpeza 25/10/2026). O roteiro textual equivalente está
+# versionado em RESUMO_SEMINARIO_10_SEMANA_TFC2.md.
+/Apresentacao_Seminario_2_DesignHub_FINAL.pptx
 test-results/
 blob-report/
 
