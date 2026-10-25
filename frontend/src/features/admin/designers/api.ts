@@ -94,10 +94,15 @@ export function setDesignerStatus(id: string, input: SetDesignerStatusInput): Pr
   });
 }
 
-/** Item 4 (rodada final): pendências (estados não terminais) de um designer — usável a qualquer momento. */
-export function getDesignerPendencias(id: string): Promise<{ items: PendenciaDesigner[] }> {
-  return apiRequest<{ items: PendenciaDesigner[] }>(`/api/designers/${id}/pendencias`);
-}
+/**
+ * Nota (limpeza 25/10/2026): o helper `getDesignerPendencias` foi removido por
+ * ser código morto comprovado no frontend — a tela de designers nunca o
+ * chamou. O painel de pendências de inativação/exclusão (RF001/RF016) é
+ * alimentado pelo próprio erro 409 do backend, que já devolve
+ * `details.pendencias` (ver `abrirPainelPendenciasSeNecessario` em
+ * `DesignersPage.tsx`). O endpoint `GET /api/designers/:id/pendencias`
+ * continua existindo, testado e disponível no backend.
+ */
 
 /** RF001/item 2.1: Admin define uma nova senha para o designer. */
 export function updateDesignerPassword(
