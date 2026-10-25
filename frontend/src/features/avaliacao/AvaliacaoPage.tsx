@@ -383,7 +383,7 @@ export function AvaliacaoPage() {
                 {(opcaoPublicacao === 'automatico' || opcaoPublicacao === 'designer_manual') && (
                   <>
                     <label htmlFor="agendamento-data-desejada">
-                      {opcaoPublicacao === 'automatico' ? 'Data da publicação' : 'Data desejada'}
+                      {opcaoPublicacao === 'automatico' ? 'Data da publicação *' : 'Data desejada *'}
                     </label>
                     <input
                       id="agendamento-data-desejada"
@@ -395,7 +395,7 @@ export function AvaliacaoPage() {
                     />
 
                     <label htmlFor="agendamento-horario-desejado">
-                      {opcaoPublicacao === 'automatico' ? 'Horário da publicação' : 'Horário desejado'}
+                      {opcaoPublicacao === 'automatico' ? 'Horário da publicação *' : 'Horário desejado *'}
                     </label>
                     <input
                       id="agendamento-horario-desejado"
@@ -444,7 +444,7 @@ export function AvaliacaoPage() {
 
             {view === 'ajustes-form' && (
               <form className="designer-form" onSubmit={handleSubmitAjuste} aria-label="Solicitar ajustes">
-                <label htmlFor="ajuste-descricao">Descreva o que precisa ser ajustado</label>
+                <label htmlFor="ajuste-descricao">Descreva o que precisa ser ajustado *</label>
                 <input
                   id="ajuste-descricao"
                   value={descricaoAjuste}

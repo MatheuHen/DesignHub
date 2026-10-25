@@ -368,6 +368,13 @@ export function ClientesPage() {
       {!loading && !error && items.length === 0 && <p className="clientes-empty">Nenhum cliente encontrado.</p>}
 
       {!loading && !error && items.length > 0 && (
+        <p className="clientes-instagram-hint">
+          Para utilizar a publicação automática, conecte uma conta profissional do Instagram
+          (Business ou Creator) compatível com a integração da Meta.
+        </p>
+      )}
+
+      {!loading && !error && items.length > 0 && (
         <div className="table-scroll clientes-table-scroll">
         <table className="designer-table clientes-table">
           <caption className="sr-only">Lista de clientes ({total} no total)</caption>

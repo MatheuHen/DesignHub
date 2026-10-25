@@ -304,7 +304,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     await screen.findByRole('form', { name: 'Enviar nova versão da arte' });
 
     const file = new File(['%PDF-1.4'], 'arte.pdf', { type: 'application/pdf' });
-    fireEvent.change(screen.getByLabelText('Arquivo (PDF, JPG ou PNG)'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('Arquivo * (PDF, JPG ou PNG, até 15MB)'), { target: { files: [file] } });
     fireEvent.click(screen.getByRole('button', { name: 'Enviar versão' }));
 
     await waitFor(() => {
@@ -505,8 +505,8 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     renderPage();
     await screen.findByRole('form', { name: 'Agendar publicação' });
 
-    expect(screen.getByLabelText('Data')).toHaveValue('2026-08-25');
-    expect(screen.getByLabelText('Horário')).toHaveValue('20:12');
+    expect(screen.getByLabelText('Data *')).toHaveValue('2026-08-25');
+    expect(screen.getByLabelText('Horário *')).toHaveValue('20:12');
     expect(screen.getByText(/O cliente indicou que deseja agendar para/)).toBeInTheDocument();
   });
 
@@ -560,11 +560,11 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     renderPage();
 
     expect(
-      await screen.findByText(/conta do Instagram deste cliente não está conectada/),
+      await screen.findByText(/Instagram do cliente não está conectado/),
     ).toBeInTheDocument();
     expect(getClienteInstagramStatusMock).toHaveBeenCalledWith(sampleDetail.solicitacao.idCliente);
     // item 7.3 (correções 13/09/2026): orienta a conectar OU registrar manualmente, nunca finge automação.
-    expect(screen.getByRole('link', { name: 'Conecte o Instagram do cliente' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Conectar Instagram' })).toHaveAttribute(
       'href',
       '/designer/clientes',
     );
@@ -584,7 +584,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     renderPage();
     await screen.findByRole('form', { name: 'Agendar publicação' });
 
-    expect(screen.queryByText(/não está conectada/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/não está conectado/)).not.toBeInTheDocument();
   });
 
   it('cria o agendamento com os dados informados', async () => {
@@ -597,8 +597,8 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     renderPage();
     await screen.findByRole('form', { name: 'Agendar publicação' });
 
-    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2030-06-15' } });
-    fireEvent.change(screen.getByLabelText('Horário'), { target: { value: '10:00' } });
+    fireEvent.change(screen.getByLabelText('Data *'), { target: { value: '2030-06-15' } });
+    fireEvent.change(screen.getByLabelText('Horário *'), { target: { value: '10:00' } });
     fireEvent.change(screen.getByLabelText('Legenda (opcional)'), { target: { value: 'Nova arte no ar!' } });
     fireEvent.click(screen.getByRole('button', { name: 'Agendar publicação' }));
 
@@ -625,8 +625,8 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     const legendaInput = screen.getByLabelText('Legenda (opcional)');
     expect(legendaInput).not.toBeRequired();
 
-    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2030-06-15' } });
-    fireEvent.change(screen.getByLabelText('Horário'), { target: { value: '10:00' } });
+    fireEvent.change(screen.getByLabelText('Data *'), { target: { value: '2030-06-15' } });
+    fireEvent.change(screen.getByLabelText('Horário *'), { target: { value: '10:00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Agendar publicação' }));
 
     await waitFor(() => {
@@ -690,8 +690,8 @@ describe('SolicitacaoDetailPage (RF005)', () => {
 
     renderPage();
     await screen.findByRole('form', { name: 'Agendar publicação' });
-    fireEvent.change(screen.getByLabelText('Data'), { target: { value: '2030-06-15' } });
-    fireEvent.change(screen.getByLabelText('Horário'), { target: { value: '10:00' } });
+    fireEvent.change(screen.getByLabelText('Data *'), { target: { value: '2030-06-15' } });
+    fireEvent.change(screen.getByLabelText('Horário *'), { target: { value: '10:00' } });
 
     // Após agendar, a solicitação recarrega já como "Agendado".
     getSolicitacaoDetailMock.mockResolvedValue({

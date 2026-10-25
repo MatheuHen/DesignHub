@@ -81,7 +81,7 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
     <form className="designer-form" onSubmit={handleSubmit} aria-label={isCreate ? 'Novo designer' : 'Editar designer'}>
       <h2>{isCreate ? 'Novo designer' : `Editar ${props.designer.nomeCompleto}`}</h2>
 
-      <label htmlFor="designer-nome">Nome completo</label>
+      <label htmlFor="designer-nome">Nome completo *</label>
       <input
         id="designer-nome"
         required
@@ -92,7 +92,7 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
 
       {isCreate && (
         <>
-          <label htmlFor="designer-email">E-mail</label>
+          <label htmlFor="designer-email">E-mail *</label>
           <input
             id="designer-email"
             type="email"
@@ -101,7 +101,7 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
             onChange={(event) => setEmail(event.target.value)}
           />
 
-          <label htmlFor="designer-senha">Nova Senha</label>
+          <label htmlFor="designer-senha">Nova Senha * (mínimo 8 caracteres)</label>
           <PasswordInput
             id="designer-senha"
             required
@@ -111,7 +111,7 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
             onChange={(event) => setSenha(event.target.value)}
           />
 
-          <label htmlFor="designer-confirma-senha">Confirma Senha</label>
+          <label htmlFor="designer-confirma-senha">Confirma Senha *</label>
           <PasswordInput
             id="designer-confirma-senha"
             required
@@ -123,7 +123,7 @@ export function DesignerFormPanel(props: DesignerFormPanelProps) {
         </>
       )}
 
-      <label htmlFor="designer-whatsapp">WhatsApp</label>
+      <label htmlFor="designer-whatsapp">WhatsApp *</label>
       <input
         id="designer-whatsapp"
         required

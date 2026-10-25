@@ -71,7 +71,7 @@ describe('ResetPasswordPage (RF002)', () => {
 
     renderPage();
 
-    expect(await screen.findByLabelText('Nova senha')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Nova senha * (mínimo 8 caracteres)')).toBeInTheDocument();
   });
 
   it('mostra link inválido/expirado quando nenhuma sessão é estabelecida a tempo', async () => {

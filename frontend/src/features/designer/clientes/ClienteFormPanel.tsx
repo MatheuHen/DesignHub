@@ -52,14 +52,15 @@ export function ClienteFormPanel(props: ClienteFormPanelProps) {
     >
       <h2>{isCreate ? 'Novo cliente' : `Editar ${props.cliente.nome}`}</h2>
 
-      <label htmlFor="cliente-nome">Nome</label>
+      <label htmlFor="cliente-nome">Nome *</label>
       <input id="cliente-nome" required minLength={2} value={nome} onChange={(event) => setNome(event.target.value)} />
 
-      <label htmlFor="cliente-whatsapp">WhatsApp</label>
+      <label htmlFor="cliente-whatsapp">WhatsApp * (ex.: 5564999998888, com DDI e DDD)</label>
       <input
         id="cliente-whatsapp"
         required
         minLength={8}
+        placeholder="55 64 99999-8888"
         value={whatsapp}
         onChange={(event) => setWhatsapp(event.target.value)}
       />

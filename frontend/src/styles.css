@@ -1085,6 +1085,12 @@ p {
   vertical-align: bottom;
 }
 
+.clientes-instagram-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted, #6b7280);
+  margin: 0 0 0.75rem;
+}
+
 .clientes-observacao-text {
   display: block;
   max-width: 100%;

@@ -155,8 +155,8 @@ describe('ClientesPage (RF003)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '+ Novo Cliente' }));
 
-    fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'Cliente Teste' } });
-    fireEvent.change(screen.getByLabelText('WhatsApp'), { target: { value: '5511988887777' } });
+    fireEvent.change(screen.getByLabelText('Nome *'), { target: { value: 'Cliente Teste' } });
+    fireEvent.change(screen.getByLabelText('WhatsApp * (ex.: 5564999998888, com DDI e DDD)'), { target: { value: '5511988887777' } });
 
     listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));

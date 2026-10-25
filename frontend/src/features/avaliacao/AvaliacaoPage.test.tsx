@@ -204,8 +204,8 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Aprovar' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Designer agendar manualmente' }));
-    fireEvent.change(screen.getByLabelText('Data desejada'), { target: { value: '2030-06-15' } });
-    fireEvent.change(screen.getByLabelText('Horário desejado'), { target: { value: '14:30' } });
+    fireEvent.change(screen.getByLabelText('Data desejada *'), { target: { value: '2030-06-15' } });
+    fireEvent.change(screen.getByLabelText('Horário desejado *'), { target: { value: '14:30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar aprovação' }));
 
     await waitFor(() => {
@@ -239,8 +239,8 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
     const automaticoBtn = await screen.findByRole('button', { name: 'Agendar automaticamente' });
     expect(automaticoBtn).not.toBeDisabled();
     fireEvent.click(automaticoBtn);
-    fireEvent.change(screen.getByLabelText('Data da publicação'), { target: { value: dataFuturaDesejada } });
-    fireEvent.change(screen.getByLabelText('Horário da publicação'), { target: { value: '12:00' } });
+    fireEvent.change(screen.getByLabelText('Data da publicação *'), { target: { value: dataFuturaDesejada } });
+    fireEvent.change(screen.getByLabelText('Horário da publicação *'), { target: { value: '12:00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar aprovação' }));
 
     await waitFor(() => {
@@ -278,7 +278,7 @@ describe('AvaliacaoPage (RF009/RF010)', () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Solicitar ajustes' }));
 
-    fireEvent.change(await screen.findByLabelText('Descreva o que precisa ser ajustado'), {
+    fireEvent.change(await screen.findByLabelText('Descreva o que precisa ser ajustado *'), {
       target: { value: 'Mudar a cor de fundo' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Enviar pedido de ajustes' }));

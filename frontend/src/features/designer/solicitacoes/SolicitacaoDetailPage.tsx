@@ -699,7 +699,7 @@ export function SolicitacaoDetailPage() {
 
                 <FilePreviewPicker
                   id="versao-arquivo"
-                  label="Arquivo (PDF, JPG ou PNG)"
+                  label="Arquivo * (PDF, JPG ou PNG, até 15MB)"
                   accept="application/pdf,image/jpeg,image/png"
                   file={uploadFile}
                   onChange={setUploadFile}
@@ -805,10 +805,9 @@ export function SolicitacaoDetailPage() {
 
               {instagramStatus && !instagramStatus.conectado && (
                 <p role="status">
-                  A conta do Instagram deste cliente não está conectada — a publicação automática não
-                  será tentada. <Link to="/designer/clientes">Conecte o Instagram do cliente</Link> para
-                  habilitar a publicação automática, ou combine com o cliente e use "Registrar publicação
-                  manual" abaixo quando a arte for publicada.
+                  Publicação automática indisponível porque o Instagram do cliente não está conectado.{' '}
+                  <Link to="/designer/clientes">Conectar Instagram</Link> ou use "Registrar publicação
+                  manual" abaixo.
                 </p>
               )}
 
@@ -860,7 +859,7 @@ export function SolicitacaoDetailPage() {
                 onSubmit={handleAgendamentoSubmit}
                 aria-label={data.agendamento ? 'Editar agendamento de publicação' : 'Agendar publicação'}
               >
-                <label htmlFor="agendamento-data">Data</label>
+                <label htmlFor="agendamento-data">Data *</label>
                 <input
                   id="agendamento-data"
                   type="date"
@@ -870,7 +869,7 @@ export function SolicitacaoDetailPage() {
                   required
                 />
 
-                <label htmlFor="agendamento-horario">Horário</label>
+                <label htmlFor="agendamento-horario">Horário *</label>
                 <input
                   id="agendamento-horario"
                   type="time"

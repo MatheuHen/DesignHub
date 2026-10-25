@@ -57,7 +57,7 @@ export function ForgotPasswordPage() {
         <h1 id="forgot-title">Recuperar senha</h1>
         <p>Informe o e-mail cadastrado para receber o link de redefinição.</p>
 
-        <label htmlFor="forgot-email">E-mail</label>
+        <label htmlFor="forgot-email">E-mail *</label>
         <input
           id="forgot-email"
           name="email"

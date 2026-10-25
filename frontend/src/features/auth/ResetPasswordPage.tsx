@@ -132,7 +132,7 @@ export function ResetPasswordPage() {
         <span className="eyebrow">DesignHub</span>
         <h1 id="reset-title">Definir nova senha</h1>
 
-        <label htmlFor="reset-password">Nova senha</label>
+        <label htmlFor="reset-password">Nova senha * (mínimo 8 caracteres)</label>
         <PasswordInput
           id="reset-password"
           name="password"
@@ -143,7 +143,7 @@ export function ResetPasswordPage() {
           onChange={(event) => setPassword(event.target.value)}
         />
 
-        <label htmlFor="reset-password-confirm">Confirmar nova senha</label>
+        <label htmlFor="reset-password-confirm">Confirmar nova senha *</label>
         <PasswordInput
           id="reset-password-confirm"
           name="passwordConfirm"

@@ -61,7 +61,7 @@ export function LoginPage() {
           </p>
         )}
 
-        <label htmlFor="login-email">E-mail</label>
+        <label htmlFor="login-email">E-mail *</label>
         <input
           id="login-email"
           name="email"
@@ -72,7 +72,7 @@ export function LoginPage() {
           onChange={(event) => setEmail(event.target.value)}
         />
 
-        <label htmlFor="login-password">Senha</label>
+        <label htmlFor="login-password">Senha *</label>
         <PasswordInput
           id="login-password"
           name="password"

@@ -137,6 +137,13 @@ export function DesignerHome() {
         </p>
       )}
 
+      {/* Item 4 (rodada UX): CTA principal fica no topo — o acompanhamento de
+          atendimentos/artes/solicitações abaixo é o detalhe de apoio, não o
+          primeiro gesto do Designer ao abrir o Dashboard. */}
+      <Link to="/designer/clientes" className="dashboard-cta">
+        Iniciar Atendimento
+      </Link>
+
       {loading && <p role="status">Carregando dashboard…</p>}
       {error && (
         <p role="alert" className="auth-error">
@@ -241,10 +248,6 @@ export function DesignerHome() {
           </table>
         </section>
       )}
-
-      <Link to="/designer/clientes" className="dashboard-cta">
-        Iniciar Atendimento
-      </Link>
     </AppShell>
   );
 }
