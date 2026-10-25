@@ -334,3 +334,42 @@ migrations.
 
 Validação desta rodada: backend 644/644 testes, frontend 150/150 testes,
 lint/typecheck/build limpos nos dois workspaces (`npm run verify` na raiz).
+
+### Rodada RF003 / RF014 / UX (2026-10-24 e 2026-10-25)
+
+Nenhum RF, RN ou RNF foi criado, removido, renomeado ou reinterpretado nesta
+rodada. Tudo abaixo é correção de bug, saneamento de dado pré-existente ou
+melhoria não funcional (RNF002/RNF009) dentro dos requisitos já congelados.
+
+| Item | RF/RN/RNF | Tela / API | Tabela / Migration | Tipo | Evidência (teste) | Commit |
+|---|---|---|---|---|---|---|
+| Campo `Observação` opcional no cadastro do cliente (até 1000 chars), distinto das respostas do atendimento | RF003 / RN07 | `ClienteCadastroPage`, `ClientesOperacionalPanel` (edição), `POST/PATCH/GET /api/clientes` | `cliente.observacao` — `20261024100000_cliente_observacao.sql` | Melhoria cadastral dentro do RF003 | `cliente.schemas.test.ts`, `ClienteCadastroPage.test.tsx`, `ClientesOperacionalPanel.test.tsx` | `9ec5f7c`, `19283da`, `6896645` |
+| WhatsApp gravado em formato canônico (somente dígitos) na criação e na edição | RF003 / RN07 / RNF009 | `POST/PATCH /api/clientes` | `cliente.whatsapp` (sem mudança de tipo) | Correção de integridade | `cliente.schemas.test.ts` | `19283da` |
+| Backfill dos WhatsApp antigos que ainda tinham máscara | RF003 / RNF009 | — (dado) | `20261024100100_cliente_whatsapp_backfill_normalizado.sql` | Saneamento de dado (não destrutivo) | verificação direta no banco: 0 registros com `\D` | `2319e29` |
+| **Bug:** busca por WhatsApp mascarado retornava 0 resultados (escape inválido para o `or()` do PostgREST) | RF003 | `GET /api/clientes?search=` | — | Correção de bug (achado em smoke test de produção) | `cliente.repository.test.ts` (regressão: proíbe `\(` no filtro) | `c6916d4` |
+| WhatsApp único **por designer** (nome pode repetir; mesmo número é válido em designers diferentes) — validação de aplicação | RF003 / RN06 / RN07 / RN44 | `POST/PATCH /api/clientes` | consulta escopada por `id_designer` | Regra confirmada com o usuário, dentro do RF003 | `cliente.service.test.ts`, `cliente.repository.test.ts` | `bc2ba2d` |
+| Trava de banco contra condição de corrida (TOCTOU) + violação traduzida em 409 amigável, sem vazar SQL | RF003 / RNF009 / seção 12.4 | `POST/PATCH /api/clientes` | `UNIQUE (id_designer, whatsapp)` — `20261025100000_cliente_whatsapp_unico_por_designer.sql` | Defesa em profundidade | `cliente.repository.test.ts` (23505 → `ConflictError`) | `e274e48` |
+| Consolidação dos 4 pares de clientes duplicados pré-existentes, preservando todo o histórico | RF003 / RNF009 | — (dado) | `cliente`, `solicitacao`, `atendimento`, `cliente_instagram_conexao`, `instagram_oauth_state` | Saneamento de dado (pré-requisito da UNIQUE) | verificação no banco: 18→14 clientes, 0 duplicidades, 0 solicitações órfãs | — (operação de dados) |
+| **Bug crítico:** publicação automática abortava porque a RPC `set_instagram_container_pendente` e a coluna do container não existiam no banco | RF014 / RN32-RN35 | job interno `POST /api/internal/publicacoes/processar` | `agendamento_publicacao.instagram_container_id_pendente`, RPC `set_instagram_container_pendente`, cron — `20261021100000` + `20261021110000` | Correção de bug (migrations existiam no repo e nunca haviam sido aplicadas) | `publicacao.service.test.ts`, `publicacao.repository.test.ts`; verificação no banco (coluna, RPC e 3 cron jobs ativos) | `ea21848` (migrations já versionadas antes) |
+| `*` apenas nos campos realmente obrigatórios pelo schema/backend; opcionais sem asterisco | RNF002 | Login, recuperar/redefinir senha, Cliente, Designer, avaliação pública | — | Melhoria não funcional | 158 testes de componente (labels) | `8afece0` |
+| Formato/padrão exibido só onde o backend valida (exemplo de WhatsApp do Cliente; limite real de 15 MB no upload). Nenhum padrão inventado — WhatsApp do Designer ficou sem exemplo porque o schema dele não exige DDI | RNF002 / RF007 / RN23 | `ClienteFormPanel`, `SolicitacaoDetailPage` (upload) | — | Melhoria não funcional | `ClienteCadastroPage.test.tsx`, `SolicitacaoDetailPage.test.tsx` | `8afece0` |
+| Orientação curta sobre conta profissional do Instagram (Business ou Creator) + aviso resumido com o motivo real quando não está conectado | RF014 / RNF002 | `ClientesOperacionalPanel`, `SolicitacaoDetailPage` | — | Melhoria de clareza (texto conferido contra os scopes reais da integração) | `SolicitacaoDetailPage.test.tsx` | `8afece0` |
+| Divisão de responsabilidade das telas: `Clientes` = cadastro; `Dashboard` = operação com clientes já cadastrados + acompanhamento das artes/solicitações | RF003 + RF005 / RNF002 | `/designer/clientes` → `ClienteCadastroPage` (nova); `/designer` → `DesignerHome` + `ClientesOperacionalPanel` (renomeado de `ClientesPage` via `git mv`) | — (nenhuma tabela/API nova; reusa `listClientes` e as respostas de `listSolicitacoes` já carregadas para os tiles) | Reorganização de UX sem perda de função | `DesignerHome.test.tsx`, `ClientesOperacionalPanel.test.tsx`, `ClienteCadastroPage.test.tsx` | `d9a5dda`, `ea21848` |
+
+**Auditoria final em produção (2026-10-25):** 116 cenários exercitados contra a
+API publicada com 1 login de administrador e 2 de designer — 78 asserções de
+autenticação/autorização/RF003/RF005/RF012/RF016/segurança (IDOR entre
+designers responde 404 uniforme em GET/PATCH/DELETE de cliente, solicitação,
+upload e download) e 38 do ciclo completo RF007→RF014. Todas passaram.
+Backend 719/719, frontend 158/158, lint/typecheck/build limpos, 58/58
+migrations com `local == remote`, Git local = `origin/main` = working tree
+(`ea21848`). Todos os dados de teste criados foram removidos do banco e do
+Storage.
+
+**Itens não verificáveis ao vivo nesta rodada (registrados, não são falha de
+implementação):** round-trip real de mensagem pela WhatsApp Cloud API (RF004) e
+decurso de 5 dias reais para o bloqueio por atraso (RF006) — ambos validados
+por código e testes automatizados; publicação pública real no Instagram
+(RF014) não foi disparada por decisão de segurança, tendo sido validada a
+estrutura que a sustenta; renderização visual/responsividade depende de
+conferência manual, por não haver automação de navegador na sessão.

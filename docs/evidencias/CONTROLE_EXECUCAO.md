@@ -3298,3 +3298,116 @@ se** fosse provadamente seguro, sem refatoração arriscada.
 - Próxima etapa: nenhuma tecnicamente obrigatória. Alertas do OWASP ZAP
   no frontend estático (CORS/CSP/X-Frame-Options/nosniff, ver entrada de
   27/09 anterior, e agora `style-src`) estão todos resolvidos.
+
+## 2026-10-24/25 — Rodada RF003 (Cliente), correção do RF014 em produção, UX e auditoria final
+
+Rodada conduzida sobre o sistema **já em produção**, não sobre ambiente de
+desenvolvimento: toda correção foi validada por chamada real à API publicada
+e, quando envolvia dado, confirmada por consulta direta ao banco real via
+`SUPABASE_DB_URL` (mesmo método histórico do projeto — nunca pelo MCP
+Supabase, que continua conectado a projetos não relacionados).
+
+### Correções de RF003 (Manter Cliente)
+
+| # | O que estava errado | Correção | Commit | Migration |
+|---|---|---|---|---|
+| 1 | Não existia campo para informação complementar do cliente | Coluna `observacao` (text, nullable, CHECK ≤1000) + schema/repository/service/frontend | `9ec5f7c`, `19283da`, `6896645` | `20261024100000_cliente_observacao.sql` |
+| 2 | `whatsapp` era gravado como digitado — a mesma pessoa virava dois registros por diferença de máscara | `transform` no schema Zod normaliza para somente dígitos antes de gravar (criação e edição) | `19283da` | — |
+| 3 | Registros antigos permaneciam com máscara, inconsistentes com os novos | Backfill `regexp_replace(whatsapp,'\D','','g')` só nas linhas com caractere não-numérico | `2319e29` | `20261024100100_cliente_whatsapp_backfill_normalizado.sql` |
+| 4 | **Bug real (achado em smoke test de produção):** busca por WhatsApp mascarado retornava 0 mesmo existindo o cliente | `escapeIlikeTerm` escapava `(`/`)` com barra invertida; o PostgREST exige o valor entre aspas duplas dentro de `or()` — a barra invertida corrompia o filtro inteiro | `c6916d4` | — |
+| 5 | Mesmo designer podia cadastrar dois clientes com o mesmo WhatsApp | `assertWhatsappNaoDuplicado` no service (criação sempre; edição só quando o número muda), escopado por `id_designer` | `bc2ba2d` | — |
+| 6 | Sem trava no banco, a validação de aplicação tinha janela TOCTOU | `UNIQUE (id_designer, whatsapp)` como segunda camada + tradução da violação 23505 em `ConflictError` (409) com mensagem amigável | `e274e48` | `20261025100000_cliente_whatsapp_unico_por_designer.sql` |
+
+**Regra de negócio consolidada (RF003/RN07):** nome de cliente pode repetir;
+o mesmo WhatsApp pode existir em designers diferentes; o mesmo WhatsApp não
+pode existir duas vezes dentro do mesmo designer; a comparação usa o valor
+normalizado.
+
+**Saneamento de dados pré-existentes:** 4 pares de clientes duplicados dentro
+do mesmo designer (2/3, 4/6, 20/21, 14/36), anteriores à nova validação, foram
+consolidados manualmente **antes** de criar a constraint. Em cada par, todos os
+vínculos do duplicado (solicitação, atendimento, conexão/oauth do Instagram)
+foram reassociados ao canônico e o nome alternativo foi preservado em
+`observacao` quando divergia. Nenhum histórico foi perdido: 18 → 14 clientes,
+0 solicitações órfãs. O par 14/36 tinha nomes reais diferentes ("Waynne" x
+"Lucilene") e histórico em ambos — foi o único que exigiu decisão humana, e só
+foi consolidado após confirmação explícita do usuário de que era a mesma pessoa.
+
+### Correção crítica de RF014 (publicação automática quebrada em produção)
+
+Achado durante a auditoria: `publicacao.repository.ts` já chamava a RPC
+`set_instagram_container_pendente` em produção, mas a função e a coluna
+`agendamento_publicacao.instagram_container_id_pendente` **não existiam no
+banco** — as duas migrations correspondentes estavam no repositório sem nunca
+terem sido aplicadas. Como o repository lança erro de propósito nesse ponto
+(fail closed, para não publicar sem rastro), **toda publicação automática
+estava abortando**. Aplicadas `20261021100000_instagram_container_idempotencia.sql`
+e `20261021110000_publicacao_cron_frequencia_timeout.sql` e validadas no banco:
+coluna presente, RPC presente, 3 cron jobs ativos (publicação a cada minuto,
+atendimentos a cada 30min, notificações a cada 5min, todos com
+`timeout_milliseconds := 30000`).
+
+### UX (sem novo RF, sem mudança de regra)
+
+- Campos realmente obrigatórios pelo schema/backend marcados com `*` em todos
+  os formulários de Admin, Designer e avaliação pública; opcionais seguem sem
+  asterisco (commit `8afece0`).
+- Formato exibido apenas onde o backend realmente valida: WhatsApp do Cliente
+  ganhou exemplo (o schema exige DDI+DDD e normaliza); o WhatsApp do Designer
+  **não** ganhou exemplo, porque o schema dele não exige DDI — nenhum padrão
+  foi inventado. Upload informa o limite real de 15 MB do middleware.
+- Instagram: orientação curta sobre conta profissional (Business ou Creator),
+  conferida contra os scopes reais (`instagram_business_basic`,
+  `instagram_business_content_publish`); aviso de "não conectado" reduzido a
+  uma frase com o motivo real, mantendo o link de conexão e a publicação manual.
+- **Divisão Clientes × Dashboard** (commits `d9a5dda`, `ea21848`): a tela
+  `/designer/clientes` passou a ser dedicada ao cadastro
+  (`ClienteCadastroPage`), e todo o trabalho operacional com clientes já
+  cadastrados foi movido para o Dashboard — o antigo `ClientesPage` foi
+  renomeado para `ClientesOperacionalPanel` (via `git mv`, mesmo código e
+  mesmas APIs) e montado abaixo de "Iniciar Atendimento", seguido do
+  acompanhamento por cliente das artes/solicitações com status real. Nenhuma
+  funcionalidade do RF003 foi removida — apenas reposicionada. O
+  acompanhamento reaproveita as respostas de `listSolicitacoes` que o dashboard
+  já buscava para os tiles, sem requisição nem fonte de dados adicional.
+
+### Auditoria final em produção (2026-10-25)
+
+116 cenários exercitados contra a API publicada com os três logins reais
+(1 admin + 2 designers): 78 asserções de autenticação/autorização/RF003/
+RF005/RF012/RF016/segurança e 38 do ciclo completo
+RF007→RF008→RF009→RF010→RF011→RF012→RF013→RF014 (upload V1, ajuste, V2,
+aprovação, agendamento, cancelamento permitido, bloqueio da janela de 3h,
+publicação manual, idempotência). Todas passaram. 16 rotas de frontend
+verificadas. IDOR entre designers retorna 404 uniforme em GET/PATCH/DELETE
+de cliente, solicitação, upload e download.
+
+Validação: **backend 719/719**, **frontend 158/158**, lint/typecheck/build
+limpos nos dois workspaces, **58/58 migrations** com `local == remote`.
+Git local = `origin/main` = working tree (`ea21848`). Frontend e backend
+deployados e respondendo (bundle de produção verificado por download).
+
+**Dados de teste removidos integralmente** (clientes, solicitações,
+atendimentos, versões, avaliações, ajustes, agendamentos, publicações,
+tokens e os arquivos correspondentes no Storage privado, estes via o cliente
+admin oficial do backend). Estado final: 14 clientes, 29 solicitações,
+39 versões, 0 duplicidades por designer, 0 WhatsApp com máscara, 0 órfãos.
+
+### Pendências reais registradas (não são bugs)
+
+- **Validação visual/responsividade**: não há automação de navegador nesta
+  sessão. A estrutura e os dados foram validados por API e por 158 testes de
+  componente, mas a renderização real depende de conferência manual do usuário.
+- **RF004 round-trip real** pela Meta (mensagem entrando e saindo de verdade) e
+  **RF006 decurso de 5 dias reais**: não testáveis ao vivo sem efeito externo
+  ou manipulação de data real — validados por código e testes automatizados.
+- **Publicação pública real no Instagram** não foi disparada por decisão de
+  segurança (evitar post público indevido); a estrutura que a sustenta
+  (container, RPC, cron, idempotência) foi validada.
+- **Nota de processo:** o commit `ea21848` arrastou, além da implementação
+  Clientes×Dashboard, 16 arquivos da frente Instagram/Gemini/Publicação que já
+  estavam staged no índice desde antes desta rodada (uso de `git commit` sem
+  paths). Auditados individualmente depois: todos são correções de bug dentro
+  de RF004/RN08-RN09 e RF014/RN32-RN35, sem novo RF, já rodando em produção e
+  cobertas por teste — o commit apenas sincronizou o Git com o que já estava
+  aprovado e deployado. Mantido por decisão do usuário.
