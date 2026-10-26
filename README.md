@@ -9,5 +9,5 @@ Sistema acadêmico do TFC de Engenharia de Software para gerenciamento do fluxo 
 - Banco: PostgreSQL hospedado no Supabase
 - Auth/Storage: Supabase
 - WhatsApp: API oficial Meta
-- Instagram: API oficial Meta + fluxo manual documental
+- Instagram: API oficial Meta
 
