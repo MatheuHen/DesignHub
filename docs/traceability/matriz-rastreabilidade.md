@@ -1,8 +1,11 @@
 # Matriz de Rastreabilidade — DesignHub (TFC II)
 
 Atualizado em: 2026-08-22 (base) / 2026-09-13 (correções + melhorias
-aditivas, seção dedicada abaixo). Fonte: código real do repositório (não é
-planejamento — cada linha aponta para arquivo/rota/tabela/teste existente).
+aditivas) / 2026-10-26 (padronização visual do Dashboard — última seção).
+Fonte: código real do repositório (não é planejamento — cada linha aponta
+para arquivo/rota/tabela/teste existente). As seções de rodada no final do
+arquivo estão em ordem cronológica; quando uma decisão é revista, a linha
+antiga é marcada como SUPERADA em vez de apagada.
 
 Legenda de status: `OK` = implementado, testado e (quando aplicável) validado
 em produção real. `BLOCKED_EXTERNAL` = código completo, aguardando apenas
@@ -383,7 +386,7 @@ inventada.
 | Item | RF/RN/RNF | Tela / API | Tabela / Migration | Tipo | Evidência (teste) |
 |---|---|---|---|---|---|
 | Aba Clientes passa a ter CRUD completo (cadastro + listagem + editar + excluir); Dashboard mantém só ações operacionais | RF003 / RF005 / RNF002 | `ClientesPage` (nova, substitui `ClienteCadastroPage`); `ClientesOperacionalPanel` perde Editar/Excluir | — (mesma API `listClientes`/`createCliente`/`updateCliente`/`deleteCliente`) | Correção de organização (sem nova regra) | `ClientesPage.test.tsx`, `ClientesOperacionalPanel.test.tsx` |
-| Ordem do Dashboard: "Clientes e artes em andamento" antes de "Clientes cadastrados" | RF005 / RNF002 | `DesignerHome.tsx` | — | Correção de UX | `DesignerHome.test.tsx` |
+| ~~Ordem do Dashboard: "Clientes e artes em andamento" antes de "Clientes cadastrados"~~ **(SUPERADA em 2026-10-26 — ordem invertida, ver rodada de padronização visual)** | RF005 / RNF002 | `DesignerHome.tsx` | — | Correção de UX | `DesignerHome.test.tsx` |
 | Busca por Observação nos dois locais (aba Clientes e Dashboard) | RF003 | `GET /api/clientes?search=` | — | Correção de bug (funcionalidade pedida e não implementada) | `cliente.repository.test.ts` |
 | WhatsApp — padrão brasileiro obrigatório (55+DDD+9+8 dígitos = 13 dígitos; 9º dígito nunca adicionado automaticamente) | RF003 / RN07 | `POST/PATCH /api/clientes` | `cliente.whatsapp` (sem CHECK no banco — ver pendência) | Correção de regra de negócio (mais restritiva que a anterior) | `cliente.schemas.test.ts` (9 casos novos) |
 
@@ -396,3 +399,65 @@ registros pelo usuário antes de reforçar a regra no banco.
 
 **Validação:** backend 728/728 (+9), frontend 162/162 (+4), lint/typecheck/
 build limpos nos dois workspaces.
+
+### Rodada de padronização visual do Dashboard (2026-10-26)
+
+Rodada **exclusivamente de apresentação** (RNF001/RNF002). Nenhum RF/RN novo,
+nenhum dado, filtro, ação, permissão, estado ou regra de negócio alterado;
+nenhuma migration; backend não foi tocado. Commit único na `main`: `6edc2b8`.
+
+| Item | RF/RN/RNF | Tela / API | Tabela / Migration | Tipo | Evidência (teste) |
+|---|---|---|---|---|---|
+| Cabeçalho comum `.dashboard-section-header` nas seções do Dashboard (título + contagem opcional), com hierarquia e espaçamento iguais | RNF002 | `DesignerHome.tsx`, `styles.css` | — | Apresentação | `DesignerHome.test.tsx` |
+| "Prazos próximos" deixa de ter título `sr-only` e passa a ter cabeçalho visível | RNF002 | `DesignerHome.tsx` | — | Apresentação | `DesignerHome.test.tsx` |
+| Tabelas do Dashboard migradas para `.dashboard-data-table` dentro de `.table-scroll` (sem overflow horizontal da página) | RNF001 / RNF002 | `DesignerHome.tsx`, `styles.css` | — | Apresentação | E2E de produção (ver abaixo): overflow horizontal = 0px |
+| Zebra suave (`tbody tr:nth-child(even)` = `#faf9fd`) para diferenciar as linhas do fundo branco do card | RNF002 | `styles.css` | — | Apresentação | E2E de produção: cores computadas alternadas |
+| `data-label` nas células das tabelas do Dashboard (modo responsivo já existente) | RNF001 | `DesignerHome.tsx` | — | Apresentação | `DesignerHome.test.tsx` |
+| `.dashboard-cell-numeric` (tabular-nums) no horário e `.dashboard-cell-tag` (nowrap) na tag de prazo | RNF002 | `DesignerHome.tsx`, `styles.css` | — | Apresentação | E2E de produção: 4 células de tag |
+| `scroll-behavior: smooth` para a âncora do CTA, dentro de `@media (prefers-reduced-motion: no-preference)` | RNF002 | `styles.css` | — | Acessibilidade | E2E de produção: `scrollY 0 → 144`, âncora `#clientes-operacional-title` |
+
+**Correção de decisão da rodada anterior (2026-10-25):** aquela rodada
+registrou "Clientes e artes em andamento" **antes** de "Clientes cadastrados".
+Esta rodada **inverte** essa ordem a pedido do usuário. Ordem vigente do
+Dashboard, confirmada no DOM de produção:
+
+`Dashboard → Solicitações por status → Prazos próximos → Clientes cadastrados → Clientes e artes em andamento`
+
+O motivo é o fluxo documentado: o CTA "Iniciar Atendimento" (RF004/RN02-RN03)
+navega por âncora até o painel operacional "Clientes cadastrados", que por
+isso precisa vir antes do painel de acompanhamento (RF005/RN13-RN14). A linha
+correspondente da rodada 2026-10-25 fica **superada** por esta.
+
+**Validação:** frontend 163/163 (+1), lint e typecheck limpos, build de
+produção OK. Backend revalidado sem alterações para provar ausência de
+regressão: 728/728, lint/typecheck/build limpos.
+
+**Evidência de produção (navegador real, Chromium/Playwright, 1440×900,
+login real do designer sintético em `designhub-frontend-ten.vercel.app`,
+deploy `dpl_De735FH3M32EdQVf6jUnsbmUZxNF` / commit `6edc2b8`):**
+
+- Ordem das seções no DOM conforme acima; cada cabeçalho aparece exatamente 1×
+  (sem bloco duplicado).
+- CTA "Iniciar Atendimento" presente no topo e levando por scroll ao painel de
+  clientes (`scrollY 0 → 144`, alvo visível).
+- `table-scroll` = 2; overflow horizontal da página = 0px.
+- Zebra: linhas 1 e 3 `rgba(0,0,0,0)`, linhas 2 e 4 `rgb(250,249,253)`.
+- CSS publicado (`assets/index-C02Xwhjp.css`) byte-a-byte idêntico ao build
+  local; bundle de produção contém todos os marcadores novos.
+
+**Ressalvas honestas de evidência:**
+
+1. A tabela "Prazos próximos" da conta sintética tem 0 linhas em produção, e a
+   zebra exige ao menos uma linha par. A evidência foi obtida **sem escrever
+   em produção**: login real e CSS/JS publicados, substituindo apenas a
+   *resposta* de `GET /api/solicitacoes?status=Em produção` dentro da aba do
+   navegador. Não houve INSERT, nem mensagem WhatsApp, nem alteração de
+   estado. Os specs E2E usados foram temporários e removidos — não estão
+   versionados.
+2. "Publicações agendadas" não pôde ser conferida em produção: a seção é
+   condicional a existir agendamento ativo e a conta sintética não tem nenhum.
+   Comportamento esperado (não é regressão), mas segue **sem evidência
+   visual** até haver dado real.
+3. Não existe `POST /api/solicitacoes`: pelo RF004/RN02-RN03 a solicitação só
+   nasce de atendimento real via WhatsApp com resposta do cliente — por isso
+   não foi criada solicitação de teste em produção.
