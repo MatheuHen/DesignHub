@@ -10,7 +10,7 @@ import { ResetPasswordPage } from '../features/auth/ResetPasswordPage';
 import { RootRedirect } from '../features/auth/RootRedirect';
 import { AvaliacaoPage } from '../features/avaliacao/AvaliacaoPage';
 import { AgendamentosPage } from '../features/designer/agendamentos/AgendamentosPage';
-import { ClienteCadastroPage } from '../features/designer/clientes/ClienteCadastroPage';
+import { ClientesPage } from '../features/designer/clientes/ClientesPage';
 import { DesignerHome } from '../features/designer/DesignerHome';
 import { SolicitacaoDetailPage } from '../features/designer/solicitacoes/SolicitacaoDetailPage';
 import { SolicitacoesPage } from '../features/designer/solicitacoes/SolicitacoesPage';
@@ -35,7 +35,7 @@ export function AppRouter() {
             }
           >
             <Route index element={<DesignerHome />} />
-            <Route path="clientes" element={<ClienteCadastroPage />} />
+            <Route path="clientes" element={<ClientesPage />} />
             <Route path="solicitacoes" element={<SolicitacoesPage />} />
             <Route path="solicitacoes/:id" element={<SolicitacaoDetailPage />} />
             <Route path="agendamentos" element={<AgendamentosPage />} />

@@ -373,3 +373,26 @@ por código e testes automatizados; publicação pública real no Instagram
 (RF014) não foi disparada por decisão de segurança, tendo sido validada a
 estrutura que a sustenta; renderização visual/responsividade depende de
 conferência manual, por não haver automação de navegador na sessão.
+
+### Rodada de correção — auditoria final (2026-10-25, continuação)
+
+Corrige 3 itens pedidos em rodadas anteriores que ainda não estavam
+implementados no código. Nenhum RF/RN/RNF novo; nenhuma funcionalidade
+inventada.
+
+| Item | RF/RN/RNF | Tela / API | Tabela / Migration | Tipo | Evidência (teste) |
+|---|---|---|---|---|---|
+| Aba Clientes passa a ter CRUD completo (cadastro + listagem + editar + excluir); Dashboard mantém só ações operacionais | RF003 / RF005 / RNF002 | `ClientesPage` (nova, substitui `ClienteCadastroPage`); `ClientesOperacionalPanel` perde Editar/Excluir | — (mesma API `listClientes`/`createCliente`/`updateCliente`/`deleteCliente`) | Correção de organização (sem nova regra) | `ClientesPage.test.tsx`, `ClientesOperacionalPanel.test.tsx` |
+| Ordem do Dashboard: "Clientes e artes em andamento" antes de "Clientes cadastrados" | RF005 / RNF002 | `DesignerHome.tsx` | — | Correção de UX | `DesignerHome.test.tsx` |
+| Busca por Observação nos dois locais (aba Clientes e Dashboard) | RF003 | `GET /api/clientes?search=` | — | Correção de bug (funcionalidade pedida e não implementada) | `cliente.repository.test.ts` |
+| WhatsApp — padrão brasileiro obrigatório (55+DDD+9+8 dígitos = 13 dígitos; 9º dígito nunca adicionado automaticamente) | RF003 / RN07 | `POST/PATCH /api/clientes` | `cliente.whatsapp` (sem CHECK no banco — ver pendência) | Correção de regra de negócio (mais restritiva que a anterior) | `cliente.schemas.test.ts` (9 casos novos) |
+
+**Pendência real (não é falha de implementação):** 3 clientes pré-existentes
+(`id_cliente` 9, 11, 63) têm WhatsApp com 12 dígitos (sem o 9º) e não foram
+alterados automaticamente, por instrução explícita. Por isso **não foi
+criada constraint `CHECK` no banco** nesta rodada — só a validação de
+aplicação para novos cadastros/edições. Aguardando correção manual desses 3
+registros pelo usuário antes de reforçar a regra no banco.
+
+**Validação:** backend 728/728 (+9), frontend 162/162 (+4), lint/typecheck/
+build limpos nos dois workspaces.

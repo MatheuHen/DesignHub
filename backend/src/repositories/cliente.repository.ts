@@ -74,7 +74,12 @@ export async function listClientes(
     const whatsappCondition = digitsOnlyTerm
       ? `whatsapp.ilike."%${digitsOnlyTerm}%"`
       : `whatsapp.ilike."%${term}%"`;
-    query = query.or(`nome.ilike."%${term}%",${whatsappCondition}`);
+    // Rodada de correção (auditoria final): a busca também cobre a
+    // Observação — um termo parcial dentro do texto livre (ex.: "farmácia"
+    // dentro de "cliente da farmácia do centro") deve encontrar o cliente.
+    query = query.or(
+      `nome.ilike."%${term}%",${whatsappCondition},observacao.ilike."%${term}%"`,
+    );
   }
 
   const from = (filters.page - 1) * filters.pageSize;

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../../lib/apiClient';
@@ -6,8 +6,6 @@ import type { Cliente } from './api';
 
 const {
   listClientesMock,
-  createClienteMock,
-  deleteClienteMock,
   iniciarAtendimentoMock,
   getInstagramStatusMock,
   getInstagramAuthorizeUrlMock,
@@ -15,8 +13,6 @@ const {
   enviarLinkInstagramMock,
 } = vi.hoisted(() => ({
   listClientesMock: vi.fn(),
-  createClienteMock: vi.fn(),
-  deleteClienteMock: vi.fn(),
   iniciarAtendimentoMock: vi.fn(),
   getInstagramStatusMock: vi.fn(),
   getInstagramAuthorizeUrlMock: vi.fn(),
@@ -26,9 +22,6 @@ const {
 
 vi.mock('./api', () => ({
   listClientes: listClientesMock,
-  createCliente: createClienteMock,
-  updateCliente: vi.fn(),
-  deleteCliente: deleteClienteMock,
   iniciarAtendimento: iniciarAtendimentoMock,
   getInstagramStatus: getInstagramStatusMock,
   getInstagramAuthorizeUrl: getInstagramAuthorizeUrlMock,
@@ -76,8 +69,6 @@ function renderPage() {
 describe('ClientesOperacionalPanel (RF003)', () => {
   beforeEach(() => {
     listClientesMock.mockReset();
-    createClienteMock.mockReset();
-    deleteClienteMock.mockReset();
     iniciarAtendimentoMock.mockReset();
     getInstagramStatusMock.mockReset().mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
     getInstagramAuthorizeUrlMock.mockReset();
@@ -100,50 +91,6 @@ describe('ClientesOperacionalPanel (RF003)', () => {
     renderPage();
 
     expect(await screen.findByText('Nenhum cliente encontrado.')).toBeInTheDocument();
-  });
-
-  it('exige confirmação antes de excluir e exibe erro do backend em caso de impedimento', async () => {
-    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
-    deleteClienteMock.mockRejectedValue(
-      new ApiError(409, 'CONFLICT', 'Não é possível excluir: cliente possui solicitações vinculadas.'),
-    );
-
-    renderPage();
-    await screen.findByText('Cliente Teste');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
-    expect(deleteClienteMock).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
-
-    expect(await screen.findByText(/possui solicitações vinculadas/)).toBeInTheDocument();
-  });
-
-  it('correção de UX: o erro de exclusão some sozinho após 10s', async () => {
-    vi.useFakeTimers();
-    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
-    deleteClienteMock.mockRejectedValue(
-      new ApiError(409, 'CONFLICT', 'Não é possível excluir: cliente possui solicitações vinculadas.'),
-    );
-
-    renderPage();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar exclusão' }));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-
-    expect(screen.getByText(/possui solicitações vinculadas/)).toBeInTheDocument();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000);
-    });
-
-    expect(screen.queryByText(/possui solicitações vinculadas/)).not.toBeInTheDocument();
-    vi.useRealTimers();
   });
 
   it('inicia atendimento e mostra confirmação (RF004)', async () => {
@@ -341,7 +288,7 @@ describe('ClientesOperacionalPanel (RF003)', () => {
     expect(nome).toHaveTextContent('Cliente Teste');
   });
 
-  /** Item B2: "Iniciar atendimento" (ação principal) é visualmente distinto de Editar/Excluir (secundárias). */
+  /** Item B2: "Iniciar atendimento" é a ação principal deste painel operacional. */
   it('item B2: "Iniciar atendimento" tem a classe de ação principal', async () => {
     listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
 
@@ -349,6 +296,23 @@ describe('ClientesOperacionalPanel (RF003)', () => {
 
     const primary = await screen.findByRole('button', { name: 'Iniciar atendimento' });
     expect(primary).toHaveClass('clientes-action-primary');
-    expect(screen.getByRole('button', { name: 'Excluir' })).toHaveClass('designer-action-danger');
+  });
+
+  /**
+   * Rodada de correção (auditoria final): editar/excluir cadastro NÃO vivem
+   * mais neste painel operacional — ficam exclusivamente na aba Clientes.
+   */
+  it('não exibe ações de editar/excluir cadastro — apenas "Gerenciar clientes" leva para lá', async () => {
+    listClientesMock.mockResolvedValue({ items: [sampleCliente], total: 1, page: 1, pageSize: 20 });
+
+    renderPage();
+    await screen.findByText('Cliente Teste');
+
+    expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Gerenciar clientes' })).toHaveAttribute(
+      'href',
+      '/designer/clientes',
+    );
   });
 });

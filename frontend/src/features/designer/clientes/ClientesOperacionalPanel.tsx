@@ -4,20 +4,15 @@ import { ApiError } from '../../../lib/apiClient';
 import { useAutoDismiss } from '../../../lib/useAutoDismiss';
 import { INSTAGRAM_OAUTH_MESSAGE_SOURCE } from '../../instagram/oauthMessage';
 import {
-  deleteCliente,
   desconectarInstagram,
   enviarLinkInstagram,
   getInstagramAuthorizeUrl,
   getInstagramStatus,
   iniciarAtendimento,
   listClientes,
-  updateCliente,
   type Cliente,
   type InstagramStatus,
 } from './api';
-import { ClienteFormPanel, type ClienteFormValues } from './ClienteFormPanel';
-
-type PanelState = { mode: 'closed' } | { mode: 'edit'; cliente: Cliente };
 
 /** Mesmo breakpoint tablet/desktop já usado no restante do app (styles.css). */
 const POPUP_VIEWPORT_QUERY = '(min-width: 861px)';
@@ -35,10 +30,6 @@ export function ClientesOperacionalPanel() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [panel, setPanel] = useState<PanelState>({ mode: 'closed' });
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [rowError, setRowError] = useState<{ id: number; message: string } | null>(null);
   const [atendimentoFeedback, setAtendimentoFeedback] = useState<
     { id: number; type: 'success' | 'error'; message: string } | null
   >(null);
@@ -55,7 +46,6 @@ export function ClientesOperacionalPanel() {
 
   // Correção de UX: avisos de erro/sucesso não ficam mais presos na tela —
   // somem sozinhos após 10s (o usuário pode repetir a ação para vê-los de novo).
-  useAutoDismiss(rowError, () => setRowError(null));
   useAutoDismiss(atendimentoFeedback, () => setAtendimentoFeedback(null));
   useAutoDismiss(instagramFeedback, () => setInstagramFeedback(null));
 
@@ -267,34 +257,6 @@ export function ClientesOperacionalPanel() {
       .finally(() => setConnectingInstagramId(null));
   }
 
-  async function handleEdit(cliente: Cliente, values: ClienteFormValues) {
-    await updateCliente(cliente.id, {
-      nome: values.nome,
-      whatsapp: values.whatsapp,
-      observacao: values.observacao.trim() || null,
-    });
-    setPanel({ mode: 'closed' });
-    reload();
-  }
-
-  function handleDelete(cliente: Cliente) {
-    setRowError(null);
-    setDeletingId(cliente.id);
-    deleteCliente(cliente.id)
-      .then(() => {
-        setConfirmingDeleteId(null);
-        reload();
-      })
-      .catch((deleteError: unknown) => {
-        setConfirmingDeleteId(null);
-        setRowError({
-          id: cliente.id,
-          message: deleteError instanceof ApiError ? deleteError.message : 'Não foi possível excluir o cliente.',
-        });
-      })
-      .finally(() => setDeletingId(null));
-  }
-
   function handleIniciarAtendimento(cliente: Cliente) {
     setAtendimentoFeedback(null);
     setStartingAtendimentoId(cliente.id);
@@ -324,7 +286,7 @@ export function ClientesOperacionalPanel() {
       <div className="page-header">
         <h2 id="clientes-operacional-title">Clientes cadastrados</h2>
         <Link to="/designer/clientes" className="page-primary-action">
-          + Novo Cliente
+          Gerenciar clientes
         </Link>
       </div>
 
@@ -332,7 +294,7 @@ export function ClientesOperacionalPanel() {
         <label htmlFor="cliente-search">Buscar</label>
         <input
           id="cliente-search"
-          placeholder="Nome ou WhatsApp"
+          placeholder="Nome, WhatsApp ou Observação"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -449,42 +411,6 @@ export function ClientesOperacionalPanel() {
                       {startingAtendimentoId === cliente.id ? 'Enviando…' : 'Iniciar atendimento'}
                     </button>
                   </div>
-                  <div className="clientes-actions-secondary">
-                    <button type="button" onClick={() => setPanel({ mode: 'edit', cliente })}>
-                      Editar
-                    </button>
-                    {confirmingDeleteId === cliente.id ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(cliente)}
-                          disabled={deletingId === cliente.id}
-                        >
-                          {deletingId === cliente.id ? 'Excluindo…' : 'Confirmar exclusão'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmingDeleteId(null)}
-                          disabled={deletingId === cliente.id}
-                        >
-                          Cancelar
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        className="designer-action-danger"
-                        onClick={() => setConfirmingDeleteId(cliente.id)}
-                      >
-                        Excluir
-                      </button>
-                    )}
-                  </div>
-                  {rowError?.id === cliente.id && (
-                    <p role="alert" className="auth-error">
-                      {rowError.message}
-                    </p>
-                  )}
                   {atendimentoFeedback?.id === cliente.id && (
                     <p
                       role={atendimentoFeedback.type === 'error' ? 'alert' : 'status'}
@@ -499,15 +425,6 @@ export function ClientesOperacionalPanel() {
           </tbody>
         </table>
         </div>
-      )}
-
-      {panel.mode === 'edit' && (
-        <ClienteFormPanel
-          mode="edit"
-          cliente={panel.cliente}
-          onSubmit={(values) => handleEdit(panel.cliente, values)}
-          onCancel={() => setPanel({ mode: 'closed' })}
-        />
       )}
     </section>
   );

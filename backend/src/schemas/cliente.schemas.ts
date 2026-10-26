@@ -1,25 +1,30 @@
 import { z } from 'zod';
 
+const WHATSAPP_INVALIDO_MESSAGE =
+  'Informe um celular válido com DDI 55, DDD e número iniciado por 9.';
+
 /**
- * RF004: o matching do webhook do WhatsApp compara dígitos normalizados
- * (código do país + DDD + número) contra o que a Meta envia em `from`.
- * Exigir um número plausível de dígitos aqui evita que um cadastro sem
- * código do país (ex.: "11999999999" em vez de "5511999999999") gere
- * perda silenciosa de resposta por não encontrar o atendimento
- * correspondente (RN09: toda resposta deve ficar registrada).
+ * RF003 (rodada de correção — padrão brasileiro obrigatório): o DER/RN07
+ * exigem WhatsApp do cliente; o RF004 depende do número normalizado para
+ * casar com o que a Meta envia em `from` no webhook. Para reduzir ambiguidade
+ * e perda silenciosa de resposta (RN09), passa a exigir exatamente o formato
+ * `55` + DDD (2 dígitos) + celular (9 dígitos, iniciado por `9`) = 13
+ * dígitos no total, após remover qualquer máscara/formatação. O 9º dígito
+ * NUNCA é adicionado automaticamente — um número sem ele é rejeitado, não
+ * corrigido, para não gravar um número que pode não existir.
  */
 const whatsappSchema = z
   .string()
   .trim()
   .min(8)
-  .max(20)
-  .refine((value) => value.replace(/\D/g, '').length >= 12, {
-    message: 'Informe o WhatsApp com o código do país, DDD e número.',
-  })
-  // RF003/item 2.2: normaliza para somente dígitos antes de gravar, para que
-  // "(64) 98403-5274" e "5564984035274" não sejam tratados como registros
-  // diferentes apenas por causa da máscara/formatação digitada.
-  .transform((value) => value.replace(/\D/g, ''));
+  .max(25)
+  // RF003/item 2.2: normaliza para somente dígitos antes de validar/gravar,
+  // para que "+55 (64) 98403-5274" e "5564984035274" sejam tratados como o
+  // mesmo número, independente da máscara/formatação digitada.
+  .transform((value) => value.replace(/\D/g, ''))
+  .refine((digits) => /^55[1-9][0-9]9[0-9]{8}$/.test(digits), {
+    message: WHATSAPP_INVALIDO_MESSAGE,
+  });
 
 const observacaoSchema = z.string().trim().max(1000);
 

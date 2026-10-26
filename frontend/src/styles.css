@@ -1097,6 +1097,12 @@ p {
   margin: 0 0 1rem;
 }
 
+.designer-form-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted, #6b7280);
+  margin: -0.35rem 0 0.5rem;
+}
+
 /* Acompanhamento de clientes + artes no Dashboard (abaixo do CTA). */
 .dashboard-acompanhamento {
   margin-top: 1.5rem;

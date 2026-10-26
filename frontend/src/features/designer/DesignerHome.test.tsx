@@ -238,6 +238,58 @@ describe('DesignerHome — Dashboard (RF005/RF011/RN13-RN14, FIGURA 7/15/22)', (
     expect(screen.queryByText('Publicações agendadas')).not.toBeInTheDocument();
   });
 
+  /**
+   * Rodada de correção (auditoria final): a ordem exigida no Dashboard é
+   * Iniciar Atendimento → Clientes e artes em andamento → Clientes
+   * cadastrados (painel operacional) → demais indicadores.
+   */
+  it('ordem do Dashboard: Iniciar Atendimento → Clientes e artes em andamento → Clientes cadastrados', async () => {
+    listClientesMock.mockResolvedValue({
+      items: [
+        { id: 7, idDesigner: 'designer-1', nome: 'Cliente Com Arte', whatsapp: '5564999990000', instagram: null, observacao: null },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+    listSolicitacoesMock.mockImplementation(({ status }: { status: string }) =>
+      Promise.resolve({
+        items:
+          status === 'Ajustes'
+            ? [
+                {
+                  id: 99,
+                  idCliente: 7,
+                  clienteNome: 'Cliente Com Arte',
+                  idDesigner: 'designer-1',
+                  tema: 'Post de lançamento',
+                  status: 'Ajustes',
+                  dataCriacao: new Date().toISOString(),
+                  prazoPrimeiraVersao: new Date().toISOString(),
+                  prazoAtual: { tipo: 'nova_versao', dataHora: null, responsavel: 'designer' },
+                },
+              ]
+            : [],
+        total: status === 'Ajustes' ? 1 : 0,
+        page: 1,
+        pageSize: 20,
+      }),
+    );
+
+    const { container } = renderPage();
+
+    await screen.findByText('Clientes e artes em andamento');
+    await screen.findByText('Clientes cadastrados');
+
+    const ctaIndex = container.innerHTML.indexOf('Iniciar Atendimento');
+    const acompanhamentoIndex = container.innerHTML.indexOf('Clientes e artes em andamento');
+    const operacionalIndex = container.innerHTML.indexOf('Clientes cadastrados');
+
+    expect(ctaIndex).toBeGreaterThan(-1);
+    expect(acompanhamentoIndex).toBeGreaterThan(ctaIndex);
+    expect(operacionalIndex).toBeGreaterThan(acompanhamentoIndex);
+  });
+
   it('mostra o aviso de bloqueio (RF006) quando o designer está bloqueado', async () => {
     useAuthMock.mockReturnValue({ ...baseAuth, profile: { ...baseAuth.profile!, bloqueado: true } });
     mockCounts();

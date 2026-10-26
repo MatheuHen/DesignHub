@@ -3411,3 +3411,75 @@ admin oficial do backend). Estado final: 14 clientes, 29 solicitações,
   de RF004/RN08-RN09 e RF014/RN32-RN35, sem novo RF, já rodando em produção e
   cobertas por teste — o commit apenas sincronizou o Git com o que já estava
   aprovado e deployado. Mantido por decisão do usuário.
+
+## 2026-10-25 (continuação) — Correção de 3 itens não implementados (auditoria final)
+
+A conferência documental da rodada anterior encontrou 3 itens pedidos em
+rodadas passadas que ainda não estavam implementados no código real. Esta
+rodada corrige exclusivamente esses 3 itens, sem tocar em nenhum outro RF.
+
+### 1. Aba Clientes passa a ter CRUD completo (RF003)
+
+- Nova página `ClientesPage.tsx` substitui `ClienteCadastroPage.tsx`: reúne
+  cadastro, listagem, busca, editar e excluir na aba `/designer/clientes` —
+  antes só havia cadastro ali, e editar/excluir viviam exclusivamente no
+  Dashboard.
+- `ClientesOperacionalPanel.tsx` (Dashboard) perdeu os botões Editar/Excluir;
+  mantém só ações operacionais (iniciar atendimento, Instagram) e a busca,
+  com um link "Gerenciar clientes" para a aba Clientes.
+- Nenhuma API/tabela nova: reaproveita `listClientes`/`createCliente`/
+  `updateCliente`/`deleteCliente` já existentes.
+
+### 2. Ordem do Dashboard corrigida (RF005)
+
+`DesignerHome.tsx`: a seção "Clientes e artes em andamento" passou a vir
+**antes** de "Clientes cadastrados" (antes era o inverso). Ordem final:
+Iniciar Atendimento → Clientes e artes em andamento → Clientes cadastrados →
+tiles/prazos/publicações.
+
+### 3. Busca por Observação (RF003)
+
+`cliente.repository.ts` (`listClientes`): o filtro `.or()` passou a incluir
+`observacao.ilike."%termo%"`, preservando a sintaxe de aspas duplas do
+PostgREST (bug histórico de escape) e a normalização de dígitos do WhatsApp.
+Uma palavra parcial dentro da Observação (ex.: "farmácia" dentro de "cliente
+da farmácia do centro") agora encontra o cliente, nos dois locais de busca
+(aba Clientes e Dashboard).
+
+### 4. WhatsApp — padrão brasileiro obrigatório (RF003/RN07), item adicional corrigido na mesma auditoria
+
+`cliente.schemas.ts`: a regra deixou de aceitar qualquer número com 12+
+dígitos e passou a exigir exatamente `55` (DDI) + DDD (2 dígitos) + celular
+de 9 dígitos iniciado por `9` = 13 dígitos no total, após normalizar a
+máscara. Mensagem de rejeição: "Informe um celular válido com DDI 55, DDD e
+número iniciado por 9." O 9º dígito nunca é adicionado automaticamente —
+número sem ele é rejeitado, não corrigido.
+
+**Auditoria de dados existentes (antes de qualquer CHECK de banco):** consulta
+direta à produção via `SUPABASE_DB_URL` encontrou 3 registros incompatíveis
+com a nova regra (12 dígitos, sem o 9º): `cliente.id_cliente` 9, 11 e 63.
+Por instrução explícita, **nenhum número foi alterado automaticamente** e
+**nenhuma constraint `CHECK` foi criada no banco** — a validação nova vale só
+para novos cadastros/edições a partir desta rodada. Os 3 IDs seguem
+pendentes de correção manual pelo usuário (confirmar com o cliente real e
+reeditar via tela, que já aplica a regra nova).
+
+### Testes e validação
+
+- Backend: **728/728** (719 + 9 novos: 8 casos de WhatsApp + 1 de busca por
+  Observação).
+- Frontend: **162/162** (158 + 4 novos líquidos: `ClienteCadastroPage.test.tsx`
+  foi substituído por `ClientesPage.test.tsx`, com cobertura adicional de
+  editar/excluir/busca; `ClientesOperacionalPanel.test.tsx` perdeu os testes
+  de editar/excluir, que não existem mais nesse componente, e ganhou um teste
+  confirmando a ausência deles; `DesignerHome.test.tsx` ganhou o teste de
+  ordem das seções).
+- Lint, typecheck e build limpos nos dois workspaces.
+
+### Pendência real registrada (não é falha de implementação)
+
+Os 3 clientes com WhatsApp incompatível com o novo padrão (IDs 9, 11, 63)
+continuam no banco sem alteração — aguardando decisão/edição manual do
+usuário, exatamente como instruído. A constraint de banco (`CHECK`) poderá
+ser criada numa rodada futura, depois que esses 3 registros forem corrigidos
+ou removidos.

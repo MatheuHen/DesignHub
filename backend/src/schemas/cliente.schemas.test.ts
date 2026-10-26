@@ -18,6 +18,47 @@ describe('createClienteSchema (RF003/RN07 — item 2.2: normalização do WhatsA
     expect(() => createClienteSchema.parse({ nome: 'Cliente', whatsapp: '98403-5274' })).toThrow();
   });
 
+  it('aceita "+55 (64) 98403-5274" (formato com máscara completa)', () => {
+    const result = createClienteSchema.parse({ nome: 'Cliente', whatsapp: '+55 (64) 98403-5274' });
+    expect(result.whatsapp).toBe('5564984035274');
+  });
+
+  it('aceita "5564984035274" (já normalizado, 13 dígitos)', () => {
+    const result = createClienteSchema.parse({ nome: 'Cliente', whatsapp: '5564984035274' });
+    expect(result.whatsapp).toBe('5564984035274');
+  });
+
+  it('aceita "55 64 98403-5274" (máscara parcial, com espaços)', () => {
+    const result = createClienteSchema.parse({ nome: 'Cliente', whatsapp: '55 64 98403-5274' });
+    expect(result.whatsapp).toBe('5564984035274');
+  });
+
+  it('rejeita celular sem o 9º dígito obrigatório (12 dígitos)', () => {
+    expect(() => createClienteSchema.parse({ nome: 'Cliente', whatsapp: '5564 8403-5274' })).toThrow(
+      'Informe um celular válido com DDI 55, DDD e número iniciado por 9.',
+    );
+  });
+
+  it('rejeita número com 14 dígitos (um dígito além do esperado)', () => {
+    expect(() => createClienteSchema.parse({ nome: 'Cliente', whatsapp: '556498403527499' })).toThrow();
+  });
+
+  it('rejeita DDI diferente de 55', () => {
+    expect(() => createClienteSchema.parse({ nome: 'Cliente', whatsapp: '1164984035274' })).toThrow(
+      'Informe um celular válido com DDI 55, DDD e número iniciado por 9.',
+    );
+  });
+
+  it('rejeita telefone fixo (sem o 9 inicial do celular)', () => {
+    expect(() => createClienteSchema.parse({ nome: 'Cliente', whatsapp: '5564 3045-5274' })).toThrow();
+  });
+
+  it('NÃO adiciona o 9 automaticamente — número sem ele é rejeitado, nunca corrigido', () => {
+    // "556498403274" tem 12 dígitos (sem o 9); o sistema não deve transformar
+    // isso em "5564984032740" nem em qualquer outro valor de 13 dígitos.
+    expect(() => createClienteSchema.parse({ nome: 'Cliente', whatsapp: '556498403274' })).toThrow();
+  });
+
   it('permite dois clientes com o mesmo nome (sem unicidade de nome no schema)', () => {
     const cliente1 = createClienteSchema.parse({ nome: 'João da Silva', whatsapp: '5564999991111' });
     const cliente2 = createClienteSchema.parse({ nome: 'João da Silva', whatsapp: '5564999992222' });
@@ -62,7 +103,7 @@ describe('updateClienteSchema — edição da observação', () => {
   });
 
   it('normaliza WhatsApp também na edição', () => {
-    const result = updateClienteSchema.parse({ whatsapp: '(64) 98403-5274+55' });
-    expect(result.whatsapp).toMatch(/^\d+$/);
+    const result = updateClienteSchema.parse({ whatsapp: '+55 (64) 98403-5274' });
+    expect(result.whatsapp).toBe('5564984035274');
   });
 });

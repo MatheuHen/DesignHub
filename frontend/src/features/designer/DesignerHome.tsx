@@ -195,18 +195,13 @@ export function DesignerHome() {
       {loading && <p role="status">Carregando dashboard…</p>}
 
       {/*
-        Centro operacional do Designer (rodada UX): o painel completo dos
-        clientes já cadastrados — iniciar atendimento, Instagram, editar,
-        excluir, buscar — é exatamente o mesmo componente/APIs que antes
-        viviam na tela Clientes, apenas reposicionado para cá. A tela
-        Clientes ficou dedicada ao cadastro de novo cliente.
-      */}
-      <ClientesOperacionalPanel />
-
-      {/*
-        RF003 + RF005: acompanhamento das artes/solicitações por cliente,
-        reaproveitando as mesmas respostas de `listSolicitacoes` já buscadas
-        para os tiles (nenhuma requisição extra, nenhum dado duplicado).
+        Ordem do Dashboard (rodada de correção — auditoria final): o
+        acompanhamento das artes/solicitações em andamento vem ANTES do
+        painel de clientes cadastrados, para que o designer veja primeiro o
+        que está em andamento antes das ações operacionais com a carteira
+        completa de clientes. Reaproveita as mesmas respostas de
+        `listSolicitacoes` já buscadas para os tiles (nenhuma requisição
+        extra, nenhum dado duplicado).
       */}
       {!loading && !error && acompanhamento.length > 0 && (
         <section className="dashboard-acompanhamento" aria-labelledby="acompanhamento-title">
@@ -253,6 +248,14 @@ export function DesignerHome() {
           </div>
         </section>
       )}
+
+      {/*
+        Centro operacional do Designer: ações sobre clientes já cadastrados
+        (iniciar atendimento, Instagram). Editar/excluir cadastro vivem
+        exclusivamente na aba Clientes (RF003) — nunca duplicados aqui.
+      */}
+      <ClientesOperacionalPanel />
+
       {error && (
         <p role="alert" className="auth-error">
           {error}

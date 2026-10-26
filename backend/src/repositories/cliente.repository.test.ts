@@ -139,6 +139,14 @@ describe('listClientes — busca por WhatsApp mascarado (bug real de smoke test 
     await listClientes(client, { search: '(64) 98403-5274', page: 1, pageSize: 20 });
     expect(captured.value).toContain('nome.ilike."%(64) 98403-5274%"');
   });
+
+  it('inclui a Observação no filtro de busca (rodada de correção: palavra parcial deve encontrar o cliente)', async () => {
+    const captured: { value?: string } = {};
+    const client = createListClient(captured);
+    await listClientes(client, { search: 'farmácia', page: 1, pageSize: 20 });
+    expect(captured.value).toContain('observacao.ilike."%farmácia%"');
+    expect(captured.value).toContain('nome.ilike."%farmácia%"');
+  });
 });
 
 describe('findClienteDuplicadoPorWhatsapp (RF003 — WhatsApp único por designer)', () => {
