@@ -51,7 +51,10 @@ export function InstagramStatusPage() {
   // Item 12.2: se esta aba for de um designer com sessão ativa (ex.: fallback de
   // página inteira quando o popup foi bloqueado), oferece um caminho de volta —
   // nunca redireciona automaticamente, e nunca exige isso de quem não tem sessão.
-  const mostrarVoltarParaClientes = status === 'signed-in' && profile?.perfil === 'designer';
+  // O destino é o painel operacional do Dashboard, onde ficam o status da
+  // conexão e o botão de conectar — não a aba Clientes, que é só o CRUD de
+  // cadastro (RF003).
+  const mostrarVoltarParaDashboard = status === 'signed-in' && profile?.perfil === 'designer';
 
   return (
     <main className="avaliacao-shell">
@@ -85,7 +88,9 @@ export function InstagramStatusPage() {
             </p>
           </>
         )}
-        {mostrarVoltarParaClientes && <Link to="/designer/clientes">Voltar para Clientes</Link>}
+        {mostrarVoltarParaDashboard && (
+          <Link to="/designer#clientes-operacional-title">Voltar para o Dashboard</Link>
+        )}
       </div>
     </main>
   );

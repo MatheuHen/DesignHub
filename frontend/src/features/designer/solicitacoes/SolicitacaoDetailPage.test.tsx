@@ -564,9 +564,11 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     ).toBeInTheDocument();
     expect(getClienteInstagramStatusMock).toHaveBeenCalledWith(sampleDetail.solicitacao.idCliente);
     // item 7.3 (correções 13/09/2026): orienta a conectar OU registrar manualmente, nunca finge automação.
+    // O botão de conectar vive no painel operacional do Dashboard, não na aba
+    // Clientes (que é só o CRUD de cadastro do RF003).
     expect(screen.getByRole('link', { name: 'Conectar Instagram' })).toHaveAttribute(
       'href',
-      '/designer/clientes',
+      '/designer#clientes-operacional-title',
     );
   });
 

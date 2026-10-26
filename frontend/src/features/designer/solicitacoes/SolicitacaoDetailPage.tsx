@@ -806,7 +806,13 @@ export function SolicitacaoDetailPage() {
               {instagramStatus && !instagramStatus.conectado && (
                 <p role="status">
                   Publicação automática indisponível porque o Instagram do cliente não está conectado.{' '}
-                  <Link to="/designer/clientes">Conectar Instagram</Link> ou use "Registrar publicação
+                  {/*
+                    O botão "Conectar Instagram" vive no painel operacional do
+                    Dashboard (`ClientesOperacionalPanel`), não na aba Clientes
+                    (RF003, só CRUD de cadastro) — por isso o link aponta para a
+                    âncora do painel.
+                  */}
+                  <Link to="/designer#clientes-operacional-title">Conectar Instagram</Link> ou use "Registrar publicação
                   manual" abaixo.
                 </p>
               )}

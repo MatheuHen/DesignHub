@@ -37,7 +37,7 @@ describe('InstagramStatusPage (item 12.2/13.3 — destino público do callback O
 
     expect(screen.getByText('Instagram conectado com sucesso')).toBeInTheDocument();
     expect(screen.getByText('Você pode fechar esta página.')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Voltar para Clientes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Voltar para o Dashboard' })).not.toBeInTheDocument();
   });
 
   it('mostra mensagem de erro quando resultado=erro (nunca abre o painel do designer)', () => {
@@ -88,9 +88,11 @@ describe('InstagramStatusPage (item 12.2/13.3 — destino público do callback O
 
     renderPage('?resultado=conectado');
 
-    expect(screen.getByRole('link', { name: 'Voltar para Clientes' })).toHaveAttribute(
+    // Volta para o painel operacional do Dashboard, onde ficam o status da
+    // conexão e o botão de conectar — não para o CRUD da aba Clientes.
+    expect(screen.getByRole('link', { name: 'Voltar para o Dashboard' })).toHaveAttribute(
       'href',
-      '/designer/clientes',
+      '/designer#clientes-operacional-title',
     );
   });
 
