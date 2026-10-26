@@ -302,7 +302,7 @@ p {
   width: 100%;
   min-width: 640px;
   border-collapse: collapse;
-  background: #fff;
+  background: #fbfafd;
   border: 1px solid #e7e4ef;
   border-radius: 14px;
   overflow: hidden;
@@ -320,6 +320,12 @@ p {
   background: #f8f6fc;
   font-weight: 700;
   color: #423a53;
+}
+
+/* Correção visual: linhas zebradas para diferenciar a tabela do fundo branco
+   da página, sem alterar dado, ação ou comportamento — só legibilidade. */
+.designer-table tbody tr:nth-child(even) {
+  background: #f4f2fa;
 }
 
 .designer-actions {
