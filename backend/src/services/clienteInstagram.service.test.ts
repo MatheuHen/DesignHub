@@ -193,6 +193,21 @@ describe('enviarLinkConexaoInstagram (item 4 — rodada correções Instagram)',
     );
   });
 
+  it('avisa o cliente que a conta precisa ser Profissional (a API da Meta não aceita conta pessoal)', async () => {
+    getClienteByIdMock.mockResolvedValue({ id: 1, idDesigner: 'designer-1', whatsapp: '5511988887777' });
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid-1' });
+
+    await enviarLinkConexaoInstagram({} as never, 1, 'designer-1');
+
+    const [, mensagem] = sendTextMessageMock.mock.calls[0] as [string, string];
+    expect(mensagem).toContain('Profissional');
+    expect(mensagem).toContain('Empresarial');
+    expect(mensagem).toContain('Criador de conteúdo');
+    // O aviso tem de vir antes da autorização para o cliente não descobrir a
+    // incompatibilidade só no fim do fluxo da Meta.
+    expect(mensagem.indexOf('Profissional')).toBeLessThan(mensagem.indexOf('não solicita sua senha'));
+  });
+
   it('nunca mascara falha de envio via WhatsApp — devolve o link mesmo assim', async () => {
     getClienteByIdMock.mockResolvedValue({ id: 1, idDesigner: 'designer-1', whatsapp: '5511988887777' });
     sendTextMessageMock.mockRejectedValue(new Error('Falha ao enviar mensagem'));

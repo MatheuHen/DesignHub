@@ -98,9 +98,18 @@ export async function enviarLinkConexaoInstagram(
    */
   await emitirOAuthState(adminClient, { stateHash: hash, idCliente, idDesigner: callerId, origem: 'cliente_link' });
 
+  /**
+   * O pré-requisito da conta profissional vem ANTES do link: a API oficial da
+   * Meta só permite publicar em contas Business/Creator, então um cliente com
+   * conta pessoal percorre toda a autorização e só descobre a incompatibilidade
+   * no fim. Dizer isso antes evita a tentativa frustrada.
+   */
   const message =
     'Para habilitar a publicação pelo DesignHub, conecte sua conta do Instagram pelo link abaixo:\n\n' +
     `${url}\n\n` +
+    'IMPORTANTE: sua conta precisa ser Profissional (Empresarial ou Criador de conteúdo). ' +
+    'Contas pessoais não são aceitas pelo Instagram para publicação automática. ' +
+    'Você pode alterar isso gratuitamente no app do Instagram, em Configurações > Tipo de conta.\n\n' +
     'A autorização é feita diretamente pela Meta. O DesignHub não solicita sua senha.';
 
   let whatsappNotified = false;
