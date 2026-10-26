@@ -204,15 +204,139 @@ export function DesignerHome() {
       )}
 
       {/*
-        Ordem do Dashboard (rodada de correção visual): o acompanhamento de
-        clientes/artes vem logo após o CTA, seguido de tiles de status +
-        prazos próximos + publicações agendadas e, por último, do painel
-        operacional de clientes cadastrados. Nenhum dado, filtro, ação ou
-        comportamento foi alterado — apenas a ordem de renderização.
+        Ordem do Dashboard: CTA → tiles de status + prazos próximos +
+        publicações agendadas → painel operacional "Clientes cadastrados" →
+        acompanhamento de clientes/artes. Nenhum dado, filtro, ação ou
+        comportamento foi alterado — apenas ordem e apresentação visual.
       */}
+      {!loading && !error && tiles && (
+        <section className="dashboard-section" aria-labelledby="tiles-title">
+          <div className="dashboard-section-header">
+            <h2 id="tiles-title">Solicitações por status</h2>
+          </div>
+          <div className="dashboard-tiles">
+            {tiles.map((tile) => (
+              <Link
+                key={tile.status}
+                to={`/designer/solicitacoes?status=${encodeURIComponent(tile.status)}`}
+                className={`dashboard-tile dashboard-tile--${statusSlug(tile.status)}`}
+              >
+                <span className="dashboard-tile-label">{tile.status}</span>
+                <span className="dashboard-tile-count">{tile.total}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!loading && !error && (
+        <section className="dashboard-prazos" aria-labelledby="prazos-title">
+          <div className="dashboard-section-header">
+            <h2 id="prazos-title">Prazos próximos</h2>
+          </div>
+          {prazosProximos.length > 0 && (
+            <div className="dashboard-prazos-alert">
+              ⚠ Você possui {prazosProximos.length} solicitaç{prazosProximos.length === 1 ? 'ão' : 'ões'}{' '}
+              próxima{prazosProximos.length === 1 ? '' : 's'} do prazo
+            </div>
+          )}
+          {prazosProximos.length === 0 ? (
+            <p className="dashboard-prazos-empty">Nenhum prazo próximo no momento.</p>
+          ) : (
+            <div className="table-scroll">
+              <table className="dashboard-data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Cliente</th>
+                    <th scope="col">Prazo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {prazosProximos.map((solicitacao) => {
+                    const tag = prazoTag(solicitacao.prazoPrimeiraVersao);
+                    return (
+                      <tr key={solicitacao.id}>
+                        <td data-label="Cliente">
+                          <Link to={`/designer/solicitacoes/${solicitacao.id}`}>{solicitacao.clienteNome}</Link>
+                        </td>
+                        <td data-label="Prazo" className="dashboard-cell-tag">
+                          <span className={`prazo-tag ${tag.className}`}>{tag.label}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {!loading && !error && agendamentos && agendamentos.length > 0 && (
+        <section className="dashboard-prazos" aria-labelledby="publicacoes-title">
+          <div className="dashboard-section-header">
+            <h2 id="publicacoes-title">Publicações agendadas</h2>
+          </div>
+          <div className="table-scroll">
+          <table className="dashboard-data-table">
+            <thead>
+              <tr>
+                <th scope="col">Cliente</th>
+                <th scope="col">Arte</th>
+                <th scope="col">Data</th>
+                <th scope="col">Horário</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agendamentos.map((agendamento) => {
+                /**
+                 * Rodada correções (item 9): um agendamento continua `Agendado`
+                 * quando o job de publicação falhou ou ainda não rodou. Sem
+                 * marcação, ele aparecia no TOPO da lista (ordem crescente de
+                 * data) indistinguível de uma publicação futura — o designer
+                 * lia "agendada" para algo que já deveria estar no ar.
+                 */
+                const atrasada =
+                  new Date(`${agendamento.dataPublicacao}T${agendamento.horario}`).getTime() < Date.now();
+                return (
+                  <tr key={agendamento.idAgendamento}>
+                    <td data-label="Cliente">
+                      <Link to={`/designer/solicitacoes/${agendamento.idSolicitacao}`}>{agendamento.clienteNome}</Link>
+                    </td>
+                    <td data-label="Arte">{agendamento.tema ?? '—'}</td>
+                    <td data-label="Data">
+                      {new Date(`${agendamento.dataPublicacao}T00:00:00`).toLocaleDateString('pt-BR')}
+                      {atrasada && <span className="dashboard-prazo-atrasado"> (atrasada)</span>}
+                    </td>
+                    <td data-label="Horário" className="dashboard-cell-numeric">
+                      {agendamento.horario.slice(0, 5)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          </div>
+        </section>
+      )}
+
+      {/*
+        Centro operacional do Designer: ações sobre clientes já cadastrados
+        (iniciar atendimento, Instagram) — destino do CTA "Iniciar
+        Atendimento". Editar/excluir cadastro vivem exclusivamente na aba
+        Clientes (RF003) — nunca duplicados aqui.
+      */}
+      <ClientesOperacionalPanel />
+
       {!loading && !error && acompanhamento.length > 0 && (
         <section className="dashboard-acompanhamento" aria-labelledby="acompanhamento-title">
-          <h2 id="acompanhamento-title">Clientes e artes em andamento</h2>
+          <div className="dashboard-section-header">
+            <h2 id="acompanhamento-title">Clientes e artes em andamento</h2>
+            <p className="dashboard-section-hint">
+              {acompanhamento.length} cliente{acompanhamento.length === 1 ? '' : 's'} com arte em
+              andamento
+            </p>
+          </div>
           <div className="table-scroll">
             <table className="designer-table dashboard-acompanhamento-table">
               <caption className="sr-only">
@@ -255,111 +379,6 @@ export function DesignerHome() {
           </div>
         </section>
       )}
-
-      {!loading && !error && tiles && (
-        <div className="dashboard-tiles">
-          {tiles.map((tile) => (
-            <Link
-              key={tile.status}
-              to={`/designer/solicitacoes?status=${encodeURIComponent(tile.status)}`}
-              className={`dashboard-tile dashboard-tile--${statusSlug(tile.status)}`}
-            >
-              <span className="dashboard-tile-label">{tile.status}</span>
-              <span className="dashboard-tile-count">{tile.total}</span>
-            </Link>
-          ))}
-        </div>
-      )}
-
-      {!loading && !error && (
-        <section className="dashboard-prazos" aria-labelledby="prazos-title">
-          <h2 id="prazos-title" className="sr-only">
-            Prazos próximos
-          </h2>
-          {prazosProximos.length > 0 && (
-            <div className="dashboard-prazos-alert">
-              ⚠ Você possui {prazosProximos.length} solicitaç{prazosProximos.length === 1 ? 'ão' : 'ões'}{' '}
-              próxima{prazosProximos.length === 1 ? '' : 's'} do prazo
-            </div>
-          )}
-          {prazosProximos.length === 0 ? (
-            <p className="dashboard-prazos-empty">Nenhum prazo próximo no momento.</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Cliente</th>
-                  <th scope="col">Prazo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {prazosProximos.map((solicitacao) => {
-                  const tag = prazoTag(solicitacao.prazoPrimeiraVersao);
-                  return (
-                    <tr key={solicitacao.id}>
-                      <td>
-                        <Link to={`/designer/solicitacoes/${solicitacao.id}`}>{solicitacao.clienteNome}</Link>
-                      </td>
-                      <td>
-                        <span className={`prazo-tag ${tag.className}`}>{tag.label}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </section>
-      )}
-
-      {!loading && !error && agendamentos && agendamentos.length > 0 && (
-        <section className="dashboard-prazos" aria-labelledby="publicacoes-title">
-          <h2 id="publicacoes-title">Publicações agendadas</h2>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Cliente</th>
-                <th scope="col">Arte</th>
-                <th scope="col">Data</th>
-                <th scope="col">Horário</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agendamentos.map((agendamento) => {
-                /**
-                 * Rodada correções (item 9): um agendamento continua `Agendado`
-                 * quando o job de publicação falhou ou ainda não rodou. Sem
-                 * marcação, ele aparecia no TOPO da lista (ordem crescente de
-                 * data) indistinguível de uma publicação futura — o designer
-                 * lia "agendada" para algo que já deveria estar no ar.
-                 */
-                const atrasada =
-                  new Date(`${agendamento.dataPublicacao}T${agendamento.horario}`).getTime() < Date.now();
-                return (
-                  <tr key={agendamento.idAgendamento}>
-                    <td>
-                      <Link to={`/designer/solicitacoes/${agendamento.idSolicitacao}`}>{agendamento.clienteNome}</Link>
-                    </td>
-                    <td>{agendamento.tema ?? '—'}</td>
-                    <td>
-                      {new Date(`${agendamento.dataPublicacao}T00:00:00`).toLocaleDateString('pt-BR')}
-                      {atrasada && <span className="dashboard-prazo-atrasado"> (atrasada)</span>}
-                    </td>
-                    <td>{agendamento.horario.slice(0, 5)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {/*
-        Centro operacional do Designer: ações sobre clientes já cadastrados
-        (iniciar atendimento, Instagram). Editar/excluir cadastro vivem
-        exclusivamente na aba Clientes (RF003) — nunca duplicados aqui.
-      */}
-      <ClientesOperacionalPanel />
     </AppShell>
   );
 }

@@ -239,11 +239,11 @@ describe('DesignerHome — Dashboard (RF005/RF011/RN13-RN14, FIGURA 7/15/22)', (
   });
 
   /**
-   * Rodada de correção (auditoria final): a ordem exigida no Dashboard é
-   * Iniciar Atendimento → Clientes e artes em andamento → tiles/prazos →
-   * Clientes cadastrados (painel operacional).
+   * Ordem exigida no Dashboard: Iniciar Atendimento → tiles de status /
+   * prazos / publicações → Clientes cadastrados (painel operacional) →
+   * Clientes e artes em andamento.
    */
-  it('ordem do Dashboard: Iniciar Atendimento → Clientes e artes em andamento → Clientes cadastrados', async () => {
+  it('ordem do Dashboard: Iniciar Atendimento → Solicitações por status → Clientes cadastrados → Clientes e artes em andamento', async () => {
     listClientesMock.mockResolvedValue({
       items: [
         { id: 7, idDesigner: 'designer-1', nome: 'Cliente Com Arte', whatsapp: '5564999990000', instagram: null, observacao: null },
@@ -282,12 +282,29 @@ describe('DesignerHome — Dashboard (RF005/RF011/RN13-RN14, FIGURA 7/15/22)', (
     await screen.findByText('Clientes cadastrados');
 
     const ctaIndex = container.innerHTML.indexOf('Iniciar Atendimento');
-    const acompanhamentoIndex = container.innerHTML.indexOf('Clientes e artes em andamento');
+    const tilesIndex = container.innerHTML.indexOf('Solicitações por status');
     const operacionalIndex = container.innerHTML.indexOf('Clientes cadastrados');
+    const acompanhamentoIndex = container.innerHTML.indexOf('Clientes e artes em andamento');
 
     expect(ctaIndex).toBeGreaterThan(-1);
-    expect(acompanhamentoIndex).toBeGreaterThan(ctaIndex);
-    expect(operacionalIndex).toBeGreaterThan(acompanhamentoIndex);
+    expect(tilesIndex).toBeGreaterThan(ctaIndex);
+    expect(operacionalIndex).toBeGreaterThan(tilesIndex);
+    expect(acompanhamentoIndex).toBeGreaterThan(operacionalIndex);
+  });
+
+  /**
+   * Correção de UX: o CTA permanece no Dashboard e apenas rola até o painel
+   * operacional "Clientes cadastrados" — nunca navega para /designer/clientes.
+   */
+  it('CTA "Iniciar Atendimento" aponta para a âncora do painel operacional, não para a aba Clientes', async () => {
+    mockCounts();
+
+    renderPage();
+    await screen.findByText('Nenhum prazo próximo no momento.');
+
+    const cta = screen.getByRole('link', { name: 'Iniciar Atendimento' });
+    expect(cta).toHaveAttribute('href', '#clientes-operacional-title');
+    expect(document.getElementById('clientes-operacional-title')).not.toBeNull();
   });
 
   it('mostra o aviso de bloqueio (RF006) quando o designer está bloqueado', async () => {
