@@ -75,3 +75,6 @@ blob-report/
 # Asset local de configuração única (foto de perfil do WhatsApp Business via
 # API) - não é código-fonte nem documentação do TFC, nunca deve ser versionado.
 /logoofc.png
+
+# Vercel CLI link local (nao versionar)
+.vercel
