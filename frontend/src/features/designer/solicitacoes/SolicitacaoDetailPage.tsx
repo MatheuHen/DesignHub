@@ -125,8 +125,6 @@ export function SolicitacaoDetailPage() {
   const [cancelAgendSuccess, setCancelAgendSuccess] = useState(false);
 
   const [registeringPublicacao, setRegisteringPublicacao] = useState(false);
-  /** RF014/RN33: link do post publicado fora do sistema (opcional). */
-  const [publicacaoPermalink, setPublicacaoPermalink] = useState('');
   const [publicacaoError, setPublicacaoError] = useState<string | null>(null);
 
   const [instagramStatus, setInstagramStatus] = useState<ClienteInstagramStatus | null>(null);
@@ -382,9 +380,8 @@ export function SolicitacaoDetailPage() {
     setRegisteringPublicacao(true);
     setPublicacaoError(null);
 
-    registrarPublicacaoManual(id, publicacaoPermalink.trim() || undefined)
+    registrarPublicacaoManual(id)
       .then(() => {
-        setPublicacaoPermalink('');
         reload();
       })
       .catch((publicacaoErr: unknown) => {
@@ -971,39 +968,15 @@ export function SolicitacaoDetailPage() {
               </p>
 
               {data.solicitacao.status === 'Agendado' && (
-                <>
-                  {/*
-                    RF014/RN33: no caminho manual quem publicou foi o designer,
-                    fora do sistema — só ele sabe o endereço do post. Informado
-                    aqui, o link entra no aviso "ARTE PUBLICADA!" que o cliente
-                    recebe, igual ao que o fluxo automático já faz sozinho.
-                    Continua opcional: a publicação manual é válida sem ele.
-                  */}
-                  <label htmlFor="publicacao-permalink">Link da publicação (opcional)</label>
-                  <input
-                    id="publicacao-permalink"
-                    type="url"
-                    inputMode="url"
-                    placeholder="https://www.instagram.com/p/..."
-                    value={publicacaoPermalink}
-                    onChange={(event) => setPublicacaoPermalink(event.target.value)}
+                <div className="designer-form-actions">
+                  <button
+                    type="button"
+                    onClick={handleRegistrarPublicacaoManual}
                     disabled={registeringPublicacao}
-                    aria-describedby="publicacao-permalink-hint"
-                  />
-                  <p id="publicacao-permalink-hint" className="designer-form-hint">
-                    Se informado, o cliente recebe o link junto do aviso de que a arte foi
-                    publicada.
-                  </p>
-                  <div className="designer-form-actions">
-                    <button
-                      type="button"
-                      onClick={handleRegistrarPublicacaoManual}
-                      disabled={registeringPublicacao}
-                    >
-                      {registeringPublicacao ? 'Registrando…' : 'Registrar publicação manual'}
-                    </button>
-                  </div>
-                </>
+                  >
+                    {registeringPublicacao ? 'Registrando…' : 'Registrar publicação manual'}
+                  </button>
+                </div>
               )}
               {publicacaoError && (
                 <p role="alert" className="auth-error">

@@ -780,32 +780,22 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Registrar publicação manual' }));
 
     await waitFor(() => {
-      expect(registrarPublicacaoManualMock).toHaveBeenCalledWith(10, undefined);
+      expect(registrarPublicacaoManualMock).toHaveBeenCalledWith(10);
     });
     expect(getSolicitacaoDetailMock).toHaveBeenCalledTimes(2);
   });
 
-  it('RF014/RN33: envia o link do post quando o designer informa (vai no aviso ao cliente)', async () => {
+  it('não oferece campo de link na publicação manual (removido a pedido)', async () => {
     getSolicitacaoDetailMock.mockResolvedValue({
       ...sampleDetail,
       solicitacao: { ...sampleDetail.solicitacao, status: 'Agendado' },
       agendamento: { idAgendamento: 1, dataPublicacao: '2030-06-15', horario: '10:00:00', legenda: null },
     });
-    registrarPublicacaoManualMock.mockResolvedValue(undefined);
 
     renderPage();
 
-    fireEvent.change(await screen.findByLabelText('Link da publicação (opcional)'), {
-      target: { value: 'https://www.instagram.com/p/ABC123/' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Registrar publicação manual' }));
-
-    await waitFor(() => {
-      expect(registrarPublicacaoManualMock).toHaveBeenCalledWith(
-        10,
-        'https://www.instagram.com/p/ABC123/',
-      );
-    });
+    await screen.findByRole('button', { name: 'Registrar publicação manual' });
+    expect(screen.queryByLabelText(/Link da publicação/)).not.toBeInTheDocument();
   });
 
   it('exibe o erro do backend quando o registro de publicação manual é rejeitado (RF014)', async () => {
