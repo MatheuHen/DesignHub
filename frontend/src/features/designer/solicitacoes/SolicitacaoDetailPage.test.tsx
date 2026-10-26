@@ -550,6 +550,38 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     ).toBeInTheDocument();
   });
 
+  it('NÃO acusa falha do agendamento automático quando ele foi criado com sucesso', async () => {
+    // Regressão: o aviso de erro dependia só de opcaoPublicacao === 'automatico'
+    // e aparecia mesmo com o agendamento criado, dizendo falsamente ao designer
+    // que o Instagram do cliente não estava conectado.
+    getSolicitacaoDetailMock.mockResolvedValue({
+      ...sampleDetail,
+      solicitacao: { ...sampleDetail.solicitacao, status: 'Agendado' },
+      agendamento: {
+        idAgendamento: 1,
+        dataPublicacao: '2026-08-25',
+        horario: '20:12:00',
+        legenda: null,
+      },
+      preferenciaAgendamento: {
+        desejaAgendamento: true,
+        dataDesejada: '2026-08-25',
+        horarioDesejado: '20:12:00',
+        opcaoPublicacao: 'automatico',
+        legendaDesejada: null,
+      },
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/a publicação já foi agendada — nenhuma ação necessária/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/mas isso não foi possível/),
+    ).not.toBeInTheDocument();
+  });
+
   it('avisa quando o Instagram do cliente não está conectado (RF014/ADR 0005)', async () => {
     getClienteInstagramStatusMock.mockResolvedValue({ conectado: false, conectadoEm: null, expiraEm: null });
     getSolicitacaoDetailMock.mockResolvedValue({

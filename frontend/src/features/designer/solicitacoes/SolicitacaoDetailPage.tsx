@@ -829,10 +829,27 @@ export function SolicitacaoDetailPage() {
               )}
 
               {/* Rodada correções (item 8): opção que o cliente escolheu ao aprovar — só leitura; quem cria/gerencia o agendamento manual continua sendo o designer (RF012). */}
-              {data.preferenciaAgendamento?.opcaoPublicacao === 'automatico' && (
+              {/*
+                Correção: este aviso dependia só de `opcaoPublicacao ===
+                'automatico'` e aparecia MESMO quando o agendamento automático
+                tinha sido criado com sucesso — afirmando ao designer, em tom de
+                erro, que o Instagram do cliente não estava conectado. Agora só
+                aparece quando não existe agendamento ativo, que é o único caso
+                em que o automático de fato não aconteceu (RF012/RF014).
+              */}
+              {data.preferenciaAgendamento?.opcaoPublicacao === 'automatico' && data.agendamento && (
+                <p role="status" className="atendimento-success">
+                  O cliente escolheu agendar automaticamente e a publicação já foi agendada — nenhuma
+                  ação necessária.
+                </p>
+              )}
+              {data.preferenciaAgendamento?.opcaoPublicacao === 'automatico' && !data.agendamento && (
                 <p role="alert" className="auth-error">
-                  O cliente escolheu agendar automaticamente, mas isso não foi possível (o Instagram dele não
-                  estava mais conectado no momento). Agende manualmente abaixo para {' '}
+                  O cliente escolheu agendar automaticamente, mas isso não foi possível
+                  {instagramStatus && !instagramStatus.conectado
+                    ? ' (o Instagram dele não está conectado)'
+                    : ''}
+                  . Agende manualmente abaixo para{' '}
                   {data.preferenciaAgendamento.dataDesejada &&
                     new Date(`${data.preferenciaAgendamento.dataDesejada}T00:00:00`).toLocaleDateString('pt-BR')}{' '}
                   às {data.preferenciaAgendamento.horarioDesejado?.slice(0, 5)}.

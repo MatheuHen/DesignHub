@@ -56,7 +56,7 @@ export function ClienteFormPanel(props: ClienteFormPanelProps) {
       <input id="cliente-nome" required minLength={2} value={nome} onChange={(event) => setNome(event.target.value)} />
 
       <label htmlFor="cliente-whatsapp">WhatsApp *</label>
-      <p className="designer-form-hint">Use DDI 55 + DDD + celular com 9. Ex.: 5564984035274</p>
+      <p className="designer-form-hint">DDD + celular com 9. Ex.: 5564984035274</p>
       <input
         id="cliente-whatsapp"
         required
