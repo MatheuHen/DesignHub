@@ -305,6 +305,13 @@ export function DesignerHome() {
         </section>
       )}
 
+      {/*
+        Centro operacional do Designer: ações sobre clientes já cadastrados
+        (iniciar atendimento, Instagram). Editar/excluir cadastro vivem
+        exclusivamente na aba Clientes (RF003) — nunca duplicados aqui.
+      */}
+      <ClientesOperacionalPanel />
+
       {!loading && !error && acompanhamento.length > 0 && (
         <section className="dashboard-acompanhamento" aria-labelledby="acompanhamento-title">
           <h2 id="acompanhamento-title">Clientes e artes em andamento</h2>
@@ -350,13 +357,6 @@ export function DesignerHome() {
           </div>
         </section>
       )}
-
-      {/*
-        Centro operacional do Designer: ações sobre clientes já cadastrados
-        (iniciar atendimento, Instagram). Editar/excluir cadastro vivem
-        exclusivamente na aba Clientes (RF003) — nunca duplicados aqui.
-      */}
-      <ClientesOperacionalPanel />
     </AppShell>
   );
 }

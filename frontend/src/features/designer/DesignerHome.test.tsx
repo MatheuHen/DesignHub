@@ -243,7 +243,7 @@ describe('DesignerHome — Dashboard (RF005/RF011/RN13-RN14, FIGURA 7/15/22)', (
    * Iniciar Atendimento → Clientes e artes em andamento → Clientes
    * cadastrados (painel operacional) → demais indicadores.
    */
-  it('ordem do Dashboard: Iniciar Atendimento → Clientes e artes em andamento → Clientes cadastrados', async () => {
+  it('ordem do Dashboard: Iniciar Atendimento → Clientes cadastrados → Clientes e artes em andamento', async () => {
     listClientesMock.mockResolvedValue({
       items: [
         { id: 7, idDesigner: 'designer-1', nome: 'Cliente Com Arte', whatsapp: '5564999990000', instagram: null, observacao: null },
@@ -286,8 +286,8 @@ describe('DesignerHome — Dashboard (RF005/RF011/RN13-RN14, FIGURA 7/15/22)', (
     const operacionalIndex = container.innerHTML.indexOf('Clientes cadastrados');
 
     expect(ctaIndex).toBeGreaterThan(-1);
-    expect(acompanhamentoIndex).toBeGreaterThan(ctaIndex);
-    expect(operacionalIndex).toBeGreaterThan(acompanhamentoIndex);
+    expect(operacionalIndex).toBeGreaterThan(ctaIndex);
+    expect(acompanhamentoIndex).toBeGreaterThan(operacionalIndex);
   });
 
   it('mostra o aviso de bloqueio (RF006) quando o designer está bloqueado', async () => {
