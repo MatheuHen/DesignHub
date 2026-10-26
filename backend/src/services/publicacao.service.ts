@@ -316,6 +316,7 @@ export async function registrarPublicacaoManual(
   userClient: SupabaseClient,
   idSolicitacao: number,
   callerId: string,
+  permalink?: string,
 ): Promise<void> {
   const solicitacao = await getSolicitacaoDetailRepo(userClient, idSolicitacao);
   if (!solicitacao || solicitacao.idDesigner !== callerId) {
@@ -333,10 +334,14 @@ export async function registrarPublicacaoManual(
   }
 
   const adminClient = getSupabaseAdminClient();
+  // O permalink informado pelo designer é gravado antes do aviso ao cliente,
+  // para que `notificarClientePublicacaoBestEffort` já encontre o link e o
+  // inclua na mensagem ("Veja aqui: ..."), igual ao fluxo automático.
   await registerPublicacaoSucesso(adminClient, {
     idAgendamento: agendamento.idAgendamento,
     tipo: 'manual',
     atorId: callerId,
+    permalink: permalink ?? null,
   });
 
   await notificarClientePublicacaoBestEffort(adminClient, idSolicitacao);

@@ -590,7 +590,43 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
       .set('Authorization', 'Bearer token-designer');
 
     expect(response.status).toBe(204);
-    expect(registrarPublicacaoManualMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1');
+    // Sem body: o link do post é opcional (RF014/RN33).
+    expect(registrarPublicacaoManualMock).toHaveBeenCalledWith(
+      expect.anything(),
+      10,
+      'user-1',
+      undefined,
+    );
+  });
+
+  it('RF014/RN33: POST /:id/publicacao-manual repassa o permalink informado pelo designer', async () => {
+    mockAuthenticatedUser('designer');
+    registrarPublicacaoManualMock.mockResolvedValue(undefined);
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/publicacao-manual')
+      .set('Authorization', 'Bearer token-designer')
+      .send({ permalink: 'https://www.instagram.com/p/ABC123/' });
+
+    expect(response.status).toBe(204);
+    expect(registrarPublicacaoManualMock).toHaveBeenCalledWith(
+      expect.anything(),
+      10,
+      'user-1',
+      'https://www.instagram.com/p/ABC123/',
+    );
+  });
+
+  it('RF014/seção 12.2: POST /:id/publicacao-manual rejeita permalink que não seja https (vetor de XSS)', async () => {
+    mockAuthenticatedUser('designer');
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/publicacao-manual')
+      .set('Authorization', 'Bearer token-designer')
+      .send({ permalink: 'javascript:alert(1)' });
+
+    expect(response.status).toBe(400);
+    expect(registrarPublicacaoManualMock).not.toHaveBeenCalled();
   });
 
   it('melhoria autorizada (item 10): POST /:id/publicacao/reenviar-notificacao é exclusivo do designer — administrador recebe 403', async () => {

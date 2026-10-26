@@ -275,8 +275,16 @@ export function cancelAgendamento(id: number): Promise<void> {
 }
 
 /** RF014/RN29/RN33: fallback manual — designer registra que publicou fora do sistema. */
-export function registrarPublicacaoManual(id: number): Promise<void> {
-  return apiRequest<void>(`/api/solicitacoes/${id}/publicacao-manual`, { method: 'POST' });
+/**
+ * RF014/RN33: `permalink` é o endereço do post que o designer publicou fora
+ * do sistema. Opcional — quando informado, entra no aviso "ARTE PUBLICADA!"
+ * que o cliente recebe, como já acontece na publicação automática.
+ */
+export function registrarPublicacaoManual(id: number, permalink?: string): Promise<void> {
+  return apiRequest<void>(`/api/solicitacoes/${id}/publicacao-manual`, {
+    method: 'POST',
+    body: JSON.stringify(permalink ? { permalink } : {}),
+  });
 }
 
 export interface PublicacaoDetalhe {

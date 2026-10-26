@@ -48,6 +48,34 @@ export const uploadVersaoArteBodySchema = z.object({
     .transform((value) => (value === '' ? undefined : value)),
 });
 
+/**
+ * RF014/RN33: no fallback manual o designer publicou fora do sistema, então
+ * só ele conhece o endereço do post. O link é opcional (a publicação manual
+ * continua válida sem ele) e, quando informado, entra no aviso "ARTE
+ * PUBLICADA!" enviado ao cliente — o mesmo campo `permalink` que o fluxo
+ * automático do Instagram preenche sozinho.
+ *
+ * Só `https` é aceito: esse valor vem do usuário e é renderizado como link
+ * para o cliente, então esquemas como `javascript:`/`data:` seriam vetor de
+ * XSS (seção 12.2). Não há nenhuma requisição do servidor para esta URL, logo
+ * não há superfície de SSRF.
+ */
+export const registrarPublicacaoManualSchema = z
+  .object({
+    permalink: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .transform((value) => (value === '' ? undefined : value))
+      .refine(
+        (value) => value === undefined || /^https:\/\/\S+$/.test(value),
+        { message: 'O link da publicação deve começar com https://' },
+      ),
+  })
+  .strict();
+export type RegistrarPublicacaoManualInput = z.infer<typeof registrarPublicacaoManualSchema>;
+
 export const versaoArteParamsSchema = z.object({
   id: z.coerce.number().int().positive(),
   versaoId: z.coerce.number().int().positive(),

@@ -605,6 +605,40 @@ describe('registrarPublicacaoManual (RF014 — fallback manual)', () => {
     );
   });
 
+  it('RF014/RN33: grava o permalink informado pelo designer, para entrar no aviso ao cliente', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idDesigner: 'designer-1', status: 'Agendado' });
+    getActiveAgendamentoBySolicitacaoMock.mockResolvedValue({
+      idAgendamento: 7,
+      idSolicitacao: 10,
+      idDesigner: 'designer-1',
+      status: 'Agendado',
+    });
+
+    await registrarPublicacaoManual({} as never, 10, 'designer-1', 'https://www.instagram.com/p/ABC123/');
+
+    expect(registerPublicacaoSucessoMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ permalink: 'https://www.instagram.com/p/ABC123/' }),
+    );
+  });
+
+  it('RF014: sem permalink informado, grava null (publicação manual continua válida)', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idDesigner: 'designer-1', status: 'Agendado' });
+    getActiveAgendamentoBySolicitacaoMock.mockResolvedValue({
+      idAgendamento: 7,
+      idSolicitacao: 10,
+      idDesigner: 'designer-1',
+      status: 'Agendado',
+    });
+
+    await registrarPublicacaoManual({} as never, 10, 'designer-1');
+
+    expect(registerPublicacaoSucessoMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ permalink: null }),
+    );
+  });
+
   it('item 9.2/9.4 (correções 13/09/2026): notifica o cliente via WhatsApp também na publicação manual', async () => {
     getSolicitacaoDetailRepoMock.mockResolvedValue({
       idDesigner: 'designer-1',

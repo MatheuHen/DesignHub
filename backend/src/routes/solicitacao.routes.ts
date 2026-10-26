@@ -12,6 +12,7 @@ import { reassignSolicitacaoSchema } from '../schemas/designer.schemas.js';
 import {
   ajusteParamsSchema,
   listSolicitacoesQuerySchema,
+  registrarPublicacaoManualSchema,
   solicitacaoIdParamSchema,
   updateSolicitacaoSchema,
   uploadVersaoArteBodySchema,
@@ -364,8 +365,9 @@ solicitacaoRouter.post(
   async (request, response, next) => {
     try {
       const { id } = solicitacaoIdParamSchema.parse(request.params);
+      const { permalink } = registrarPublicacaoManualSchema.parse(request.body ?? {});
       const client = getSupabaseUserClient(request.auth!.accessToken);
-      await registrarPublicacaoManual(client, id, request.auth!.userId);
+      await registrarPublicacaoManual(client, id, request.auth!.userId, permalink);
       response.status(204).end();
     } catch (error) {
       next(toAppError(error));
