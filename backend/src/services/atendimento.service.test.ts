@@ -212,6 +212,12 @@ describe('iniciarAtendimento (RF004/RN02/RN03, RF006)', () => {
 
     expect(sendTextMessageMock).toHaveBeenCalledWith('5511999999999', expect.stringContaining('Dora Designer'));
     expect(sendTextMessageMock).not.toHaveBeenCalledWith('5511999999999', expect.stringContaining('@'));
+    // A mensagem abre direto pelo designer responsável, sem saudação da marca:
+    // o cliente sabe de imediato a quem a arte está vinculada.
+    expect(sendTextMessageMock).toHaveBeenCalledWith(
+      '5511999999999',
+      expect.stringMatching(/^O atendimento da sua solicitação está sendo realizado por Dora Designer\./),
+    );
   });
 
   it('rodada correções (item 27): cai para o texto genérico se o nome do designer não puder ser resolvido', async () => {

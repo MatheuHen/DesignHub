@@ -37,7 +37,15 @@ export const ATENDIMENTO_QUESTIONS: readonly QuestionDefinition[] = [
 /**
  * Item 27 (rodada correções): a primeira mensagem do questionário (pergunta
  * de confirmação, RN08) passa a identificar o designer responsável pelo
- * atendimento — só o nome de exibição, nunca e-mail/ID (RNF010). Só usada no
+ * atendimento — só o nome de exibição, nunca e-mail/ID (RNF010).
+ *
+ * Ajuste 2026-10-26: removida a saudação "Olá! Aqui é o DesignHub." — ela
+ * repetia o que o template já diz na mensagem imediatamente anterior, e a
+ * frase agora abre pelo designer responsável. O template que abre a conversa
+ * (`WHATSAPP_TEMPLATE_NAME`)
+ * foi aprovado pela Meta sem variável no corpo e continua genérico; por isso
+ * a identificação do responsável vive aqui, na primeira mensagem de texto
+ * livre, enviada em seguida dentro da janela de 24h. Só usada no
  * envio inicial (`iniciarAtendimento`); reenvios da mesma pergunta em outros
  * pontos do fluxo (ex.: retomada após cancelamento abortado) usam o texto
  * genérico de `ATENDIMENTO_QUESTIONS[0].prompt` — o cliente já viu o nome na
@@ -45,7 +53,7 @@ export const ATENDIMENTO_QUESTIONS: readonly QuestionDefinition[] = [
  */
 export function buildConfirmacaoPromptComDesigner(designerNomeCompleto: string): string {
   return (
-    `Olá! Aqui é o DesignHub. O atendimento da sua solicitação está sendo realizado por ${designerNomeCompleto}. ` +
+    `O atendimento da sua solicitação está sendo realizado por ${designerNomeCompleto}. ` +
     'Suas respostas (tema, cores, observações e referências) serão usadas apenas para produzir e avaliar a sua ' +
     'arte, conforme a LGPD (Lei nº 13.709/2018). Podemos continuar? Responda para confirmar.'
   );
