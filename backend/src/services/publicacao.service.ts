@@ -43,6 +43,18 @@ const AUTO_PUBLISHABLE_FORMATS = new Set(['JPG', 'PNG']);
 /** Mesmo prazo de URL assinada usado na Fase 8/9, com folga maior para a Meta buscar o arquivo. */
 const DOWNLOAD_URL_EXPIRES_IN_SECONDS = 600;
 
+/**
+ * TTL do link do comprovante enviado ao cliente por WhatsApp. É maior que o
+ * usado na tela do designer (600s) porque o cliente abre a mensagem quando
+ * pode, não no instante do envio — 10 minutos expirariam antes de ser útil.
+ *
+ * O link é assinado e sem autenticação, então o prazo é deliberadamente
+ * limitado (não permanente) e vai só para o WhatsApp cadastrado do próprio
+ * cliente dono da arte. O conteúdo é o comprovante de uma publicação que já
+ * está no ar no Instagram dele.
+ */
+const COMPROVANTE_CLIENTE_URL_EXPIRES_IN_SECONDS = 24 * 60 * 60;
+
 export interface ProcessarAgendamentosResult {
   processados: number;
   publicadosAutomaticamente: number;
@@ -472,6 +484,63 @@ export async function reenviarNotificacaoPublicacao(
 
   const adminClient = getSupabaseAdminClient();
   await notificarClientePublicacaoBestEffort(adminClient, idSolicitacao, { force: true });
+}
+
+/**
+ * RF014/RN13-RN14: envia ao cliente o link do comprovante da publicação.
+ * Antes o aviso automático só dizia "fale com o seu designer se quiser
+ * recebê-lo" — o designer não tinha como entregar o comprovante pelo
+ * sistema. Agora é uma ação explícita dele, nunca automática.
+ *
+ * Mesmo guard de ownership e de status de `getComprovanteDownloadUrl`: só o
+ * designer responsável, só depois de `Publicado`, e só se o comprovante
+ * existir. O link é assinado, temporário e vai apenas para o WhatsApp
+ * cadastrado do cliente dono da arte.
+ */
+export async function enviarComprovanteAoCliente(
+  userClient: SupabaseClient,
+  idSolicitacao: number,
+  callerId: string,
+): Promise<void> {
+  const solicitacao = await getSolicitacaoDetailRepo(userClient, idSolicitacao);
+  if (!solicitacao || solicitacao.idDesigner !== callerId) {
+    throw new NotFoundError('Solicitação não encontrada.');
+  }
+  if (solicitacao.status !== 'Publicado') {
+    throw new ConflictError(
+      `Solicitação ainda não foi publicada (status atual: ${solicitacao.status}).`,
+    );
+  }
+
+  const adminClient = getSupabaseAdminClient();
+  const publicacao = await getPublicacaoBySolicitacao(adminClient, idSolicitacao);
+  if (!publicacao || !publicacao.comprovanteUrl) {
+    throw new NotFoundError('Comprovante não encontrado.');
+  }
+
+  const cliente = await findClienteById(adminClient, solicitacao.idCliente);
+  if (!cliente) {
+    throw new NotFoundError('Cliente não encontrado.');
+  }
+
+  // `forceDownload = false`: o cliente abre a imagem no navegador do celular,
+  // em vez de baixar um arquivo.
+  const url = await createVersaoArteDownloadUrl(
+    adminClient,
+    publicacao.comprovanteUrl,
+    COMPROVANTE_CLIENTE_URL_EXPIRES_IN_SECONDS,
+    false,
+  );
+
+  const artLabel = solicitacao.tema ? `a arte "${solicitacao.tema}"` : 'sua arte';
+  const message =
+    `Aqui está o comprovante da publicação de ${artLabel}:\n\n${url}\n\n` +
+    'O link fica disponível por 24 horas.';
+
+  // Diferente dos avisos automáticos (best-effort), aqui a falha PRECISA
+  // chegar ao designer: ele clicou para enviar e precisa saber se o cliente
+  // recebeu — silenciar viraria "fingir sucesso" (seção 3.1).
+  await sendTextMessage(cliente.whatsapp, message);
 }
 
 export interface PublicacaoDetalhe {

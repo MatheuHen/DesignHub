@@ -316,6 +316,13 @@ export function getComprovanteDownloadUrl(id: number): Promise<VersaoArteDownloa
 }
 
 /** Melhoria autorizada (item 10 — retry seguro): reenvia o aviso "arte publicada" ao cliente. */
+/** RF014/RN13-RN14: envia ao cliente, por WhatsApp, o link do comprovante. */
+export function enviarComprovanteAoCliente(id: number): Promise<void> {
+  return apiRequest<void>(`/api/solicitacoes/${id}/publicacao/comprovante/enviar`, {
+    method: 'POST',
+  });
+}
+
 export function reenviarNotificacaoPublicacao(id: number): Promise<void> {
   return apiRequest<void>(`/api/solicitacoes/${id}/publicacao/reenviar-notificacao`, { method: 'POST' });
 }

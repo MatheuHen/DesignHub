@@ -70,12 +70,14 @@ const {
   uploadComprovantePublicacaoMock,
   getComprovanteDownloadUrlMock,
   reenviarNotificacaoPublicacaoMock,
+  enviarComprovanteAoClienteMock,
 } = vi.hoisted(() => ({
   registrarPublicacaoManualMock: vi.fn(),
   getPublicacaoDetalheMock: vi.fn(),
   uploadComprovantePublicacaoMock: vi.fn(),
   getComprovanteDownloadUrlMock: vi.fn(),
   reenviarNotificacaoPublicacaoMock: vi.fn(),
+  enviarComprovanteAoClienteMock: vi.fn(),
 }));
 
 vi.mock('../services/publicacao.service.js', () => ({
@@ -84,6 +86,7 @@ vi.mock('../services/publicacao.service.js', () => ({
   uploadComprovantePublicacao: uploadComprovantePublicacaoMock,
   getComprovanteDownloadUrl: getComprovanteDownloadUrlMock,
   reenviarNotificacaoPublicacao: reenviarNotificacaoPublicacaoMock,
+  enviarComprovanteAoCliente: enviarComprovanteAoClienteMock,
 }));
 
 const { createApp } = await import('../app.js');
@@ -114,6 +117,7 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
     uploadComprovantePublicacaoMock.mockReset();
     getComprovanteDownloadUrlMock.mockReset();
     reenviarNotificacaoPublicacaoMock.mockReset();
+    enviarComprovanteAoClienteMock.mockReset();
     cancelSolicitacaoMock.mockReset();
   });
 
@@ -627,6 +631,38 @@ describe('Autorização por perfil em /api/solicitacoes (RF005/RF016)', () => {
 
     expect(response.status).toBe(400);
     expect(registrarPublicacaoManualMock).not.toHaveBeenCalled();
+  });
+
+  it('RF014: POST /:id/publicacao/comprovante/enviar é exclusivo do designer — administrador recebe 403', async () => {
+    mockAuthenticatedUser('administrador');
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/publicacao/comprovante/enviar')
+      .set('Authorization', 'Bearer token-admin');
+
+    expect(response.status).toBe(403);
+    expect(enviarComprovanteAoClienteMock).not.toHaveBeenCalled();
+  });
+
+  it('RF014: POST /:id/publicacao/comprovante/enviar rejeita sem autenticação', async () => {
+    const response = await request(createApp()).post(
+      '/api/solicitacoes/10/publicacao/comprovante/enviar',
+    );
+
+    expect(response.status).toBe(401);
+    expect(enviarComprovanteAoClienteMock).not.toHaveBeenCalled();
+  });
+
+  it('RF014: POST /:id/publicacao/comprovante/enviar permite designer e delega ao service', async () => {
+    mockAuthenticatedUser('designer');
+    enviarComprovanteAoClienteMock.mockResolvedValue(undefined);
+
+    const response = await request(createApp())
+      .post('/api/solicitacoes/10/publicacao/comprovante/enviar')
+      .set('Authorization', 'Bearer token-designer');
+
+    expect(response.status).toBe(204);
+    expect(enviarComprovanteAoClienteMock).toHaveBeenCalledWith(expect.anything(), 10, 'user-1');
   });
 
   it('melhoria autorizada (item 10): POST /:id/publicacao/reenviar-notificacao é exclusivo do designer — administrador recebe 403', async () => {

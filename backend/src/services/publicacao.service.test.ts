@@ -100,6 +100,7 @@ const {
   uploadComprovantePublicacao,
   getPublicacaoDetalhe,
   getComprovanteDownloadUrl,
+  enviarComprovanteAoCliente,
 } = await import('./publicacao.service.js');
 
 const { WhatsAppReengagementRequiredError } = await import('../integrations/whatsapp/whatsappClient.js');
@@ -956,5 +957,88 @@ describe('getComprovanteDownloadUrl (item 9.3)', () => {
     await expect(
       getComprovanteDownloadUrl({} as never, 10, 'designer-1'),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+describe('enviarComprovanteAoCliente (RF014/RN13-RN14)', () => {
+  beforeEach(() => {
+    getSolicitacaoDetailRepoMock.mockReset();
+    getPublicacaoBySolicitacaoMock.mockReset();
+    findClienteByIdMock.mockReset();
+    createVersaoArteDownloadUrlMock.mockReset();
+    sendTextMessageMock.mockReset();
+  });
+
+  function mockCenarioValido() {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Publicado',
+      idCliente: 5,
+      tema: 'Post promocional',
+    });
+    getPublicacaoBySolicitacaoMock.mockResolvedValue({
+      comprovanteUrl: 'solicitacoes/10/publicacao/x.png',
+    });
+    findClienteByIdMock.mockResolvedValue({ id: 5, whatsapp: '5511999999999' });
+    createVersaoArteDownloadUrlMock.mockResolvedValue('https://exemplo.supabase.co/signed-comprovante');
+    sendTextMessageMock.mockResolvedValue({ wamid: 'wamid.1' });
+  }
+
+  it('envia o link ao WhatsApp do cliente dono, com validade de 24h', async () => {
+    mockCenarioValido();
+
+    await enviarComprovanteAoCliente({} as never, 10, 'designer-1');
+
+    expect(createVersaoArteDownloadUrlMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'solicitacoes/10/publicacao/x.png',
+      86_400,
+      false,
+    );
+    const [destino, mensagem] = sendTextMessageMock.mock.calls[0] as [string, string];
+    expect(destino).toBe('5511999999999');
+    expect(mensagem).toContain('https://exemplo.supabase.co/signed-comprovante');
+    expect(mensagem).toContain('24 horas');
+  });
+
+  it('rejeita designer que não é o dono da solicitação (IDOR) e não envia nada', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idDesigner: 'outro-designer', status: 'Publicado' });
+
+    await expect(
+      enviarComprovanteAoCliente({} as never, 10, 'designer-1'),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('rejeita quando a solicitação ainda não foi publicada', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idDesigner: 'designer-1', status: 'Agendado' });
+
+    await expect(
+      enviarComprovanteAoCliente({} as never, 10, 'designer-1'),
+    ).rejects.toBeInstanceOf(ConflictError);
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('rejeita quando não há comprovante anexado', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Publicado',
+      idCliente: 5,
+    });
+    getPublicacaoBySolicitacaoMock.mockResolvedValue({ comprovanteUrl: null });
+
+    await expect(
+      enviarComprovanteAoCliente({} as never, 10, 'designer-1'),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('propaga a falha de envio — diferente dos avisos best-effort, o designer precisa saber', async () => {
+    mockCenarioValido();
+    sendTextMessageMock.mockRejectedValue(new Error('WhatsApp indisponível'));
+
+    await expect(enviarComprovanteAoCliente({} as never, 10, 'designer-1')).rejects.toThrow(
+      'WhatsApp indisponível',
+    );
   });
 });

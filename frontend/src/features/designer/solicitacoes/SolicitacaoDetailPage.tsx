@@ -19,6 +19,7 @@ import {
   getPublicacaoDetalhe,
   getSolicitacaoDetail,
   getVersaoArteDownloadUrl,
+  enviarComprovanteAoCliente,
   reenviarNotificacaoPublicacao,
   registrarPublicacaoManual,
   updateAgendamento,
@@ -136,6 +137,9 @@ export function SolicitacaoDetailPage() {
   const [comprovanteSuccess, setComprovanteSuccess] = useState(false);
   const [downloadingComprovante, setDownloadingComprovante] = useState(false);
   const [comprovanteDownloadError, setComprovanteDownloadError] = useState<string | null>(null);
+  const [sendingComprovante, setSendingComprovante] = useState(false);
+  const [sendComprovanteError, setSendComprovanteError] = useState<string | null>(null);
+  const [sendComprovanteSuccess, setSendComprovanteSuccess] = useState(false);
   const [resendingNotificacao, setResendingNotificacao] = useState(false);
   const [resendNotificacaoError, setResendNotificacaoError] = useState<string | null>(null);
   const [resendNotificacaoSuccess, setResendNotificacaoSuccess] = useState(false);
@@ -432,6 +436,24 @@ export function SolicitacaoDetailPage() {
         );
       })
       .finally(() => setResendingNotificacao(false));
+  }
+
+  /** RF014/RN13-RN14: envia ao cliente o link do comprovante por WhatsApp. */
+  function handleEnviarComprovante() {
+    setSendingComprovante(true);
+    setSendComprovanteError(null);
+    setSendComprovanteSuccess(false);
+
+    enviarComprovanteAoCliente(id)
+      .then(() => setSendComprovanteSuccess(true))
+      .catch((sendErr: unknown) => {
+        setSendComprovanteError(
+          sendErr instanceof ApiError
+            ? sendErr.message
+            : 'Não foi possível enviar o comprovante ao cliente.',
+        );
+      })
+      .finally(() => setSendingComprovante(false));
   }
 
   function handleDownloadComprovante() {
@@ -1027,11 +1049,37 @@ export function SolicitacaoDetailPage() {
                   )}
 
                   {publicacaoDetalhe.temComprovante ? (
-                    <div className="designer-form-actions">
-                      <button type="button" onClick={handleDownloadComprovante} disabled={downloadingComprovante}>
-                        {downloadingComprovante ? 'Carregando comprovante…' : 'Ver comprovante'}
-                      </button>
-                    </div>
+                    <>
+                      <div className="designer-form-actions">
+                        <button type="button" onClick={handleDownloadComprovante} disabled={downloadingComprovante}>
+                          {downloadingComprovante ? 'Carregando comprovante…' : 'Ver comprovante'}
+                        </button>
+                        {/*
+                          Antes o aviso automático dizia ao cliente "fale com o
+                          seu designer se quiser recebê-lo" e não havia como
+                          entregar o comprovante pelo sistema. O envio é sempre
+                          ação explícita do designer, nunca automática.
+                        */}
+                        <button
+                          type="button"
+                          onClick={handleEnviarComprovante}
+                          disabled={sendingComprovante}
+                        >
+                          {sendingComprovante ? 'Enviando…' : 'Enviar comprovante ao cliente'}
+                        </button>
+                      </div>
+                      {sendComprovanteError && (
+                        <p role="alert" className="auth-error">
+                          {sendComprovanteError}
+                        </p>
+                      )}
+                      {sendComprovanteSuccess && (
+                        <p role="status" className="atendimento-success">
+                          Comprovante enviado ao WhatsApp do cliente. O link fica disponível por 24
+                          horas.
+                        </p>
+                      )}
+                    </>
                   ) : (
                     <form className="designer-form" onSubmit={handleUploadComprovante} aria-label="Enviar comprovante">
                       <FilePreviewPicker

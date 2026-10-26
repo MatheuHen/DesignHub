@@ -26,6 +26,7 @@ import {
 import { gerarLinkAvaliacao, getLinkAvaliacaoHistorico } from '../services/avaliacao.service.js';
 import { reassignSolicitacao } from '../services/designer.service.js';
 import {
+  enviarComprovanteAoCliente,
   getComprovanteDownloadUrl,
   getPublicacaoDetalhe,
   registrarPublicacaoManual,
@@ -449,6 +450,27 @@ solicitacaoRouter.post(
       const { id } = solicitacaoIdParamSchema.parse(request.params);
       const client = getSupabaseUserClient(request.auth!.accessToken);
       await reenviarNotificacaoPublicacao(client, id, request.auth!.userId);
+      response.status(204).end();
+    } catch (error) {
+      next(toAppError(error));
+    }
+  },
+);
+
+/**
+ * RF014/RN13-RN14: envia ao cliente, por WhatsApp, o link do comprovante da
+ * publicação. Ação explícita do designer responsável — nunca automática.
+ * Mesmo limite dedicado do reenvio de aviso: dispara envio a serviço externo.
+ */
+solicitacaoRouter.post(
+  '/:id/publicacao/comprovante/enviar',
+  requireProfile('designer'),
+  reenviarNotificacaoPublicacaoRateLimit,
+  async (request, response, next) => {
+    try {
+      const { id } = solicitacaoIdParamSchema.parse(request.params);
+      const client = getSupabaseUserClient(request.auth!.accessToken);
+      await enviarComprovanteAoCliente(client, id, request.auth!.userId);
       response.status(204).end();
     } catch (error) {
       next(toAppError(error));

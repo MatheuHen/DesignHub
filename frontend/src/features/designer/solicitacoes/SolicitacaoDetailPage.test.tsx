@@ -21,6 +21,7 @@ const {
   uploadComprovantePublicacaoMock,
   getComprovanteDownloadUrlMock,
   reenviarNotificacaoPublicacaoMock,
+  enviarComprovanteAoClienteMock,
   cancelSolicitacaoMock,
 } = vi.hoisted(() => ({
   getSolicitacaoDetailMock: vi.fn(),
@@ -39,6 +40,7 @@ const {
   uploadComprovantePublicacaoMock: vi.fn(),
   getComprovanteDownloadUrlMock: vi.fn(),
   reenviarNotificacaoPublicacaoMock: vi.fn(),
+  enviarComprovanteAoClienteMock: vi.fn(),
   cancelSolicitacaoMock: vi.fn(),
 }));
 
@@ -62,6 +64,7 @@ vi.mock('./api', async (importOriginal) => {
     uploadComprovantePublicacao: uploadComprovantePublicacaoMock,
     getComprovanteDownloadUrl: getComprovanteDownloadUrlMock,
     reenviarNotificacaoPublicacao: reenviarNotificacaoPublicacaoMock,
+    enviarComprovanteAoCliente: enviarComprovanteAoClienteMock,
     cancelSolicitacao: cancelSolicitacaoMock,
   };
 });
@@ -139,6 +142,7 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     uploadComprovantePublicacaoMock.mockReset();
     getComprovanteDownloadUrlMock.mockReset();
     reenviarNotificacaoPublicacaoMock.mockReset();
+    enviarComprovanteAoClienteMock.mockReset();
     cancelSolicitacaoMock.mockReset();
     getClienteInstagramStatusMock
       .mockReset()
@@ -966,5 +970,66 @@ describe('SolicitacaoDetailPage (RF005)', () => {
     expect(screen.queryByRole('button', { name: 'Enviar comprovante' })).not.toBeInTheDocument();
 
     openSpy.mockRestore();
+  });
+
+  describe('envio do comprovante ao cliente (RF014/RN13-RN14)', () => {
+    function mockPublicadoComComprovante() {
+      getSolicitacaoDetailMock.mockResolvedValue({
+        ...sampleDetail,
+        solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
+      });
+      getPublicacaoDetalheMock.mockResolvedValue({
+        dataPublicada: '2030-06-15T14:00:00Z',
+        tipo: 'manual',
+        permalink: null,
+        numeroVersao: 1,
+        temComprovante: true,
+      });
+    }
+
+    it('envia o comprovante ao cliente e confirma o prazo do link', async () => {
+      mockPublicadoComComprovante();
+      enviarComprovanteAoClienteMock.mockResolvedValue(undefined);
+
+      renderPage();
+      fireEvent.click(await screen.findByRole('button', { name: 'Enviar comprovante ao cliente' }));
+
+      await waitFor(() => expect(enviarComprovanteAoClienteMock).toHaveBeenCalledWith(10));
+      expect(await screen.findByText(/link fica disponível por 24\s*horas/)).toBeInTheDocument();
+    });
+
+    it('mostra o erro real quando o envio falha — nunca finge que o cliente recebeu', async () => {
+      mockPublicadoComComprovante();
+      enviarComprovanteAoClienteMock.mockRejectedValue(
+        new ApiError(502, 'WHATSAPP_INDISPONIVEL', 'WhatsApp indisponível no momento.'),
+      );
+
+      renderPage();
+      fireEvent.click(await screen.findByRole('button', { name: 'Enviar comprovante ao cliente' }));
+
+      expect(await screen.findByText('WhatsApp indisponível no momento.')).toBeInTheDocument();
+      expect(screen.queryByText(/link fica disponível por 24/)).not.toBeInTheDocument();
+    });
+
+    it('não oferece o envio quando ainda não há comprovante anexado', async () => {
+      getSolicitacaoDetailMock.mockResolvedValue({
+        ...sampleDetail,
+        solicitacao: { ...sampleDetail.solicitacao, status: 'Publicado' },
+      });
+      getPublicacaoDetalheMock.mockResolvedValue({
+        dataPublicada: '2030-06-15T14:00:00Z',
+        tipo: 'manual',
+        permalink: null,
+        numeroVersao: 1,
+        temComprovante: false,
+      });
+
+      renderPage();
+      await screen.findByRole('button', { name: 'Enviar comprovante' });
+
+      expect(
+        screen.queryByRole('button', { name: 'Enviar comprovante ao cliente' }),
+      ).not.toBeInTheDocument();
+    });
   });
 });
