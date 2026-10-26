@@ -194,74 +194,19 @@ export function DesignerHome() {
 
       {loading && <p role="status">Carregando dashboard…</p>}
 
-      {/*
-        Ordem do Dashboard (rodada de correção — auditoria final): o
-        acompanhamento das artes/solicitações em andamento vem ANTES do
-        painel de clientes cadastrados, para que o designer veja primeiro o
-        que está em andamento antes das ações operacionais com a carteira
-        completa de clientes. Reaproveita as mesmas respostas de
-        `listSolicitacoes` já buscadas para os tiles (nenhuma requisição
-        extra, nenhum dado duplicado).
-      */}
-      {!loading && !error && acompanhamento.length > 0 && (
-        <section className="dashboard-acompanhamento" aria-labelledby="acompanhamento-title">
-          <h2 id="acompanhamento-title">Clientes e artes em andamento</h2>
-          <div className="table-scroll">
-            <table className="designer-table dashboard-acompanhamento-table">
-              <caption className="sr-only">
-                Clientes com solicitações de arte ({acompanhamento.length} cliente(s))
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Cliente</th>
-                  <th scope="col">Artes / solicitações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {acompanhamento.map(({ cliente, solicitacoes }) => (
-                  <tr key={cliente.id}>
-                    <td data-label="Cliente" className="clientes-cell-nome">
-                      <span className="clientes-nome-text" title={cliente.nome}>
-                        {cliente.nome}
-                      </span>
-                    </td>
-                    <td data-label="Artes / solicitações">
-                      <ul className="dashboard-acompanhamento-solicitacoes">
-                        {solicitacoes.map((solicitacao) => (
-                          <li key={solicitacao.id}>
-                            <Link to={`/designer/solicitacoes/${solicitacao.id}`}>
-                              {solicitacao.tema ?? `Solicitação #${solicitacao.id}`}
-                            </Link>{' '}
-                            <span
-                              className={`status-badge status-badge--${statusSlug(solicitacao.status)}`}
-                            >
-                              {solicitacao.status}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/*
-        Centro operacional do Designer: ações sobre clientes já cadastrados
-        (iniciar atendimento, Instagram). Editar/excluir cadastro vivem
-        exclusivamente na aba Clientes (RF003) — nunca duplicados aqui.
-      */}
-      <ClientesOperacionalPanel />
-
       {error && (
         <p role="alert" className="auth-error">
           {error}
         </p>
       )}
 
+      {/*
+        Ordem do Dashboard (rodada de correção visual): tiles de status +
+        prazos próximos + publicações agendadas vêm logo após o CTA,
+        seguidos do acompanhamento de clientes/artes e, por último, do
+        painel operacional de clientes cadastrados. Nenhum dado, filtro,
+        ação ou comportamento foi alterado — apenas a ordem de renderização.
+      */}
       {!loading && !error && tiles && (
         <div className="dashboard-tiles">
           {tiles.map((tile) => (
@@ -359,6 +304,59 @@ export function DesignerHome() {
           </table>
         </section>
       )}
+
+      {!loading && !error && acompanhamento.length > 0 && (
+        <section className="dashboard-acompanhamento" aria-labelledby="acompanhamento-title">
+          <h2 id="acompanhamento-title">Clientes e artes em andamento</h2>
+          <div className="table-scroll">
+            <table className="designer-table dashboard-acompanhamento-table">
+              <caption className="sr-only">
+                Clientes com solicitações de arte ({acompanhamento.length} cliente(s))
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Artes / solicitações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {acompanhamento.map(({ cliente, solicitacoes }) => (
+                  <tr key={cliente.id}>
+                    <td data-label="Cliente" className="clientes-cell-nome">
+                      <span className="clientes-nome-text" title={cliente.nome}>
+                        {cliente.nome}
+                      </span>
+                    </td>
+                    <td data-label="Artes / solicitações">
+                      <ul className="dashboard-acompanhamento-solicitacoes">
+                        {solicitacoes.map((solicitacao) => (
+                          <li key={solicitacao.id}>
+                            <Link to={`/designer/solicitacoes/${solicitacao.id}`}>
+                              {solicitacao.tema ?? `Solicitação #${solicitacao.id}`}
+                            </Link>{' '}
+                            <span
+                              className={`status-badge status-badge--${statusSlug(solicitacao.status)}`}
+                            >
+                              {solicitacao.status}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/*
+        Centro operacional do Designer: ações sobre clientes já cadastrados
+        (iniciar atendimento, Instagram). Editar/excluir cadastro vivem
+        exclusivamente na aba Clientes (RF003) — nunca duplicados aqui.
+      */}
+      <ClientesOperacionalPanel />
     </AppShell>
   );
 }
