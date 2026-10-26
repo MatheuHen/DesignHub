@@ -201,12 +201,58 @@ export function DesignerHome() {
       )}
 
       {/*
-        Ordem do Dashboard (rodada de correção visual): tiles de status +
-        prazos próximos + publicações agendadas vêm logo após o CTA,
-        seguidos do acompanhamento de clientes/artes e, por último, do
-        painel operacional de clientes cadastrados. Nenhum dado, filtro,
-        ação ou comportamento foi alterado — apenas a ordem de renderização.
+        Ordem do Dashboard (rodada de correção visual): o acompanhamento de
+        clientes/artes vem logo após o CTA, seguido de tiles de status +
+        prazos próximos + publicações agendadas e, por último, do painel
+        operacional de clientes cadastrados. Nenhum dado, filtro, ação ou
+        comportamento foi alterado — apenas a ordem de renderização.
       */}
+      {!loading && !error && acompanhamento.length > 0 && (
+        <section className="dashboard-acompanhamento" aria-labelledby="acompanhamento-title">
+          <h2 id="acompanhamento-title">Clientes e artes em andamento</h2>
+          <div className="table-scroll">
+            <table className="designer-table dashboard-acompanhamento-table">
+              <caption className="sr-only">
+                Clientes com solicitações de arte ({acompanhamento.length} cliente(s))
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Artes / solicitações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {acompanhamento.map(({ cliente, solicitacoes }) => (
+                  <tr key={cliente.id}>
+                    <td data-label="Cliente" className="clientes-cell-nome">
+                      <span className="clientes-nome-text" title={cliente.nome}>
+                        {cliente.nome}
+                      </span>
+                    </td>
+                    <td data-label="Artes / solicitações">
+                      <ul className="dashboard-acompanhamento-solicitacoes">
+                        {solicitacoes.map((solicitacao) => (
+                          <li key={solicitacao.id}>
+                            <Link to={`/designer/solicitacoes/${solicitacao.id}`}>
+                              {solicitacao.tema ?? `Solicitação #${solicitacao.id}`}
+                            </Link>{' '}
+                            <span
+                              className={`status-badge status-badge--${statusSlug(solicitacao.status)}`}
+                            >
+                              {solicitacao.status}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {!loading && !error && tiles && (
         <div className="dashboard-tiles">
           {tiles.map((tile) => (
@@ -311,52 +357,6 @@ export function DesignerHome() {
         exclusivamente na aba Clientes (RF003) — nunca duplicados aqui.
       */}
       <ClientesOperacionalPanel />
-
-      {!loading && !error && acompanhamento.length > 0 && (
-        <section className="dashboard-acompanhamento" aria-labelledby="acompanhamento-title">
-          <h2 id="acompanhamento-title">Clientes e artes em andamento</h2>
-          <div className="table-scroll">
-            <table className="designer-table dashboard-acompanhamento-table">
-              <caption className="sr-only">
-                Clientes com solicitações de arte ({acompanhamento.length} cliente(s))
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Cliente</th>
-                  <th scope="col">Artes / solicitações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {acompanhamento.map(({ cliente, solicitacoes }) => (
-                  <tr key={cliente.id}>
-                    <td data-label="Cliente" className="clientes-cell-nome">
-                      <span className="clientes-nome-text" title={cliente.nome}>
-                        {cliente.nome}
-                      </span>
-                    </td>
-                    <td data-label="Artes / solicitações">
-                      <ul className="dashboard-acompanhamento-solicitacoes">
-                        {solicitacoes.map((solicitacao) => (
-                          <li key={solicitacao.id}>
-                            <Link to={`/designer/solicitacoes/${solicitacao.id}`}>
-                              {solicitacao.tema ?? `Solicitação #${solicitacao.id}`}
-                            </Link>{' '}
-                            <span
-                              className={`status-badge status-badge--${statusSlug(solicitacao.status)}`}
-                            >
-                              {solicitacao.status}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
     </AppShell>
   );
 }
