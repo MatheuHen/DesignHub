@@ -947,6 +947,13 @@ p {
   display: inline-block;
 }
 
+/* CTA "Iniciar Atendimento" rola até o painel operacional dentro do próprio
+   Dashboard (ver DesignerHome.tsx); a margem evita que o título fique colado
+   no topo da viewport depois do scroll por âncora. */
+#clientes-operacional-title {
+  scroll-margin-top: 16px;
+}
+
 .dashboard-notifications-cta {
   display: flex;
   flex-direction: column;

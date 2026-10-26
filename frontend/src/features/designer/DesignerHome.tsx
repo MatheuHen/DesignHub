@@ -187,10 +187,13 @@ export function DesignerHome() {
 
       {/* Item 4 (rodada UX): CTA principal fica no topo — o acompanhamento de
           atendimentos/artes/solicitações abaixo é o detalhe de apoio, não o
-          primeiro gesto do Designer ao abrir o Dashboard. */}
-      <Link to="/designer/clientes" className="dashboard-cta">
+          primeiro gesto do Designer ao abrir o Dashboard. Correção de UX: o
+          atendimento é iniciado por cliente dentro do próprio Dashboard (painel
+          operacional "Clientes cadastrados" já renderizado abaixo); o CTA não
+          navega mais para a aba Clientes — ele leva até esse painel. */}
+      <a href="#clientes-operacional-title" className="dashboard-cta">
         Iniciar Atendimento
-      </Link>
+      </a>
 
       {loading && <p role="status">Carregando dashboard…</p>}
 
