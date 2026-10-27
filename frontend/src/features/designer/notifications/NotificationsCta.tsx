@@ -6,6 +6,24 @@ import { isWebPushSupported, mostrarNotificacaoLocal, urlBase64ToUint8Array } fr
 type Status = 'checking' | 'unsupported' | 'unconfigured' | 'denied' | 'inactive' | 'active';
 
 /**
+ * Dica ao passar o mouse. Permitir no navegador não basta: se as
+ * notificações estiverem desligadas no sistema operacional, nada aparece —
+ * nem as do DesignHub, nem as de qualquer outro site. É uma causa comum e
+ * invisível para o usuário, então a orientação fica à mão no próprio
+ * controle, sem ocupar espaço fixo no Dashboard.
+ */
+const DICA_SISTEMA = [
+  'Não está vendo as notificações?',
+  '',
+  'Windows: Configurações → Sistema → Notificações. Ligue "Notificações" e',
+  'confirme que o seu navegador está na lista. Desligue o Assistente de Foco.',
+  '',
+  'Android: Configurações → Apps → (seu navegador) → Notificações → ative "Sites".',
+  '',
+  'Navegador: clique no cadeado ao lado do endereço e permita Notificações.',
+].join('\n');
+
+/**
  * Rodada correções (item 10.4): antes, oito causas distintas (permissão,
  * service worker inativo, serviço de push inalcançável, sessão expirada,
  * VAPID ausente, payload rejeitado…) caíam num único `catch {}` sem log e
@@ -260,18 +278,20 @@ export function NotificationsCta() {
   return (
     <div className="dashboard-notifications-cta">
       {status === 'denied' && (
-        <p className="dashboard-notifications-hint">
+        <p className="dashboard-notifications-hint" title={DICA_SISTEMA}>
           Notificações bloqueadas nas permissões do navegador para este site.
         </p>
       )}
       {status === 'inactive' && (
-        <button type="button" onClick={() => void handleAtivar()} disabled={busy}>
+        <button type="button" onClick={() => void handleAtivar()} disabled={busy} title={DICA_SISTEMA}>
           {busy ? 'Ativando…' : 'Ativar notificações'}
         </button>
       )}
       {status === 'active' && (
         <p className="dashboard-notifications-status">
-          <span className="dashboard-notifications-on">✓ Notificações ativadas</span>{' '}
+          <span className="dashboard-notifications-on" title={DICA_SISTEMA}>
+            ✓ Notificações ativadas
+          </span>{' '}
           <button
             type="button"
             className="link-button"
