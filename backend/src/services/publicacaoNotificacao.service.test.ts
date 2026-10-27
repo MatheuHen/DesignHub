@@ -80,7 +80,9 @@ describe('notificarPublicacoesProximas (item 9)', () => {
     expect(sendWebPushNotificationMock).toHaveBeenCalledOnce();
     const [subscriptionArg, payloadArg] = sendWebPushNotificationMock.mock.calls[0] as [unknown, { title: string; body: string }];
     expect(subscriptionArg).toEqual({ idUsuario: 'designer-1', endpoint: 'https://push.example/1', p256dh: 'p', authKey: 'a' });
-    expect(payloadArg.title).toBe('Publicação em 2 horas');
+    // Título padronizado "DesignHub — EVENTO" para o designer identificar a
+    // origem na central de notificações do sistema operacional.
+    expect(payloadArg.title).toBe('DesignHub — LEMBRETE DE PUBLICAÇÃO');
     expect(payloadArg.body).toContain('Post promocional');
   });
 

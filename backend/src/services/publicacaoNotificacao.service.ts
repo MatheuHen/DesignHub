@@ -1,15 +1,7 @@
 import { getSupabaseAdminClient } from '../config/supabase.js';
-import { env } from '../config/env.js';
-import {
-  WebPushSubscriptionGoneError,
-  sendWebPushNotification,
-} from '../integrations/webpush/webPushClient.js';
 import { claimAgendamentosParaNotificar } from '../repositories/publicacao.repository.js';
-import {
-  deletePushSubscriptionByEndpoint,
-  listPushSubscriptionsByDesigner,
-} from '../repositories/pushSubscription.repository.js';
 import { getSolicitacaoDetail } from '../repositories/solicitacao.repository.js';
+import { buildPushTitle, notificarDesignerPush, solicitacaoUrl } from './designerPush.service.js';
 
 /** Item 9 (requisito explícito): aviso 2h antes da publicação agendada. */
 const ANTECEDENCIA_MS = 2 * 60 * 60 * 1000;
@@ -50,38 +42,27 @@ export async function notificarPublicacoesProximas(): Promise<NotificarPublicaco
       const solicitacao = await getSolicitacaoDetail(adminClient, agendamento.idSolicitacao);
       if (!solicitacao) continue;
 
-      const subscriptions = await listPushSubscriptionsByDesigner(adminClient, solicitacao.idDesigner);
-      if (subscriptions.length === 0) {
-        result.semAssinatura += 1;
-        continue;
-      }
-
       const horario = agendamento.horario.slice(0, 5);
       const payload = {
-        title: 'Publicação em 2 horas',
+        title: buildPushTitle('Lembrete de publicação'),
         body: solicitacao.tema
           ? `A arte "${solicitacao.tema}" do cliente ${solicitacao.clienteNome} está agendada para ${horario}.`
           : `Uma arte do cliente ${solicitacao.clienteNome} está agendada para ${horario}.`,
-        url: `${env.FRONTEND_URL}/designer/solicitacoes/${agendamento.idSolicitacao}`,
+        url: solicitacaoUrl(agendamento.idSolicitacao),
       };
 
-      let enviouAoMenosUma = false;
-      for (const subscription of subscriptions) {
-        try {
-          await sendWebPushNotification(subscription, payload);
-          enviouAoMenosUma = true;
-        } catch (sendError) {
-          if (sendError instanceof WebPushSubscriptionGoneError) {
-            await deletePushSubscriptionByEndpoint(adminClient, subscription.endpoint);
-            continue;
-          }
-          console.error('[designhub:push] falha ao enviar notificação de publicação próxima', {
-            idAgendamento: agendamento.idAgendamento,
-            message: sendError instanceof Error ? sendError.message.slice(0, 200) : 'erro desconhecido',
-          });
-        }
-      }
-      if (enviouAoMenosUma) result.enviados += 1;
+      // Despacho unificado em `designerPush.service` (mesma limpeza de
+      // assinatura expirada que existia aqui). O resultado já informa quantos
+      // dispositivos existiam, então não é preciso consultar as assinaturas
+      // uma segunda vez só para distinguir "sem aparelho" de "falha".
+      const envio = await notificarDesignerPush(
+        adminClient,
+        solicitacao.idDesigner,
+        payload,
+        'lembrete-publicacao-2h',
+      );
+      if (envio.total === 0) result.semAssinatura += 1;
+      else if (envio.enviados > 0) result.enviados += 1;
       else result.falhas += 1;
     } catch (error) {
       result.falhas += 1;

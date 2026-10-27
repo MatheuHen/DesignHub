@@ -9,6 +9,7 @@ const {
   updateAgendamentoRpcMock,
   cancelAgendamentoRpcMock,
   listAgendamentosRepoMock,
+  notificarEventoSolicitacaoMock,
 } = vi.hoisted(() => ({
   getSupabaseAdminClientMock: vi.fn(() => ({ __kind: 'admin-client' })),
   getSolicitacaoDetailRepoMock: vi.fn(),
@@ -17,6 +18,7 @@ const {
   updateAgendamentoRpcMock: vi.fn(),
   cancelAgendamentoRpcMock: vi.fn(),
   listAgendamentosRepoMock: vi.fn(),
+  notificarEventoSolicitacaoMock: vi.fn(),
 }));
 
 vi.mock('../config/supabase.js', () => ({ getSupabaseAdminClient: getSupabaseAdminClientMock }));
@@ -30,6 +32,11 @@ vi.mock('../repositories/agendamento.repository.js', () => ({
   cancelAgendamentoRpc: cancelAgendamentoRpcMock,
   listAgendamentos: listAgendamentosRepoMock,
 }));
+
+vi.mock('./designerPush.service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./designerPush.service.js')>();
+  return { ...actual, notificarEventoSolicitacao: notificarEventoSolicitacaoMock };
+});
 
 const { createAgendamento, updateAgendamento, cancelAgendamento, listAgendamentos } = await import(
   './agendamento.service.js'
@@ -150,5 +157,90 @@ describe('listAgendamentos (RF012)', () => {
     const result = await listAgendamentos({} as never, { page: 2, pageSize: 10 });
 
     expect(result).toEqual({ items: [], total: 0, page: 2, pageSize: 10 });
+  });
+});
+
+describe('notificações de agendamento (Web Push complementar)', () => {
+  beforeEach(() => {
+    getSolicitacaoDetailRepoMock.mockReset();
+    getActiveAgendamentoBySolicitacaoMock.mockReset();
+    createAgendamentoRpcMock.mockReset();
+    cancelAgendamentoRpcMock.mockReset();
+    notificarEventoSolicitacaoMock.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('avisa o designer com data e hora reais ao criar o agendamento', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idDesigner: 'designer-1', status: 'Aprovado' });
+    createAgendamentoRpcMock.mockResolvedValue({ idAgendamento: 7 });
+
+    await createAgendamento({} as never, 10, 'designer-1', {
+      dataPublicacao: '2026-10-27',
+      horario: '15:00',
+      legenda: '',
+    });
+
+    expect(notificarEventoSolicitacaoMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ idSolicitacao: 10, evento: 'Publicação agendada' }),
+    );
+    const [, params] = notificarEventoSolicitacaoMock.mock.calls[0] as [
+      unknown,
+      { body: (arte: string) => string },
+    ];
+    expect(params.body('a arte "Sinuca"')).toBe(
+      'a arte "Sinuca" foi agendada para 27/10/2026 às 15:00.',
+    );
+  });
+
+  it('avisa o designer ao cancelar o agendamento', async () => {
+    getActiveAgendamentoBySolicitacaoMock.mockResolvedValue({
+      idAgendamento: 7,
+      idDesigner: 'designer-1',
+    });
+    cancelAgendamentoRpcMock.mockResolvedValue(undefined);
+
+    await cancelAgendamento({} as never, 10, 'designer-1');
+
+    expect(notificarEventoSolicitacaoMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ idSolicitacao: 10, evento: 'Agendamento cancelado' }),
+    );
+  });
+
+  it('NÃO notifica quando a RPC rejeita o cancelamento (regra das 3h, RN31)', async () => {
+    getActiveAgendamentoBySolicitacaoMock.mockResolvedValue({
+      idAgendamento: 7,
+      idDesigner: 'designer-1',
+    });
+    cancelAgendamentoRpcMock.mockRejectedValue(new ConflictError('Faltam menos de 3 horas.'));
+
+    await expect(cancelAgendamento({} as never, 10, 'designer-1')).rejects.toBeInstanceOf(
+      ConflictError,
+    );
+    expect(notificarEventoSolicitacaoMock).not.toHaveBeenCalled();
+  });
+
+  it('falha de push NÃO quebra o agendamento (canal complementar)', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({ idDesigner: 'designer-1', status: 'Aprovado' });
+    createAgendamentoRpcMock.mockResolvedValue({ idAgendamento: 7 });
+    notificarEventoSolicitacaoMock.mockRejectedValue(new Error('serviço de push fora do ar'));
+
+    // Requisito 9: Web Push é complementar. Mesmo que o canal exploda de
+    // forma inesperada, o agendamento já persistido tem de ser devolvido
+    // normalmente — por isso cada chamada do aviso é blindada no call site.
+    await expect(createAgendamento({} as never, 10, 'designer-1', sampleBody)).resolves.toEqual({
+      idAgendamento: 7,
+    });
+  });
+
+  it('falha de push NÃO quebra o cancelamento do agendamento', async () => {
+    getActiveAgendamentoBySolicitacaoMock.mockResolvedValue({
+      idAgendamento: 7,
+      idDesigner: 'designer-1',
+    });
+    cancelAgendamentoRpcMock.mockResolvedValue(undefined);
+    notificarEventoSolicitacaoMock.mockRejectedValue(new Error('serviço de push fora do ar'));
+
+    await expect(cancelAgendamento({} as never, 10, 'designer-1')).resolves.toBeUndefined();
   });
 });

@@ -4,7 +4,12 @@ import { env, webPushConfigStatus } from '../config/env.js';
 import { toAppError } from '../lib/errors.js';
 import { attachProfile, requireAuth, requireProfile } from '../middleware/auth.js';
 import { subscribePushSchema, unsubscribePushSchema } from '../schemas/pushSubscription.schemas.js';
-import { subscribePush, unsubscribePush } from '../services/pushSubscription.service.js';
+import {
+  contarDispositivosInscritos,
+  enviarPushDeTeste,
+  subscribePush,
+  unsubscribePush,
+} from '../services/pushSubscription.service.js';
 
 export const pushRouter = Router();
 
@@ -38,6 +43,40 @@ pushRouter.post('/subscribe', pushSubscribeRateLimit, async (request, response, 
     const input = subscribePushSchema.parse(request.body);
     await subscribePush(request.auth!.userId, input);
     response.status(204).end();
+  } catch (error) {
+    next(toAppError(error));
+  }
+});
+
+/** Quantos dispositivos deste designer estão inscritos (o Dashboard mostra o estado real). */
+pushRouter.get('/status', async (request, response, next) => {
+  try {
+    const dispositivos = await contarDispositivosInscritos(request.auth!.userId);
+    response.status(200).json({ dispositivos });
+  } catch (error) {
+    next(toAppError(error));
+  }
+});
+
+/**
+ * Notificação de teste para o dispositivo atual do designer. Limite dedicado
+ * mais apertado que o de inscrição: dispara envio a serviço externo e é um
+ * botão que convida a cliques repetidos.
+ */
+const pushTesteRateLimit = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+pushRouter.post('/teste', pushTesteRateLimit, async (request, response, next) => {
+  try {
+    const input = unsubscribePushSchema.parse(request.body);
+    const entregue = await enviarPushDeTeste(request.auth!.userId, input.endpoint);
+    // `entregue: false` = assinatura expirada e removida; o frontend pede
+    // para reativar em vez de afirmar que a notificação foi enviada.
+    response.status(200).json({ entregue });
   } catch (error) {
     next(toAppError(error));
   }

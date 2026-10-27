@@ -14,11 +14,27 @@ self.addEventListener('push', (event) => {
   }
 
   const title = payload.title || 'DesignHub';
+  const url = payload.url || '/';
+
   event.waitUntil(
     self.registration.showNotification(title, {
       body: payload.body || '',
       icon: '/favicon.svg',
-      data: { url: payload.url || '/' },
+      // Badge: ícone monocromático da barra de status no Android.
+      badge: '/favicon.svg',
+      data: { url },
+      /**
+       * `tag` por destino + `renotify`: se dois avisos da MESMA solicitação
+       * chegarem (ex.: reentrega do serviço de push), o segundo SUBSTITUI o
+       * primeiro na central em vez de empilhar duas linhas iguais. Avisos de
+       * solicitações diferentes continuam aparecendo separadamente, porque a
+       * tag inclui a URL de destino.
+       */
+      tag: `designhub:${url}`,
+      renotify: true,
+      /** Mantém o aviso na central até o designer interagir (Windows/Android). */
+      requireInteraction: true,
+      timestamp: Date.now(),
     }),
   );
 });

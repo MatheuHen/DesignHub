@@ -31,6 +31,7 @@ import {
   setPublicacaoComprovante,
 } from '../repositories/publicacao.repository.js';
 import { getSolicitacaoDetail as getSolicitacaoDetailRepo } from '../repositories/solicitacao.repository.js';
+import { notificarEventoSolicitacao } from './designerPush.service.js';
 import {
   createVersaoArteDownloadUrl,
   removeArquivoFromStorageBestEffort,
@@ -306,6 +307,16 @@ async function processarUmAgendamento(
       permalink,
     });
     await notificarClientePublicacaoBestEffort(adminClient, agendamento.idSolicitacao);
+
+    // Aviso ao designer de que o job publicou sozinho (RF014/RN32-RN33).
+    // Idempotente por consequência: só roda depois de `registerPublicacaoSucesso`,
+    // que já é protegido pela reserva do agendamento — uma reexecução do job
+    // não chega aqui de novo para o mesmo agendamento.
+    await Promise.resolve(notificarEventoSolicitacao(adminClient, {
+      idSolicitacao: agendamento.idSolicitacao,
+      evento: 'Arte publicada',
+      body: (arte) => `${arte} foi publicada automaticamente no Instagram.`,
+    })).catch(() => undefined);
     return 'publicado';
   } catch (error) {
     console.error('[designhub:publicacao] falha na publicação automática', {
@@ -319,6 +330,22 @@ async function processarUmAgendamento(
       return 'falha';
     }
     await registerPublicacaoFalha(adminClient, { idAgendamento: agendamento.idAgendamento });
+
+    /**
+     * Falha REAL: a publicação automática não aconteceu e a solicitação
+     * continua pendente — é exatamente o caso em que o designer precisa ser
+     * avisado para agir (RF014 exige manter a pendência e alertar).
+     *
+     * Só notifica neste ramo. O ramo `jaPublicadoNoInstagram` acima retorna
+     * antes: lá o post existe no Instagram e avisar "não foi possível
+     * publicar" seria mentira. A mensagem nunca inclui o erro técnico.
+     */
+    await Promise.resolve(notificarEventoSolicitacao(adminClient, {
+      idSolicitacao: agendamento.idSolicitacao,
+      evento: 'Falha na publicação',
+      body: (arte) =>
+        `Não foi possível publicar ${arte} automaticamente. A publicação segue pendente — verifique no DesignHub.`,
+    })).catch(() => undefined);
     return 'falha';
   }
 }
@@ -357,6 +384,13 @@ export async function registrarPublicacaoManual(
   });
 
   await notificarClientePublicacaoBestEffort(adminClient, idSolicitacao);
+
+  // Confirmação ao designer do registro manual (RF014 caminho manual).
+  await Promise.resolve(notificarEventoSolicitacao(adminClient, {
+    idSolicitacao,
+    evento: 'Publicação registrada',
+    body: (arte) => `A publicação manual de ${arte} foi registrada.`,
+  })).catch(() => undefined);
 }
 
 const COMPROVANTE_MAX_BYTES = 15 * 1024 * 1024;

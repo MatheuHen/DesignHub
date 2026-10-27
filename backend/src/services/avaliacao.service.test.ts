@@ -524,7 +524,7 @@ describe('submitAvaliacaoDecisao (RF009/RF010)', () => {
 
     expect(sendWebPushNotificationMock).toHaveBeenCalledWith(
       { endpoint: 'https://push.exemplo/1', p256dh: 'p', authKey: 'a' },
-      expect.objectContaining({ title: 'Cliente solicitou ajustes' }),
+      expect.objectContaining({ title: 'DesignHub — AJUSTES SOLICITADOS' }),
     );
     expect(sendTextMessageMock).toHaveBeenCalledWith(
       '5511999999999',

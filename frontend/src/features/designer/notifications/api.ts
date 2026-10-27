@@ -21,3 +21,20 @@ export function subscribePush(subscription: PushSubscriptionJson): Promise<void>
 export function unsubscribePush(endpoint: string): Promise<void> {
   return apiRequest<void>('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) });
 }
+
+/** Quantos dispositivos desta conta estão inscritos (vários aparelhos são suportados). */
+export function getPushStatus(): Promise<{ dispositivos: number }> {
+  return apiRequest<{ dispositivos: number }>('/api/push/status');
+}
+
+/**
+ * Dispara uma notificação real para ESTE dispositivo.
+ * `entregue: false` = assinatura expirada (já removida no servidor) — o
+ * dispositivo precisa reativar.
+ */
+export function enviarPushDeTeste(endpoint: string): Promise<{ entregue: boolean }> {
+  return apiRequest<{ entregue: boolean }>('/api/push/teste', {
+    method: 'POST',
+    body: JSON.stringify({ endpoint }),
+  });
+}

@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../../lib/apiClient';
-import { getVapidPublicKey, subscribePush, unsubscribePush, type PushSubscriptionJson } from './api';
+import {
+  enviarPushDeTeste,
+  getPushStatus,
+  getVapidPublicKey,
+  subscribePush,
+  unsubscribePush,
+  type PushSubscriptionJson,
+} from './api';
 import { isWebPushSupported, urlBase64ToUint8Array } from './webPush';
 
 type Status = 'checking' | 'unsupported' | 'unconfigured' | 'denied' | 'inactive' | 'active';
@@ -55,6 +62,9 @@ export function NotificationsCta() {
   const [status, setStatus] = useState<Status>('checking');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testeOk, setTesteOk] = useState<string | null>(null);
+  /** Quantos aparelhos desta conta estão inscritos (null = ainda não consultado). */
+  const [dispositivos, setDispositivos] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +88,15 @@ export function NotificationsCta() {
 
       const registration = await navigator.serviceWorker.getRegistration('/sw.js');
       const existing = await registration?.pushManager.getSubscription();
-      if (!cancelled) setStatus(existing ? 'active' : 'inactive');
+      if (cancelled) return;
+      setStatus(existing ? 'active' : 'inactive');
+
+      // Contagem de dispositivos é informativa: uma falha aqui não pode
+      // esconder o CTA nem virar erro na tela.
+      if (existing) {
+        const contagem = await Promise.resolve(getPushStatus()).catch(() => null);
+        if (!cancelled && contagem) setDispositivos(contagem.dispositivos);
+      }
     }
 
     /**
@@ -132,6 +150,18 @@ export function NotificationsCta() {
        */
       let subscription = await registration.pushManager.getSubscription();
       if (subscription) {
+        /**
+         * Correção: antes a assinatura antiga era descartada SÓ no navegador.
+         * A linha correspondente continuava no banco, apontando para um
+         * endpoint morto — a cada reativação sobrava mais uma. Agora o
+         * servidor é avisado primeiro; se essa limpeza falhar, seguimos
+         * assim mesmo, porque o envio já remove endpoints que respondem
+         * 404/410 e travar a reativação seria pior.
+         */
+        const endpointAntigo = subscription.endpoint;
+        await unsubscribePush(endpointAntigo).catch((cleanupError: unknown) => {
+          logPushFailure('limpeza-assinatura-anterior', cleanupError);
+        });
         await subscription.unsubscribe().catch(() => undefined);
         subscription = null;
       }
@@ -162,6 +192,40 @@ export function NotificationsCta() {
     }
   }
 
+  /**
+   * Item 7: prova real de que ESTE aparelho recebe. Não é simulação local —
+   * o servidor envia um push de verdade pelo mesmo caminho dos eventos, e a
+   * notificação é exibida pelo Service Worker.
+   */
+  async function handleTestar() {
+    setBusy(true);
+    setError(null);
+    setTesteOk(null);
+    try {
+      const registration = await navigator.serviceWorker.getRegistration('/sw.js');
+      const subscription = await registration?.pushManager.getSubscription();
+      if (!subscription) {
+        setStatus('inactive');
+        setError('Este dispositivo não está mais inscrito. Ative as notificações novamente.');
+        return;
+      }
+      const { entregue } = await enviarPushDeTeste(subscription.endpoint);
+      if (!entregue) {
+        // O serviço de push recusou a assinatura (expirada/revogada): o
+        // servidor já a removeu, então o estado real aqui é "não inscrito".
+        setStatus('inactive');
+        setError('A inscrição deste dispositivo expirou. Ative as notificações novamente.');
+        return;
+      }
+      setTesteOk('Notificação de teste enviada. Ela deve aparecer em instantes neste dispositivo.');
+    } catch (testeError: unknown) {
+      logPushFailure('teste', testeError);
+      setError(describeAtivacaoError(testeError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleDesativar() {
     setBusy(true);
     setError(null);
@@ -187,7 +251,8 @@ export function NotificationsCta() {
     <div className="dashboard-notifications-cta">
       {status === 'denied' && (
         <p className="dashboard-notifications-hint">
-          As notificações estão bloqueadas nas permissões do navegador para este site.
+          As notificações estão bloqueadas nas permissões do navegador para este site. Libere nas
+          configurações do navegador (cadeado ao lado do endereço) para voltar a recebê-las.
         </p>
       )}
       {status === 'inactive' && (
@@ -196,9 +261,25 @@ export function NotificationsCta() {
         </button>
       )}
       {status === 'active' && (
-        <button type="button" onClick={() => void handleDesativar()} disabled={busy}>
-          {busy ? 'Desativando…' : 'Desativar notificações'}
-        </button>
+        <>
+          <p className="dashboard-notifications-hint" role="status">
+            Notificações ativas neste dispositivo
+            {dispositivos !== null && dispositivos > 1
+              ? ` (${dispositivos} dispositivos nesta conta).`
+              : '.'}
+          </p>
+          <button type="button" onClick={() => void handleTestar()} disabled={busy}>
+            {busy ? 'Enviando…' : 'Enviar notificação de teste'}
+          </button>
+          <button type="button" onClick={() => void handleDesativar()} disabled={busy}>
+            {busy ? 'Desativando…' : 'Desativar neste dispositivo'}
+          </button>
+        </>
+      )}
+      {testeOk && (
+        <p role="status" className="atendimento-success">
+          {testeOk}
+        </p>
       )}
       {error && (
         <p role="alert" className="auth-error">

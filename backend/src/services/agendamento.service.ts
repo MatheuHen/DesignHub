@@ -11,6 +11,7 @@ import {
 } from '../repositories/agendamento.repository.js';
 import { getSolicitacaoDetail as getSolicitacaoDetailRepo } from '../repositories/solicitacao.repository.js';
 import type { AgendamentoBody, ListAgendamentosQuery } from '../schemas/agendamento.schemas.js';
+import { formatarDataHora, notificarEventoSolicitacao } from './designerPush.service.js';
 
 /** RF012: listagem com filtros, escopada ao próprio designer (RLS + RN44). */
 export async function listAgendamentos(
@@ -39,7 +40,17 @@ export async function createAgendamento(
   }
 
   const adminClient = getSupabaseAdminClient();
-  return createAgendamentoRpc(adminClient, { idSolicitacao, idDesigner: callerId, body });
+  const criado = await createAgendamentoRpc(adminClient, { idSolicitacao, idDesigner: callerId, body });
+
+  // Confirmação ao designer depois do agendamento já persistido (RF012).
+  // Best-effort: não altera o retorno nem desfaz o agendamento.
+  await Promise.resolve(notificarEventoSolicitacao(adminClient, {
+    idSolicitacao,
+    evento: 'Publicação agendada',
+    body: (arte) => `${arte} foi agendada para ${formatarDataHora(body.dataPublicacao, body.horario)}.`,
+  })).catch(() => undefined);
+
+  return criado;
 }
 
 /** RF012: edição do agendamento ativo da solicitação, só enquanto ele ainda está ativo. */
@@ -75,4 +86,12 @@ export async function cancelAgendamento(
 
   const adminClient = getSupabaseAdminClient();
   await cancelAgendamentoRpc(adminClient, { idAgendamento: agendamento.idAgendamento, idDesigner: callerId });
+
+  // Só notifica depois que a RPC confirmou o cancelamento — a regra das 3h
+  // (RN31) é avaliada dentro dela e pode rejeitar, lançando antes daqui.
+  await Promise.resolve(notificarEventoSolicitacao(adminClient, {
+    idSolicitacao,
+    evento: 'Agendamento cancelado',
+    body: (arte) => `O agendamento de publicação de ${arte} foi cancelado.`,
+  })).catch(() => undefined);
 }

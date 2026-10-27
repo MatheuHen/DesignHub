@@ -8,6 +8,7 @@ import {
   detectVersaoArteFormato,
 } from '../lib/fileSignature.js';
 import { getSolicitacaoCore, syncDesignerBloqueio } from '../repositories/solicitacao.repository.js';
+import { notificarEventoSolicitacao } from './designerPush.service.js';
 import {
   createVersaoArteDownloadUrl,
   getVersaoArteByIdAndSolicitacao,
@@ -88,6 +89,22 @@ export async function uploadVersaoArte(
         message: error instanceof Error ? error.message : 'erro desconhecido',
       });
     }
+
+    /**
+     * Confirmação ao próprio designer nos dispositivos inscritos. O upload e
+     * a mudança de status já aconteceram acima — este aviso é posterior e
+     * best-effort, então nada aqui altera o resultado da ação (RF007/RF008).
+     *
+     * É UM único aviso para o upload: no DesignHub "versão registrada" e
+     * "arte enviada para avaliação" são o mesmo evento (o upload leva a
+     * solicitação a `Enviado para avaliação`), então disparar dois avisos
+     * seria notificação duplicada do mesmo fato.
+     */
+    await Promise.resolve(notificarEventoSolicitacao(adminClient, {
+      idSolicitacao,
+      evento: 'Arte enviada para avaliação',
+      body: (arte) => `A versão ${registered.numeroVersao} de ${arte} foi registrada e enviada para avaliação.`,
+    })).catch(() => undefined);
 
     return {
       idVersao: registered.idVersao,

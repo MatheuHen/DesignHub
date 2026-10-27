@@ -14,15 +14,8 @@ import {
   detectVersaoArteFormato,
 } from '../lib/fileSignature.js';
 import { generateOpaqueToken, hashOpaqueToken } from '../lib/tokens.js';
-import {
-  WebPushSubscriptionGoneError,
-  sendWebPushNotification,
-  type WebPushPayload,
-} from '../integrations/webpush/webPushClient.js';
-import {
-  deletePushSubscriptionByEndpoint,
-  listPushSubscriptionsByDesigner,
-} from '../repositories/pushSubscription.repository.js';
+import { type WebPushPayload } from '../integrations/webpush/webPushClient.js';
+import { artLabel, buildPushTitle, notificarDesignerPush } from './designerPush.service.js';
 import {
   cancelAgendamentoCliente,
   createAgendamentoCliente,
@@ -402,15 +395,15 @@ export async function submitAvaliacaoDecisao(
   // acima) sempre disponível; push/WhatsApp são melhor esforço.
   if (input.decisao === 'Ajustes') {
     await notificarDesignerEventoClienteBestEffort(adminClient, result.idSolicitacao, {
-      pushTitle: 'Cliente solicitou ajustes',
-      pushBody: 'O cliente pediu ajustes na arte. Consulte a descrição no DesignHub.',
+      pushTitle: 'Ajustes solicitados',
+      pushBody: (arte) => `O cliente pediu ajustes em ${arte}. Consulte a descrição no DesignHub.`,
       whatsappMessage: 'O cliente solicitou ajustes na arte. Consulte a descrição do pedido no DesignHub.',
       eventoTag: 'AJUSTE',
     });
   } else if (input.decisao === 'Cancelado') {
     await notificarDesignerEventoClienteBestEffort(adminClient, result.idSolicitacao, {
-      pushTitle: 'Cliente cancelou a solicitação',
-      pushBody: 'O cliente cancelou a solicitação pelo link de avaliação.',
+      pushTitle: 'Solicitação cancelada',
+      pushBody: (arte) => `O cliente cancelou ${arte} pelo link de avaliação.`,
       whatsappMessage: 'AVISO: o cliente cancelou a solicitação de arte pelo link de avaliação.',
       eventoTag: 'CANCELAMENTO_CLIENTE',
     });
@@ -427,10 +420,11 @@ export async function submitAvaliacaoDecisao(
     // Item 8 (rodada final): aviso de aprovação sempre, com o resultado real do
     // agendamento automático — nunca finge que foi criado se não foi.
     await notificarDesignerEventoClienteBestEffort(adminClient, result.idSolicitacao, {
-      pushTitle: 'Cliente aprovou a arte',
-      pushBody: agendamentoAutomaticoCriado
-        ? 'Aprovado! Publicação agendada automaticamente.'
-        : 'Aprovado, mas o agendamento automático não pôde ser criado — agende manualmente.',
+      pushTitle: 'Arte aprovada',
+      pushBody: (arte) =>
+        agendamentoAutomaticoCriado
+          ? `O cliente aprovou ${arte} e a publicação já foi agendada automaticamente.`
+          : `O cliente aprovou ${arte}, mas o agendamento automático não pôde ser criado — agende manualmente.`,
       whatsappMessage: agendamentoAutomaticoCriado
         ? 'O cliente aprovou a arte e a publicação foi agendada automaticamente.'
         : 'O cliente aprovou a arte, mas o agendamento automático não pôde ser criado. Agende manualmente no DesignHub.',
@@ -458,8 +452,9 @@ export async function submitAvaliacaoDecisao(
     await notificarDesignerPosAprovacaoBestEffort(adminClient, result.idSolicitacao);
   } else if (opcaoPublicacao === 'proprio_cliente') {
     await notificarDesignerEventoClienteBestEffort(adminClient, result.idSolicitacao, {
-      pushTitle: 'Cliente aprovou a arte',
-      pushBody: 'Aprovado! O cliente vai publicar por conta própria — nenhuma ação necessária.',
+      pushTitle: 'Arte aprovada',
+      pushBody: (arte) =>
+        `O cliente aprovou ${arte} e vai publicar por conta própria — nenhuma ação necessária.`,
       whatsappMessage:
         'O cliente aprovou a arte e vai publicar por conta própria. Nenhuma ação sua é necessária.',
       eventoTag: 'APROVACAO_PUBLICACAO_PROPRIA',
@@ -535,31 +530,9 @@ async function notificarDesignerPushBestEffort(
   idDesigner: string,
   payload: WebPushPayload,
 ): Promise<void> {
-  let subscriptions;
-  try {
-    subscriptions = await listPushSubscriptionsByDesigner(adminClient, idDesigner);
-  } catch (error) {
-    console.error('[designhub:push] falha ao buscar assinaturas do designer (evento do cliente)', {
-      idDesigner,
-      message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
-    });
-    return;
-  }
-
-  for (const subscription of subscriptions) {
-    try {
-      await sendWebPushNotification(subscription, payload);
-    } catch (sendError) {
-      if (sendError instanceof WebPushSubscriptionGoneError) {
-        await deletePushSubscriptionByEndpoint(adminClient, subscription.endpoint).catch(() => undefined);
-        continue;
-      }
-      console.error('[designhub:push] falha ao notificar designer (evento do cliente)', {
-        idDesigner,
-        message: sendError instanceof Error ? sendError.message.slice(0, 200) : 'erro desconhecido',
-      });
-    }
-  }
+  // Despacho unificado em `designerPush.service` — mesmo comportamento
+  // best-effort/limpeza de assinatura expirada que existia aqui.
+  await notificarDesignerPush(adminClient, idDesigner, payload, 'evento-do-cliente');
 }
 
 /**
@@ -574,14 +547,21 @@ async function notificarDesignerPushBestEffort(
 async function notificarDesignerEventoClienteBestEffort(
   adminClient: SupabaseClient,
   idSolicitacao: number,
-  params: { pushTitle: string; pushBody: string; whatsappMessage: string; eventoTag: string },
+  params: {
+    /** Nome do evento; o prefixo "DesignHub — " é aplicado aqui. */
+    pushTitle: string;
+    /** Recebe o rótulo da arte para identificar de qual arte se trata. */
+    pushBody: (arte: string) => string;
+    whatsappMessage: string;
+    eventoTag: string;
+  },
 ): Promise<void> {
   const solicitacao = await getSolicitacaoDetailRepo(adminClient, idSolicitacao).catch(() => null);
   if (!solicitacao) return;
 
   await notificarDesignerPushBestEffort(adminClient, solicitacao.idDesigner, {
-    title: params.pushTitle,
-    body: params.pushBody,
+    title: buildPushTitle(params.pushTitle),
+    body: params.pushBody(artLabel(solicitacao.tema)),
     url: `${env.FRONTEND_URL}/designer/solicitacoes/${idSolicitacao}`,
   });
 

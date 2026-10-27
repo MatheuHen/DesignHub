@@ -43,6 +43,7 @@ import {
 } from '../repositories/atendimento.repository.js';
 import { getDesignerById } from '../repositories/designer.repository.js';
 import { syncDesignerBloqueio } from '../repositories/solicitacao.repository.js';
+import { notificarEventoSolicitacao } from './designerPush.service.js';
 import type { WhatsAppInboundMessage, WhatsAppWebhookPayload } from '../schemas/whatsapp.schemas.js';
 import {
   ATENDIMENTO_QUESTIONS,
@@ -725,12 +726,28 @@ async function handleInboundMessage(
   }
 
   const respostas = await listRespostasOrdenadas(adminClient, match.id);
-  await completeAtendimentoAndCreateSolicitacao(adminClient, {
+  const idSolicitacaoCriada = await completeAtendimentoAndCreateSolicitacao(adminClient, {
     idAtendimento: match.id,
     tema: respostas[1] ?? '',
     cores: respostas[2] ?? '',
     observacoes: respostas[3] ?? '',
   });
+
+  /**
+   * RF004/RF005: a solicitação acabou de nascer `Em produção` a partir das
+   * respostas do cliente — é o único evento em que o designer descobre
+   * trabalho novo sem ter aberto o sistema. Best-effort e posterior à
+   * criação: nada aqui pode impedir a solicitação de existir.
+   *
+   * Não há risco de duplicata por reentrega do webhook: a RPC
+   * `complete_atendimento_and_create_solicitacao` só chega a este ponto uma
+   * vez por atendimento (as reentregas param antes, na dedup de evento).
+   */
+  await Promise.resolve(notificarEventoSolicitacao(adminClient, {
+    idSolicitacao: idSolicitacaoCriada,
+    evento: 'Nova solicitação',
+    body: (arte) => `O cliente concluiu o atendimento e ${arte} entrou em produção.`,
+  })).catch(() => undefined);
   await sendTextMessageBestEffort(match.id, match.clienteWhatsapp, `${prefixoForaDoFluxo}${CLOSING_MESSAGE}`);
 }
 
