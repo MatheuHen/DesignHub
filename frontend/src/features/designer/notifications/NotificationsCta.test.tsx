@@ -1,53 +1,86 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  getVapidPublicKeyMock,
-  subscribePushMock,
-  unsubscribePushMock,
-  getPushStatusMock,
-  enviarPushDeTesteMock,
-} = vi.hoisted(() => ({
+const { getVapidPublicKeyMock, subscribePushMock, unsubscribePushMock } = vi.hoisted(() => ({
   getVapidPublicKeyMock: vi.fn(),
   subscribePushMock: vi.fn(),
   unsubscribePushMock: vi.fn(),
-  getPushStatusMock: vi.fn(),
-  enviarPushDeTesteMock: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
   getVapidPublicKey: getVapidPublicKeyMock,
   subscribePush: subscribePushMock,
   unsubscribePush: unsubscribePushMock,
-  getPushStatus: getPushStatusMock,
-  enviarPushDeTeste: enviarPushDeTesteMock,
 }));
 
 const { NotificationsCta } = await import('./NotificationsCta');
 
+const CHAVE_VALIDA = 'chave-publica-base64url';
+
+/** Bytes que `urlBase64ToUint8Array(CHAVE_VALIDA)` produz — usados para simular a MESMA chave do servidor. */
+function bytesDaChaveAtual(): Uint8Array {
+  const normalized = CHAVE_VALIDA.trim();
+  const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
+  const base64 = (normalized + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(base64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+interface SubscriptionStub {
+  endpoint: string;
+  options?: { applicationServerKey?: ArrayBuffer | null };
+  toJSON: () => unknown;
+  unsubscribe: () => Promise<boolean>;
+}
+
+function criarAssinatura(
+  endpoint = 'https://push.example/atual',
+  applicationServerKey: ArrayBuffer | null = bytesDaChaveAtual().buffer as ArrayBuffer,
+): SubscriptionStub {
+  return {
+    endpoint,
+    options: { applicationServerKey },
+    toJSON: () => ({ endpoint, expirationTime: null, keys: { p256dh: 'p', auth: 'a' } }),
+    unsubscribe: vi.fn().mockResolvedValue(true),
+  };
+}
+
 function stubSupportedBrowser(options: {
   permission?: NotificationPermission;
-  existingSubscription?: { endpoint: string; toJSON: () => unknown; unsubscribe: () => Promise<boolean> } | null;
+  existingSubscription?: SubscriptionStub | null;
+  /** Assinatura vista só por `ready` (SW ainda não registrado na checagem inicial). */
+  readySubscription?: SubscriptionStub | null;
+  postMessage?: ReturnType<typeof vi.fn>;
 }) {
   /**
    * Rodada correções (item 10.3): `PushSubscription.toJSON()` de um navegador
-   * REAL sempre inclui `expirationTime` — o stub anterior o omitia, o que
-   * escondia a rejeição 400 do backend em produção. O stub agora reproduz o
-   * payload real da especificação Push API.
+   * REAL sempre inclui `expirationTime` — o stub reproduz o payload real da
+   * especificação Push API.
    */
-  const subscribeMock = vi.fn().mockResolvedValue({
-    endpoint: 'https://push.example/new',
-    toJSON: () => ({
-      endpoint: 'https://push.example/new',
-      expirationTime: null,
-      keys: { p256dh: 'p', auth: 'a' },
-    }),
-  });
-  const pushManager = {
-    getSubscription: vi.fn().mockResolvedValue(options.existingSubscription ?? null),
-    subscribe: subscribeMock,
+  const subscribeMock = vi.fn().mockResolvedValue(criarAssinatura('https://push.example/new'));
+  const postMessage = options.postMessage ?? vi.fn();
+
+  const registrationInicial = {
+    pushManager: {
+      getSubscription: vi.fn().mockResolvedValue(options.existingSubscription ?? null),
+      subscribe: subscribeMock,
+    },
+    active: { postMessage },
+    showNotification: vi.fn().mockResolvedValue(undefined),
   };
-  const registration = { pushManager };
+
+  const registrationReady =
+    options.readySubscription === undefined
+      ? registrationInicial
+      : {
+          ...registrationInicial,
+          pushManager: {
+            getSubscription: vi.fn().mockResolvedValue(options.readySubscription),
+            subscribe: subscribeMock,
+          },
+        };
 
   vi.stubGlobal('Notification', {
     permission: options.permission ?? 'default',
@@ -56,28 +89,25 @@ function stubSupportedBrowser(options: {
   vi.stubGlobal('navigator', {
     ...navigator,
     serviceWorker: {
-      getRegistration: vi.fn().mockResolvedValue(registration),
+      getRegistration: vi.fn().mockResolvedValue(registrationInicial),
       /**
        * Item 10.2: `register()` resolve antes da ativação do worker; só
-       * `ready` garante um worker ativo. O stub distingue os dois para que o
-       * componente seja obrigado a esperar `ready` antes de assinar.
+       * `ready` garante um worker ativo.
        */
       register: vi.fn().mockResolvedValue({ pushManager: undefined }),
-      ready: Promise.resolve(registration),
+      ready: Promise.resolve(registrationReady),
     },
   });
   vi.stubGlobal('PushManager', class {});
 
-  return { subscribeMock, pushManager };
+  return { subscribeMock, postMessage, registrationInicial };
 }
 
 describe('NotificationsCta (item 9)', () => {
   beforeEach(() => {
-    getVapidPublicKeyMock.mockReset();
-    subscribePushMock.mockReset();
-    unsubscribePushMock.mockReset();
-    getPushStatusMock.mockReset().mockResolvedValue({ dispositivos: 1 });
-    enviarPushDeTesteMock.mockReset();
+    getVapidPublicKeyMock.mockReset().mockResolvedValue(CHAVE_VALIDA);
+    subscribePushMock.mockReset().mockResolvedValue(undefined);
+    unsubscribePushMock.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -95,77 +125,31 @@ describe('NotificationsCta (item 9)', () => {
     getVapidPublicKeyMock.mockResolvedValue(null);
 
     const { container } = render(<NotificationsCta />);
-    await screen.findByText('', { selector: 'body' }).catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('mostra "Ativar notificações" quando suportado e ainda não há assinatura', async () => {
+  it('mostra "Ativar notificações" quando ainda não há assinatura', async () => {
     stubSupportedBrowser({ existingSubscription: null });
-    getVapidPublicKeyMock.mockResolvedValue('chave-publica-base64url');
 
     render(<NotificationsCta />);
 
     expect(await screen.findByRole('button', { name: 'Ativar notificações' })).toBeInTheDocument();
   });
 
-  it('mostra "Desativar notificações" quando já existe uma assinatura ativa', async () => {
-    stubSupportedBrowser({
-      existingSubscription: { endpoint: 'https://push.example/existing', toJSON: () => ({}), unsubscribe: vi.fn() },
-    });
-    getVapidPublicKeyMock.mockResolvedValue('chave-publica-base64url');
-
-    render(<NotificationsCta />);
-
-    expect(await screen.findByRole('button', { name: 'Desativar neste dispositivo' })).toBeInTheDocument();
-  });
-
-  it('ao clicar em "Ativar notificações", pede permissão, assina e chama o backend', async () => {
-    const { subscribeMock } = stubSupportedBrowser({ existingSubscription: null, permission: 'default' });
-    getVapidPublicKeyMock.mockResolvedValue('chave-publica-base64url');
-    subscribePushMock.mockResolvedValue(undefined);
-
-    render(<NotificationsCta />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Ativar notificações' }));
-
-    expect(await screen.findByRole('button', { name: 'Desativar neste dispositivo' })).toBeInTheDocument();
-    expect(subscribeMock).toHaveBeenCalledOnce();
-    expect(subscribePushMock).toHaveBeenCalledWith({ endpoint: 'https://push.example/new', keys: { p256dh: 'p', auth: 'a' } });
-  });
-
-  /**
-   * Item 10.3: o backend valida o corpo com `.strict()`. Encaminhar o
-   * `toJSON()` cru levava `expirationTime` junto e o servidor respondia 400,
-   * que chegava ao designer como "não foi possível ativar as notificações".
-   */
-  it('não encaminha o expirationTime do navegador no corpo enviado ao backend', async () => {
-    stubSupportedBrowser({ existingSubscription: null, permission: 'default' });
-    getVapidPublicKeyMock.mockResolvedValue('chave-publica-base64url');
-    subscribePushMock.mockResolvedValue(undefined);
-
-    render(<NotificationsCta />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Ativar notificações' }));
-
-    await screen.findByRole('button', { name: 'Desativar neste dispositivo' });
-    expect(subscribePushMock.mock.calls[0]?.[0]).not.toHaveProperty('expirationTime');
-  });
-
-  /** Item 10.4: causas distintas precisam produzir mensagens distintas, nunca a frase genérica. */
+  /** Item 10.4: causas distintas precisam produzir mensagens distintas. */
   it('mostra mensagem específica quando a permissão é negada durante a ativação', async () => {
     stubSupportedBrowser({ existingSubscription: null, permission: 'default' });
     vi.stubGlobal('Notification', {
       permission: 'default',
       requestPermission: vi.fn().mockResolvedValue('denied'),
     });
-    getVapidPublicKeyMock.mockResolvedValue('chave-publica-base64url');
 
     render(<NotificationsCta />);
     fireEvent.click(await screen.findByRole('button', { name: 'Ativar notificações' }));
 
-    expect(
-      await screen.findByText(/As notificações estão bloqueadas nas permissões do navegador/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Notificações bloqueadas nas permissões/)).toBeInTheDocument();
   });
 
   /**
@@ -181,133 +165,224 @@ describe('NotificationsCta (item 9)', () => {
     expect(await screen.findByRole('button', { name: 'Ativar notificações' })).toBeInTheDocument();
   });
 
-  it('mostra aviso quando a permissão do navegador está bloqueada', async () => {
+  it('mostra aviso quando a permissão do navegador já está bloqueada', async () => {
     stubSupportedBrowser({ permission: 'denied' });
-    getVapidPublicKeyMock.mockResolvedValue('chave-publica-base64url');
 
     render(<NotificationsCta />);
 
-    expect(
-      await screen.findByText(/As notificações estão bloqueadas nas permissões do navegador/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Notificações bloqueadas nas permissões/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Ativar notificações' })).not.toBeInTheDocument();
   });
 });
 
-describe('NotificationsCta — controles do dispositivo (ampliação das notificações)', () => {
+describe('NotificationsCta — interface enxuta', () => {
   beforeEach(() => {
-    getVapidPublicKeyMock.mockReset().mockResolvedValue('chave-publica-base64url');
+    getVapidPublicKeyMock.mockReset().mockResolvedValue(CHAVE_VALIDA);
     subscribePushMock.mockReset().mockResolvedValue(undefined);
     unsubscribePushMock.mockReset().mockResolvedValue(undefined);
-    getPushStatusMock.mockReset().mockResolvedValue({ dispositivos: 1 });
-    enviarPushDeTesteMock.mockReset().mockResolvedValue({ entregue: true });
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  function assinaturaAtiva(endpoint = 'https://push.example/atual') {
-    return {
-      endpoint,
-      toJSON: () => ({ endpoint, expirationTime: null, keys: { p256dh: 'p', auth: 'a' } }),
-      unsubscribe: vi.fn().mockResolvedValue(true),
-    };
-  }
-
-  it('mostra que o dispositivo está inscrito e informa quantos aparelhos a conta tem', async () => {
-    stubSupportedBrowser({ permission: 'granted', existingSubscription: assinaturaAtiva() });
-    getPushStatusMock.mockResolvedValue({ dispositivos: 3 });
+  it('quando ativado, mostra só o status discreto e a ação de desativar', async () => {
+    stubSupportedBrowser({ permission: 'granted', existingSubscription: criarAssinatura() });
 
     render(<NotificationsCta />);
 
-    expect(await screen.findByText(/Notificações ativas neste dispositivo/)).toBeInTheDocument();
-    expect(await screen.findByText(/3 dispositivos nesta conta/)).toBeInTheDocument();
+    expect(await screen.findByText('✓ Notificações ativadas')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'desativar' })).toBeInTheDocument();
   });
 
-  it('envia a notificação de teste para o endpoint DESTE dispositivo', async () => {
-    stubSupportedBrowser({
-      permission: 'granted',
-      existingSubscription: assinaturaAtiva('https://push.example/este-aparelho'),
-    });
+  it('não existe mais botão de teste nem mensagem verde de teste enviado', async () => {
+    stubSupportedBrowser({ permission: 'granted', existingSubscription: criarAssinatura() });
 
     render(<NotificationsCta />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Enviar notificação de teste' }));
+    await screen.findByText('✓ Notificações ativadas');
 
-    expect(
-      await screen.findByText(/Notificação de teste enviada/),
-    ).toBeInTheDocument();
-    expect(enviarPushDeTesteMock).toHaveBeenCalledWith('https://push.example/este-aparelho');
+    expect(screen.queryByRole('button', { name: /teste/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/deve aparecer em instantes/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('NotificationsCta — ativação', () => {
+  beforeEach(() => {
+    getVapidPublicKeyMock.mockReset().mockResolvedValue(CHAVE_VALIDA);
+    subscribePushMock.mockReset().mockResolvedValue(undefined);
+    unsubscribePushMock.mockReset().mockResolvedValue(undefined);
   });
 
-  it('quando o teste revela assinatura expirada, volta a oferecer a ativação', async () => {
-    stubSupportedBrowser({ permission: 'granted', existingSubscription: assinaturaAtiva() });
-    enviarPushDeTesteMock.mockResolvedValue({ entregue: false });
-
-    render(<NotificationsCta />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Enviar notificação de teste' }));
-
-    expect(await screen.findByText(/inscrição deste dispositivo expirou/)).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: 'Ativar notificações' })).toBeInTheDocument();
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it('ao reativar, remove no BACKEND a assinatura anterior antes de criar a nova', async () => {
-    /**
-     * Correção: antes a assinatura antiga era descartada só no navegador e a
-     * linha correspondente ficava órfã no banco, apontando para um endpoint
-     * morto — uma a cada reativação.
-     *
-     * Cenário real: o Service Worker ainda não está registrado quando a tela
-     * carrega (`getRegistration` → undefined, estado "inactive"), mas o
-     * registro obtido por `ready`, durante a ativação, ainda carrega uma
-     * assinatura antiga. Por isso os dois stubs divergem de propósito.
-     */
-    const antiga = assinaturaAtiva('https://push.example/antiga');
-    const registrationComAntiga = {
-      pushManager: {
-        getSubscription: vi.fn().mockResolvedValue(antiga),
-        subscribe: vi.fn().mockResolvedValue({
-          endpoint: 'https://push.example/new',
-          toJSON: () => ({
-            endpoint: 'https://push.example/new',
-            expirationTime: null,
-            keys: { p256dh: 'p', auth: 'a' },
-          }),
-        }),
-      },
-    };
-
-    vi.stubGlobal('Notification', {
+  it('pede permissão, assina, vincula à conta e confirma com notificação local', async () => {
+    const { subscribeMock, postMessage } = stubSupportedBrowser({
+      existingSubscription: null,
       permission: 'default',
-      requestPermission: vi.fn().mockResolvedValue('granted'),
     });
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      serviceWorker: {
-        getRegistration: vi.fn().mockResolvedValue(undefined),
-        register: vi.fn().mockResolvedValue({ pushManager: undefined }),
-        ready: Promise.resolve(registrationComAntiga),
-      },
-    });
-    vi.stubGlobal('PushManager', class {});
 
     render(<NotificationsCta />);
     fireEvent.click(await screen.findByRole('button', { name: 'Ativar notificações' }));
 
-    await screen.findByRole('button', { name: 'Enviar notificação de teste' });
-    expect(unsubscribePushMock).toHaveBeenCalledWith('https://push.example/antiga');
-    expect(antiga.unsubscribe).toHaveBeenCalled();
-    expect(subscribePushMock).toHaveBeenCalledWith(
-      expect.objectContaining({ endpoint: 'https://push.example/new' }),
+    expect(await screen.findByText('✓ Notificações ativadas')).toBeInTheDocument();
+    expect(subscribeMock).toHaveBeenCalledOnce();
+    expect(subscribePushMock).toHaveBeenCalledWith({
+      endpoint: 'https://push.example/new',
+      keys: { p256dh: 'p', auth: 'a' },
+    });
+    // Confirmação local: não depende de ida e volta ao serviço de push.
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'designhub:notificacao-local',
+        title: 'DesignHub — NOTIFICAÇÕES ATIVADAS',
+      }),
     );
   });
 
-  it('explica como desbloquear quando a permissão do navegador está negada', async () => {
-    stubSupportedBrowser({ permission: 'denied' });
+  /**
+   * Item 10.3: o backend valida o corpo com `.strict()`. Encaminhar o
+   * `toJSON()` cru levava `expirationTime` junto e o servidor respondia 400.
+   */
+  it('não encaminha o expirationTime do navegador no corpo enviado ao backend', async () => {
+    stubSupportedBrowser({ existingSubscription: null, permission: 'default' });
+
+    render(<NotificationsCta />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ativar notificações' }));
+
+    await screen.findByText('✓ Notificações ativadas');
+    expect(subscribePushMock.mock.calls[0]?.[0]).not.toHaveProperty('expirationTime');
+  });
+
+  it('NÃO dá a ativação por concluída quando o servidor recusa a vinculação', async () => {
+    const { postMessage } = stubSupportedBrowser({
+      existingSubscription: null,
+      permission: 'default',
+    });
+    subscribePushMock.mockRejectedValue(new Error('falha ao vincular'));
+
+    render(<NotificationsCta />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ativar notificações' }));
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('✓ Notificações ativadas')).not.toBeInTheDocument();
+    // Nem confirma algo que não aconteceu.
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it('reaproveita a assinatura existente em vez de recriá-la (sem endpoint novo a cada clique)', async () => {
+    // "Ativou uma vez, continua ativado": enquanto a chave do servidor for a
+    // mesma, a assinatura do navegador é reaproveitada.
+    const existente = criarAssinatura('https://push.example/ja-existente');
+    const { subscribeMock } = stubSupportedBrowser({
+      permission: 'default',
+      existingSubscription: null,
+      readySubscription: existente,
+    });
+
+    render(<NotificationsCta />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ativar notificações' }));
+
+    await screen.findByText('✓ Notificações ativadas');
+    expect(subscribeMock).not.toHaveBeenCalled();
+    expect(existente.unsubscribe).not.toHaveBeenCalled();
+    expect(unsubscribePushMock).not.toHaveBeenCalled();
+    expect(subscribePushMock).toHaveBeenCalledWith(
+      expect.objectContaining({ endpoint: 'https://push.example/ja-existente' }),
+    );
+  });
+
+  it('refaz a assinatura quando ela foi criada com OUTRA chave VAPID, limpando a antiga no backend', async () => {
+    const chaveAntiga = new Uint8Array([9, 9, 9]).buffer;
+    const antiga = criarAssinatura('https://push.example/antiga', chaveAntiga);
+    const { subscribeMock } = stubSupportedBrowser({
+      permission: 'default',
+      existingSubscription: null,
+      readySubscription: antiga,
+    });
+
+    render(<NotificationsCta />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ativar notificações' }));
+
+    await screen.findByText('✓ Notificações ativadas');
+    expect(unsubscribePushMock).toHaveBeenCalledWith('https://push.example/antiga');
+    expect(antiga.unsubscribe).toHaveBeenCalled();
+    expect(subscribeMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe('NotificationsCta — persistência e desativação', () => {
+  beforeEach(() => {
+    getVapidPublicKeyMock.mockReset().mockResolvedValue(CHAVE_VALIDA);
+    subscribePushMock.mockReset().mockResolvedValue(undefined);
+    unsubscribePushMock.mockReset().mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reconhece a assinatura existente ao carregar e a ressincroniza com o backend', async () => {
+    // Recupera sozinho o caso em que o navegador manteve a inscrição mas o
+    // registro do servidor se perdeu — sem o designer precisar clicar.
+    stubSupportedBrowser({
+      permission: 'granted',
+      existingSubscription: criarAssinatura('https://push.example/persistida'),
+    });
 
     render(<NotificationsCta />);
 
-    expect(await screen.findByText(/bloqueadas nas permissões do navegador/)).toBeInTheDocument();
+    expect(await screen.findByText('✓ Notificações ativadas')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(subscribePushMock).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint: 'https://push.example/persistida' }),
+      ),
+    );
+    // Nenhuma assinatura nova é criada só por abrir a página.
     expect(screen.queryByRole('button', { name: 'Ativar notificações' })).not.toBeInTheDocument();
+  });
+
+  it('falha ao ressincronizar não desativa nem polui a tela', async () => {
+    stubSupportedBrowser({ permission: 'granted', existingSubscription: criarAssinatura() });
+    subscribePushMock.mockRejectedValue(new Error('rede'));
+
+    render(<NotificationsCta />);
+
+    expect(await screen.findByText('✓ Notificações ativadas')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('desativa no backend e no navegador e confirma com notificação local', async () => {
+    const assinatura = criarAssinatura('https://push.example/para-remover');
+    const { postMessage } = stubSupportedBrowser({
+      permission: 'granted',
+      existingSubscription: assinatura,
+    });
+
+    render(<NotificationsCta />);
+    fireEvent.click(await screen.findByRole('button', { name: 'desativar' }));
+
+    expect(await screen.findByRole('button', { name: 'Ativar notificações' })).toBeInTheDocument();
+    expect(unsubscribePushMock).toHaveBeenCalledWith('https://push.example/para-remover');
+    expect(assinatura.unsubscribe).toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'designhub:notificacao-local',
+        title: 'DesignHub — NOTIFICAÇÕES DESATIVADAS',
+      }),
+    );
+  });
+
+  it('falha parcial NÃO informa desativação concluída (assinatura ainda ativa)', async () => {
+    stubSupportedBrowser({ permission: 'granted', existingSubscription: criarAssinatura() });
+    unsubscribePushMock.mockRejectedValue(new Error('servidor fora'));
+
+    render(<NotificationsCta />);
+    fireEvent.click(await screen.findByRole('button', { name: 'desativar' }));
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    // Continua mostrando "ativadas": seria falso dizer que desativou.
+    expect(screen.getByText('✓ Notificações ativadas')).toBeInTheDocument();
   });
 });

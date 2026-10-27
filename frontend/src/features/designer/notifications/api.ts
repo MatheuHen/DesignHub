@@ -22,19 +22,10 @@ export function unsubscribePush(endpoint: string): Promise<void> {
   return apiRequest<void>('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) });
 }
 
-/** Quantos dispositivos desta conta estão inscritos (vários aparelhos são suportados). */
-export function getPushStatus(): Promise<{ dispositivos: number }> {
-  return apiRequest<{ dispositivos: number }>('/api/push/status');
-}
-
 /**
- * Dispara uma notificação real para ESTE dispositivo.
- * `entregue: false` = assinatura expirada (já removida no servidor) — o
- * dispositivo precisa reativar.
+ * Diagnóstico técnico, sem controle visual correspondente: as rotas
+ * `GET /api/push/status` e `POST /api/push/teste` continuam no backend para
+ * investigar entrega remota quando necessário (inclusive pelos testes
+ * automatizados), mas o Dashboard não expõe mais botão de teste — a
+ * confirmação de ativação/desativação cumpre esse papel para o usuário.
  */
-export function enviarPushDeTeste(endpoint: string): Promise<{ entregue: boolean }> {
-  return apiRequest<{ entregue: boolean }>('/api/push/teste', {
-    method: 'POST',
-    body: JSON.stringify({ endpoint }),
-  });
-}

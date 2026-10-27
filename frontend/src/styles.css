@@ -1053,6 +1053,38 @@ p {
   text-align: right;
 }
 
+/* Estado ativado: linha discreta, sem botão grande ocupando o cabeçalho. */
+.dashboard-notifications-status {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #6b6478;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dashboard-notifications-on {
+  color: #2f7d4f;
+  font-weight: 600;
+}
+
+/* Ação textual: herda o tom do link do sistema, sem moldura de botão. */
+.dashboard-notifications-cta .link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 0;
+  font-weight: 500;
+  font-size: 0.8rem;
+  color: #6b6478;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.dashboard-notifications-cta .link-button:hover {
+  color: #423a53;
+}
+
 /* ===== Badge de status genérico (solicitações/agendamentos) ===== */
 
 .status-badge {

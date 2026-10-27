@@ -1,14 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../../lib/apiClient';
-import {
-  enviarPushDeTeste,
-  getPushStatus,
-  getVapidPublicKey,
-  subscribePush,
-  unsubscribePush,
-  type PushSubscriptionJson,
-} from './api';
-import { isWebPushSupported, urlBase64ToUint8Array } from './webPush';
+import { getVapidPublicKey, subscribePush, unsubscribePush, type PushSubscriptionJson } from './api';
+import { isWebPushSupported, mostrarNotificacaoLocal, urlBase64ToUint8Array } from './webPush';
 
 type Status = 'checking' | 'unsupported' | 'unconfigured' | 'denied' | 'inactive' | 'active';
 
@@ -51,20 +44,33 @@ function logPushFailure(fase: string, error: unknown): void {
   console.error(`[designhub:push] falha na fase "${fase}": ${detalhe}`);
 }
 
+/** Extrai o contrato que a API espera, descartando campos fora dele. */
+function toSubscriptionJson(subscription: PushSubscription): PushSubscriptionJson {
+  /**
+   * Item 10.3: envia exatamente o contrato da API (`endpoint` + `keys`).
+   * `toJSON()` também traz `expirationTime`, que não faz parte do contrato —
+   * normalizar aqui evita depender da tolerância do servidor.
+   */
+  const json = subscription.toJSON() as PushSubscriptionJson & { keys?: Record<string, string> };
+  const p256dh = json.keys?.p256dh;
+  const authKey = json.keys?.auth;
+  if (!json.endpoint || !p256dh || !authKey) {
+    throw new Error('Assinatura de push incompleta devolvida pelo navegador.');
+  }
+  return { endpoint: json.endpoint, keys: { p256dh, auth: authKey } };
+}
+
 /**
- * Item 9 (requisito explícito): CTA "Ativar notificações" — nunca pede
- * permissão automaticamente no carregamento da página. O designer decide
- * clicando. Degrada normalmente (esconde-se) quando o navegador não
- * suporta Web Push ou quando o backend não tem as chaves VAPID
- * configuradas — o resto do Dashboard continua funcionando.
+ * Item 9 (requisito explícito): controle de notificações do Dashboard —
+ * nunca pede permissão automaticamente no carregamento da página. O
+ * designer decide clicando. Degrada normalmente (esconde-se) quando o
+ * navegador não suporta Web Push ou quando o backend não tem as chaves
+ * VAPID configuradas — o resto do Dashboard continua funcionando.
  */
 export function NotificationsCta() {
   const [status, setStatus] = useState<Status>('checking');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [testeOk, setTesteOk] = useState<string | null>(null);
-  /** Quantos aparelhos desta conta estão inscritos (null = ainda não consultado). */
-  const [dispositivos, setDispositivos] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,16 +92,34 @@ export function NotificationsCta() {
         return;
       }
 
+      /**
+       * "Ativou uma vez, continua ativado": o estado vem da assinatura que o
+       * navegador já guarda para este dispositivo. Enquanto ela existir, o
+       * designer não precisa ativar de novo a cada login ou reload.
+       *
+       * Reconciliação: a assinatura é reenviada ao backend (upsert
+       * idempotente pela chave `id_usuario + endpoint`). Isso recupera, sem
+       * nenhuma ação do designer, o caso em que o navegador manteve a
+       * inscrição mas o registro do servidor se perdeu — por exemplo depois
+       * de uma limpeza de assinaturas expiradas.
+       */
       const registration = await navigator.serviceWorker.getRegistration('/sw.js');
       const existing = await registration?.pushManager.getSubscription();
       if (cancelled) return;
-      setStatus(existing ? 'active' : 'inactive');
 
-      // Contagem de dispositivos é informativa: uma falha aqui não pode
-      // esconder o CTA nem virar erro na tela.
-      if (existing) {
-        const contagem = await Promise.resolve(getPushStatus()).catch(() => null);
-        if (!cancelled && contagem) setDispositivos(contagem.dispositivos);
+      if (!existing) {
+        setStatus('inactive');
+        return;
+      }
+
+      setStatus('active');
+      try {
+        await subscribePush(toSubscriptionJson(existing));
+      } catch (syncError: unknown) {
+        // Falha de sincronização não desativa nada nem polui a tela: a
+        // assinatura do navegador continua válida e a próxima visita tenta
+        // de novo.
+        logPushFailure('sincronizacao', syncError);
       }
     }
 
@@ -143,84 +167,50 @@ export function NotificationsCta() {
       const registration = await navigator.serviceWorker.ready;
 
       /**
-       * Item 10.3: reaproveita a assinatura existente em vez de criar outra —
-       * `subscribe()` com uma `applicationServerKey` diferente da já
-       * registrada também lança `InvalidStateError`. Se a chave do servidor
-       * mudou, a assinatura antiga é descartada antes de criar a nova.
+       * Reaproveita a assinatura que já existe neste navegador em vez de
+       * destruí-la e criar outra a cada clique. A recriação gerava um
+       * endpoint novo toda vez — e, enquanto o servidor não fosse avisado,
+       * uma linha órfã apontando para o endpoint morto.
+       *
+       * Só vale a pena trocar quando a assinatura foi criada com OUTRA chave
+       * VAPID (servidor rotacionou a chave): aí ela nunca receberia os
+       * envios atuais, e `subscribe()` com uma chave diferente lançaria
+       * `InvalidStateError`.
        */
+      const applicationServerKey = urlBase64ToUint8Array(publicKey);
       let subscription = await registration.pushManager.getSubscription();
-      if (subscription) {
-        /**
-         * Correção: antes a assinatura antiga era descartada SÓ no navegador.
-         * A linha correspondente continuava no banco, apontando para um
-         * endpoint morto — a cada reativação sobrava mais uma. Agora o
-         * servidor é avisado primeiro; se essa limpeza falhar, seguimos
-         * assim mesmo, porque o envio já remove endpoints que respondem
-         * 404/410 e travar a reativação seria pior.
-         */
+
+      if (subscription && !mesmaChaveDoServidor(subscription, applicationServerKey)) {
         const endpointAntigo = subscription.endpoint;
+        // O servidor é avisado ANTES de descartar, para não deixar a linha
+        // órfã; se essa limpeza falhar, seguimos assim mesmo (o envio já
+        // remove endpoints que respondem 404/410).
         await unsubscribePush(endpointAntigo).catch((cleanupError: unknown) => {
           logPushFailure('limpeza-assinatura-anterior', cleanupError);
         });
         await subscription.unsubscribe().catch(() => undefined);
         subscription = null;
       }
+
       subscription ??= await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
+        applicationServerKey,
       });
 
-      /**
-       * Item 10.3: envia exatamente o contrato da API (`endpoint` + `keys`).
-       * `toJSON()` também traz `expirationTime`, que não faz parte do
-       * contrato — normalizar aqui evita depender da tolerância do servidor.
-       */
-      const json = subscription.toJSON() as PushSubscriptionJson & { keys?: Record<string, string> };
-      const p256dh = json.keys?.p256dh;
-      const authKey = json.keys?.auth;
-      if (!json.endpoint || !p256dh || !authKey) {
-        throw new Error('Assinatura de push incompleta devolvida pelo navegador.');
-      }
-
-      await subscribePush({ endpoint: json.endpoint, keys: { p256dh, auth: authKey } });
+      // A ativação só é dada como concluída depois que o servidor confirma a
+      // vinculação do dispositivo à conta. Se isto falhar, o catch abaixo
+      // mantém o estado anterior e mostra o motivo.
+      await subscribePush(toSubscriptionJson(subscription));
       setStatus('active');
+
+      await mostrarNotificacaoLocal(registration, {
+        title: 'DesignHub — NOTIFICAÇÕES ATIVADAS',
+        body: 'As notificações do DesignHub foram ativadas neste dispositivo.',
+        url: '/designer',
+      });
     } catch (ativarError: unknown) {
       logPushFailure('ativacao', ativarError);
       setError(describeAtivacaoError(ativarError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /**
-   * Item 7: prova real de que ESTE aparelho recebe. Não é simulação local —
-   * o servidor envia um push de verdade pelo mesmo caminho dos eventos, e a
-   * notificação é exibida pelo Service Worker.
-   */
-  async function handleTestar() {
-    setBusy(true);
-    setError(null);
-    setTesteOk(null);
-    try {
-      const registration = await navigator.serviceWorker.getRegistration('/sw.js');
-      const subscription = await registration?.pushManager.getSubscription();
-      if (!subscription) {
-        setStatus('inactive');
-        setError('Este dispositivo não está mais inscrito. Ative as notificações novamente.');
-        return;
-      }
-      const { entregue } = await enviarPushDeTeste(subscription.endpoint);
-      if (!entregue) {
-        // O serviço de push recusou a assinatura (expirada/revogada): o
-        // servidor já a removeu, então o estado real aqui é "não inscrito".
-        setStatus('inactive');
-        setError('A inscrição deste dispositivo expirou. Ative as notificações novamente.');
-        return;
-      }
-      setTesteOk('Notificação de teste enviada. Ela deve aparecer em instantes neste dispositivo.');
-    } catch (testeError: unknown) {
-      logPushFailure('teste', testeError);
-      setError(describeAtivacaoError(testeError));
     } finally {
       setBusy(false);
     }
@@ -232,14 +222,34 @@ export function NotificationsCta() {
     try {
       const registration = await navigator.serviceWorker.getRegistration('/sw.js');
       const subscription = await registration?.pushManager.getSubscription();
+
       if (subscription) {
+        // Servidor primeiro: enquanto a linha existir lá, este dispositivo
+        // continuaria recebendo. Só depois o navegador descarta.
         await unsubscribePush(subscription.endpoint);
         await subscription.unsubscribe();
       }
+
       setStatus('inactive');
+
+      /**
+       * A confirmação sai DEPOIS da desativação concluída e enquanto a
+       * permissão do navegador ainda permite exibir — remover a assinatura
+       * de push não revoga a permissão de notificação, então o aviso local
+       * continua possível.
+       */
+      if (registration) {
+        await mostrarNotificacaoLocal(registration, {
+          title: 'DesignHub — NOTIFICAÇÕES DESATIVADAS',
+          body: 'As notificações do DesignHub foram desativadas neste dispositivo.',
+          url: '/designer',
+        });
+      }
     } catch (desativarError: unknown) {
+      // Falha parcial: a assinatura pode continuar ativa, então o estado NÃO
+      // muda para "desativado" — seria informar uma conclusão que não houve.
       logPushFailure('desativacao', desativarError);
-      setError('Não foi possível desativar as notificações.');
+      setError('Não foi possível desativar as notificações. Tente novamente.');
     } finally {
       setBusy(false);
     }
@@ -251,8 +261,7 @@ export function NotificationsCta() {
     <div className="dashboard-notifications-cta">
       {status === 'denied' && (
         <p className="dashboard-notifications-hint">
-          As notificações estão bloqueadas nas permissões do navegador para este site. Libere nas
-          configurações do navegador (cadeado ao lado do endereço) para voltar a recebê-las.
+          Notificações bloqueadas nas permissões do navegador para este site.
         </p>
       )}
       {status === 'inactive' && (
@@ -261,24 +270,16 @@ export function NotificationsCta() {
         </button>
       )}
       {status === 'active' && (
-        <>
-          <p className="dashboard-notifications-hint" role="status">
-            Notificações ativas neste dispositivo
-            {dispositivos !== null && dispositivos > 1
-              ? ` (${dispositivos} dispositivos nesta conta).`
-              : '.'}
-          </p>
-          <button type="button" onClick={() => void handleTestar()} disabled={busy}>
-            {busy ? 'Enviando…' : 'Enviar notificação de teste'}
+        <p className="dashboard-notifications-status">
+          <span className="dashboard-notifications-on">✓ Notificações ativadas</span>{' '}
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => void handleDesativar()}
+            disabled={busy}
+          >
+            {busy ? 'desativando…' : 'desativar'}
           </button>
-          <button type="button" onClick={() => void handleDesativar()} disabled={busy}>
-            {busy ? 'Desativando…' : 'Desativar neste dispositivo'}
-          </button>
-        </>
-      )}
-      {testeOk && (
-        <p role="status" className="atendimento-success">
-          {testeOk}
         </p>
       )}
       {error && (
@@ -288,4 +289,25 @@ export function NotificationsCta() {
       )}
     </div>
   );
+}
+
+/**
+ * Compara a chave VAPID com a qual a assinatura foi criada. Quando o
+ * servidor rotaciona o par de chaves, a assinatura antiga deixa de receber
+ * os envios e precisa ser refeita; fora isso, ela é reaproveitada.
+ *
+ * `applicationServerKey` pode não estar disponível em navegadores antigos —
+ * nesse caso tratamos como "mesma chave" para não recriar a assinatura sem
+ * necessidade (o envio real revelaria o problema com um 404/410).
+ */
+function mesmaChaveDoServidor(
+  subscription: PushSubscription,
+  applicationServerKey: Uint8Array<ArrayBuffer>,
+): boolean {
+  const atual = subscription.options?.applicationServerKey;
+  if (!atual) return true;
+
+  const bytes = new Uint8Array(atual);
+  if (bytes.length !== applicationServerKey.length) return false;
+  return bytes.every((valor, indice) => valor === applicationServerKey[indice]);
 }

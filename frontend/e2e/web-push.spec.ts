@@ -131,7 +131,8 @@ test.describe('Web Push real (item 10)', () => {
       // retornar 204 — é a primeira evidência de assinatura aceita. O prazo é
       // generoso porque `pushManager.subscribe()` num perfil novo precisa
       // registrar o navegador no serviço de push (FCM) antes de responder.
-      await expect(page.getByRole('button', { name: 'Desativar neste dispositivo' })).toBeVisible({ timeout: 90_000 });
+      // Interface enxuta: ativado vira um status discreto, não um botão grande.
+      await expect(page.getByText('✓ Notificações ativadas')).toBeVisible({ timeout: 90_000 });
     });
 
     const swInfo = await test.step('service worker registrado e ativo', async () => {
@@ -259,7 +260,7 @@ test.describe('Web Push real (item 10)', () => {
     });
 
     await test.step('desativar remove a assinatura do navegador e do banco', async () => {
-      await page.getByRole('button', { name: 'Desativar neste dispositivo' }).click();
+      await page.getByRole('button', { name: 'desativar' }).click();
       await expect(page.getByRole('button', { name: 'Ativar notificações' })).toBeVisible();
 
       const shape = await inspecionarSubscription(page);
@@ -272,7 +273,7 @@ test.describe('Web Push real (item 10)', () => {
 
     await test.step('reativar cria e persiste uma nova assinatura', async () => {
       await page.getByRole('button', { name: 'Ativar notificações' }).click();
-      await expect(page.getByRole('button', { name: 'Desativar neste dispositivo' })).toBeVisible();
+      await expect(page.getByText('✓ Notificações ativadas')).toBeVisible();
 
       const shape = await inspecionarSubscription(page);
       expect(shape.presente).toBe(true);
