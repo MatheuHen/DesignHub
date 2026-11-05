@@ -21,11 +21,12 @@ Estados oficiais da solicitação: `Em produção`, `Enviado para avaliação`, 
 DesignHub/
 ├─ CLAUDE.md                                  # contrato mestre (62KB) — fonte de verdade
 ├─ README.md
-├─ RESUMO_SEMINARIO_10_SEMANA_TFC2.md          # gerado nesta sessão (ver seção 9)
-├─ EVIDENCIAS_TESTES_FINAIS.md                 # evidência de 27/09 (parcialmente desatualizada, ver seção 6)
 ├─ DESIGNHUB_CORRECOES_MELHORIAS_PROGRESS.md
 ├─ Apresentacao_Seminario_2_DesignHub_FINAL.pptx
-├─ k6-health-test.js                           # script do teste de carga k6 (só /api/health)
+├─ docs/academico/RESUMO_SEMINARIO_10_SEMANA_TFC2.md   # roteiro do seminário (ver seção 9)
+├─ docs/academico/CONTEXTO_COMPLETO_HANDOFF_DESIGNHUB.md  # este arquivo
+├─ docs/evidencias/EVIDENCIAS_TESTES_FINAIS.md        # evidência de 27/09 (parcialmente desatualizada, ver seção 6)
+├─ scripts/k6-health-test.js                   # script do teste de carga k6 (só /api/health)
 ├─ package.json / package-lock.json
 ├─ .env.example (só nomes, sem valores) / .env.local (ignorado pelo Git, não lido/exposto nesta auditoria)
 ├─ .claude/ (agents/ e skills/ do projeto)
