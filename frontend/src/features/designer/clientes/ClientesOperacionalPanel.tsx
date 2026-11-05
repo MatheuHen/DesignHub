@@ -21,6 +21,10 @@ const DICA_LIBERACAO_INSTAGRAM = [
   '',
   `Para liberar uma conta, envie o @ dela para o suporte: ${SUPORTE_INSTAGRAM_WHATSAPP_EXIBICAO}`,
   '',
+  'Banca avaliadora: as credenciais de uma conta do Instagram já autorizada e',
+  'conectada ao aplicativo da Meta estão no documento do Google Drive, na seção',
+  '"Acessos" — use-a para testar o agendamento e a publicação automática.',
+  '',
   'A publicação manual com registro no sistema continua disponível no detalhe',
   'da solicitação.',
 ].join('\n');

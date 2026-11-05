@@ -96,4 +96,79 @@ describe('Webhook WhatsApp (RF004/seção 12.3)', () => {
     expect(response.status).toBe(200);
     expect(processInboundWebhookMock).toHaveBeenCalledOnce();
   });
+
+  /**
+   * Observabilidade de entrega: antes o array `statuses` era descartado no
+   * parse e uma recusa de entrega (ex.: 131047, janela de atendimento
+   * fechada) não deixava rastro nenhum. O teste garante que `failed` vira
+   * log de erro com o código da Meta, que o webhook continua respondendo
+   * 200 (para a Meta não reentregar) e que o telefone do destinatário NUNCA
+   * é registrado (RNF010/seção 12.5).
+   */
+  it('POST registra falha de entrega do statuses sem expor o telefone', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                statuses: [
+                  {
+                    id: 'wamid.falhou',
+                    status: 'failed',
+                    recipient_id: '5511988887777',
+                    errors: [{ code: 131047, title: 'Re-engagement message' }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const rawBody = JSON.stringify(payload);
+
+    const response = await request(createApp())
+      .post('/api/webhooks/whatsapp')
+      .set('Content-Type', 'application/json')
+      .set('X-Hub-Signature-256', sign(rawBody))
+      .send(rawBody);
+
+    expect(response.status).toBe(200);
+    expect(consoleError).toHaveBeenCalledWith('[designhub:whatsapp] entrega FALHOU', {
+      wamid: 'wamid.falhou',
+      status: 'failed',
+      metaErrorCodes: [131047],
+    });
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain('5511988887777');
+    consoleError.mockRestore();
+  });
+
+  it('POST aceita payload de statuses bem-sucedido sem quebrar o fluxo de mensagens', async () => {
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        { changes: [{ field: 'messages', value: { statuses: [{ id: 'wamid.ok', status: 'delivered' }] } }] },
+      ],
+    };
+    const rawBody = JSON.stringify(payload);
+
+    const response = await request(createApp())
+      .post('/api/webhooks/whatsapp')
+      .set('Content-Type', 'application/json')
+      .set('X-Hub-Signature-256', sign(rawBody))
+      .send(rawBody);
+
+    expect(response.status).toBe(200);
+    expect(consoleInfo).toHaveBeenCalledWith('[designhub:whatsapp] status de entrega', {
+      wamid: 'wamid.ok',
+      status: 'delivered',
+      metaErrorCodes: undefined,
+    });
+    consoleInfo.mockRestore();
+  });
 });

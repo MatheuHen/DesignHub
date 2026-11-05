@@ -21,8 +21,36 @@ const whatsappMessageSchema = z.object({
   document: whatsappMediaSchema.optional(),
 });
 
+/**
+ * Observabilidade de entrega: a Cloud API confirma o ENVIO com HTTP 200 +
+ * `wamid`, mas o resultado real da ENTREGA chega depois, neste array
+ * `statuses` (`sent`/`delivered`/`read`/`failed`). Até aqui o campo era
+ * descartado no parse, então falha de entrega — inclusive a recusa 131047
+ * por janela de atendimento fechada — era completamente silenciosa: o log
+ * dizia "mensagem enviada" para mensagens que nunca chegaram.
+ *
+ * Só os campos técnicos necessários ao diagnóstico; `recipient_id`
+ * (telefone do cliente) é aceito no parse mas nunca registrado em log
+ * (RNF010/seção 12.5).
+ */
+const whatsappStatusSchema = z.object({
+  id: z.string().max(128),
+  status: z.string().max(32),
+  recipient_id: z.string().max(32).optional(),
+  errors: z
+    .array(
+      z.object({
+        code: z.number().optional(),
+        title: z.string().max(256).optional(),
+      }),
+    )
+    .max(10)
+    .optional(),
+});
+
 const whatsappChangeValueSchema = z.object({
   messages: z.array(whatsappMessageSchema).max(50).optional(),
+  statuses: z.array(whatsappStatusSchema).max(50).optional(),
 });
 
 const whatsappChangeSchema = z.object({
@@ -41,3 +69,4 @@ export const whatsappWebhookPayloadSchema = z.object({
 });
 export type WhatsAppWebhookPayload = z.infer<typeof whatsappWebhookPayloadSchema>;
 export type WhatsAppInboundMessage = z.infer<typeof whatsappMessageSchema>;
+export type WhatsAppDeliveryStatus = z.infer<typeof whatsappStatusSchema>;
