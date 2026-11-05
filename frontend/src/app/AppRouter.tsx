@@ -15,6 +15,7 @@ import { DesignerHome } from '../features/designer/DesignerHome';
 import { SolicitacaoDetailPage } from '../features/designer/solicitacoes/SolicitacaoDetailPage';
 import { SolicitacoesPage } from '../features/designer/solicitacoes/SolicitacoesPage';
 import { InstagramStatusPage } from '../features/instagram/InstagramStatusPage';
+import { PoliticaPrivacidadePage } from '../features/legal/PoliticaPrivacidadePage';
 
 export function AppRouter() {
   return (
@@ -26,6 +27,12 @@ export function AppRouter() {
           <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
           <Route path="/avaliacao/:token" element={<AvaliacaoPage />} />
           <Route path="/instagram/status" element={<InstagramStatusPage />} />
+          {/*
+            Rota pública estática exigida pelo App Review da Meta (URL de
+            Política de Privacidade). Fora de menu/navegação: não altera
+            nenhum fluxo nem requisito do TFC (RNF010/LGPD).
+          */}
+          <Route path="/privacidade" element={<PoliticaPrivacidadePage />} />
           <Route
             path="/designer"
             element={

@@ -1194,10 +1194,31 @@ p {
   vertical-align: bottom;
 }
 
-.clientes-instagram-hint {
+/* RNF010/LGPD: página pública de política de privacidade (rota estática). */
+.legal-card {
+  max-width: 48rem;
+  text-align: left;
+  line-height: 1.65;
+}
+
+.legal-card h2 {
+  font-size: 1.05rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.legal-card ul {
+  margin: 0.5rem 0 0.5rem 1.25rem;
+  padding: 0;
+}
+
+.legal-card li {
+  margin-bottom: 0.35rem;
+}
+
+.legal-meta {
   font-size: 0.85rem;
   color: var(--text-muted, #6b7280);
-  margin: 0 0 0.75rem;
+  margin: 0;
 }
 
 /* RF014: orientação complementar de liberação da conta na tela pública de status. */

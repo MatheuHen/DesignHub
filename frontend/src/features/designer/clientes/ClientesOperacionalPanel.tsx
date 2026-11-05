@@ -3,10 +3,27 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../../lib/apiClient';
 import { useAutoDismiss } from '../../../lib/useAutoDismiss';
 import { INSTAGRAM_OAUTH_MESSAGE_SOURCE } from '../../instagram/oauthMessage';
-import {
-  SUPORTE_INSTAGRAM_WHATSAPP_EXIBICAO,
-  SUPORTE_INSTAGRAM_WHATSAPP_URL,
-} from '../../instagram/suporteConta';
+import { SUPORTE_INSTAGRAM_WHATSAPP_EXIBICAO } from '../../instagram/suporteConta';
+
+/**
+ * Dica ao passar o mouse, no mesmo padrão já usado em `NotificationsCta`
+ * (dica das notificações): a orientação fica no `title` do próprio botão,
+ * à mão antes do clique, sem ocupar espaço fixo na tela nem criar tela
+ * nova. O texto não descreve um erro do DesignHub — a recusa acontece na
+ * tela da Meta, por limitação do nível de acesso gratuito do App.
+ */
+const DICA_LIBERACAO_INSTAGRAM = [
+  'A conta precisa estar autorizada no App da Meta do DesignHub.',
+  '',
+  'Por limitação do nível de acesso gratuito da API oficial da Meta, contas',
+  'profissionais ainda não autorizadas são recusadas pela própria Meta na tela',
+  'de login ("Função de desenvolvedor é insuficiente").',
+  '',
+  `Para liberar uma conta, envie o @ dela para o suporte: ${SUPORTE_INSTAGRAM_WHATSAPP_EXIBICAO}`,
+  '',
+  'A publicação manual com registro no sistema continua disponível no detalhe',
+  'da solicitação.',
+].join('\n');
 import {
   desconectarInstagram,
   enviarLinkInstagram,
@@ -323,21 +340,6 @@ export function ClientesOperacionalPanel() {
       {!loading && !error && items.length === 0 && <p className="clientes-empty">Nenhum cliente encontrado.</p>}
 
       {!loading && !error && items.length > 0 && (
-        <p className="clientes-instagram-hint">
-          Para utilizar a publicação automática, conecte uma conta profissional do Instagram
-          (Business ou Creator) <strong>previamente autorizada no App da Meta do DesignHub</strong>.
-          Por limitação do nível de acesso gratuito da API oficial da Meta, contas ainda não
-          autorizadas são recusadas pela própria Meta na tela de login (“Função de desenvolvedor é
-          insuficiente”). Para liberar uma conta, envie o @ dela para o suporte no WhatsApp{' '}
-          <a href={SUPORTE_INSTAGRAM_WHATSAPP_URL} target="_blank" rel="noreferrer noopener">
-            {SUPORTE_INSTAGRAM_WHATSAPP_EXIBICAO}
-          </a>
-          . Enquanto isso, a publicação manual com registro no sistema continua disponível no
-          detalhe da solicitação.
-        </p>
-      )}
-
-      {!loading && !error && items.length > 0 && (
         <div className="table-scroll clientes-table-scroll">
         <table className="designer-table clientes-table">
           <caption className="sr-only">Lista de clientes ({total} no total)</caption>
@@ -390,6 +392,7 @@ export function ClientesOperacionalPanel() {
                           type="button"
                           onClick={() => handleConectarInstagram(cliente)}
                           disabled={connectingInstagramId !== null}
+                          title={DICA_LIBERACAO_INSTAGRAM}
                         >
                           {connectingInstagramId === cliente.id ? 'Conectando…' : 'Conectar Instagram'}
                         </button>
@@ -397,6 +400,7 @@ export function ClientesOperacionalPanel() {
                           type="button"
                           onClick={() => handleEnviarLinkInstagram(cliente)}
                           disabled={connectingInstagramId !== null}
+                          title={DICA_LIBERACAO_INSTAGRAM}
                         >
                           Enviar link ao cliente
                         </button>
