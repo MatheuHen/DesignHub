@@ -1200,6 +1200,14 @@ p {
   margin: 0 0 0.75rem;
 }
 
+/* RF014: orientação complementar de liberação da conta na tela pública de status. */
+.instagram-status-suporte {
+  font-size: 0.85rem;
+  color: var(--text-muted, #6b7280);
+  margin: 0.75rem 0 0;
+  line-height: 1.5;
+}
+
 .clientes-foco-hint {
   font-size: 0.85rem;
   color: var(--text-muted, #6b7280);

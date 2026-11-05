@@ -4,6 +4,10 @@ import { ApiError } from '../../../lib/apiClient';
 import { useAutoDismiss } from '../../../lib/useAutoDismiss';
 import { INSTAGRAM_OAUTH_MESSAGE_SOURCE } from '../../instagram/oauthMessage';
 import {
+  SUPORTE_INSTAGRAM_WHATSAPP_EXIBICAO,
+  SUPORTE_INSTAGRAM_WHATSAPP_URL,
+} from '../../instagram/suporteConta';
+import {
   desconectarInstagram,
   enviarLinkInstagram,
   getInstagramAuthorizeUrl,
@@ -321,7 +325,15 @@ export function ClientesOperacionalPanel() {
       {!loading && !error && items.length > 0 && (
         <p className="clientes-instagram-hint">
           Para utilizar a publicação automática, conecte uma conta profissional do Instagram
-          (Business ou Creator) compatível com a integração da Meta.
+          (Business ou Creator) <strong>previamente autorizada no App da Meta do DesignHub</strong>.
+          Por limitação do nível de acesso gratuito da API oficial da Meta, contas ainda não
+          autorizadas são recusadas pela própria Meta na tela de login (“Função de desenvolvedor é
+          insuficiente”). Para liberar uma conta, envie o @ dela para o suporte no WhatsApp{' '}
+          <a href={SUPORTE_INSTAGRAM_WHATSAPP_URL} target="_blank" rel="noreferrer noopener">
+            {SUPORTE_INSTAGRAM_WHATSAPP_EXIBICAO}
+          </a>
+          . Enquanto isso, a publicação manual com registro no sistema continua disponível no
+          detalhe da solicitação.
         </p>
       )}
 

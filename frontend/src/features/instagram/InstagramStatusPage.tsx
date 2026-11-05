@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { INSTAGRAM_OAUTH_MESSAGE_SOURCE } from './oauthMessage';
+import { SUPORTE_INSTAGRAM_WHATSAPP_EXIBICAO, SUPORTE_INSTAGRAM_WHATSAPP_URL } from './suporteConta';
 
 /**
  * RF014/ADR 0005, item 12.2/13.3 (rodada final): destino público e seguro do
@@ -85,6 +86,22 @@ export function InstagramStatusPage() {
               {searchParams.get('motivo') === 'autorizacao_nao_concluida'
                 ? 'A autorização não foi concluída no Instagram. Abra o link novamente e conclua a autorização até o fim para conectar sua conta.'
                 : 'O link de conexão não é mais válido ou já foi utilizado. Peça um novo link de conexão ao designer responsável e tente novamente.'}
+            </p>
+            {/*
+              A recusa por conta não autorizada ("Função de desenvolvedor é
+              insuficiente") acontece na própria tela da Meta e nunca chega a
+              este callback — por isso a orientação é exibida aqui como
+              informação complementar, não como diagnóstico do erro acima.
+            */}
+            <p className="instagram-status-suporte">
+              Se o Instagram exibiu uma mensagem de permissão/função insuficiente, a conta ainda não
+              está autorizada no App da Meta do DesignHub — uma limitação do nível de acesso
+              gratuito da API oficial. Envie o @ da sua conta profissional para o suporte no
+              WhatsApp{' '}
+              <a href={SUPORTE_INSTAGRAM_WHATSAPP_URL} target="_blank" rel="noreferrer noopener">
+                {SUPORTE_INSTAGRAM_WHATSAPP_EXIBICAO}
+              </a>{' '}
+              para fazer a liberação.
             </p>
           </>
         )}
