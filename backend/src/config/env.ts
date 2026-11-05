@@ -75,6 +75,22 @@ const schema = z.object({
    */
   WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK: z.string().min(1).optional(),
   /**
+   * RF009: template do link de avaliação da arte — o único aviso do sistema
+   * que não tinha template próprio, e justamente o mais crítico do fluxo.
+   *
+   * Comprovado contra a API real: com a janela de atendimento de 24h
+   * fechada, texto livre é ACEITO com HTTP 200 + wamid e recusado depois
+   * (erro 131047 no webhook `statuses`). Como a recusa é assíncrona, um
+   * fallback por `catch` nunca dispararia — por isso este template é o
+   * caminho PREFERENCIAL do envio, não o plano B: template é entregue
+   * independentemente da janela.
+   *
+   * Duas variáveis no corpo: {{1}} a arte (tema e versão) e {{2}} a URL de
+   * avaliação. A Cloud API rejeita parâmetro com quebra de linha, então o
+   * chamador passa só esses dois valores, nunca o texto inteiro.
+   */
+  WHATSAPP_TEMPLATE_NAME_AVALIACAO: z.string().min(1).optional(),
+  /**
    * RF014/ADR 0005: credenciais do App Meta usadas só para o handshake OAuth
    * ("Instagram API with Instagram Login") que autoriza a conta de CADA
    * cliente individualmente — nunca para publicar diretamente. O token de
@@ -222,6 +238,8 @@ export const whatsappConfigStatus = {
   hasAlertaDesignerTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER),
   /** RF014: template dedicado do link de vinculação da conta do Instagram do cliente. */
   hasInstagramLinkTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK),
+  /** RF009: template dedicado do link de avaliação da arte enviado ao cliente. */
+  hasAvaliacaoTemplateConfigured: Boolean(env.WHATSAPP_TEMPLATE_NAME_AVALIACAO),
 } as const;
 
 export const instagramConfigStatus = {

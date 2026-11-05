@@ -10,6 +10,7 @@ const { envMock, whatsappConfigStatusMock } = vi.hoisted(() => ({
     WHATSAPP_TEMPLATE_NAME_PUBLICACAO: 'arte_publicada',
     WHATSAPP_TEMPLATE_NAME_ALERTA_DESIGNER: 'agendamento_cancelado_cliente',
     WHATSAPP_TEMPLATE_NAME_INSTAGRAM_LINK: 'conectar_instagram_designhub',
+    WHATSAPP_TEMPLATE_NAME_AVALIACAO: 'link_avaliacao_arte',
   },
   whatsappConfigStatusMock: {
     hasSendingClient: true,
@@ -18,6 +19,7 @@ const { envMock, whatsappConfigStatusMock } = vi.hoisted(() => ({
     hasPublicacaoTemplateConfigured: true,
     hasAlertaDesignerTemplateConfigured: true,
     hasInstagramLinkTemplateConfigured: true,
+    hasAvaliacaoTemplateConfigured: true,
   },
 }));
 
@@ -32,6 +34,7 @@ const {
   sendPublicacaoTemplateMessage,
   sendAlertaDesignerTemplateMessage,
   sendInstagramLinkTemplateMessage,
+  sendAvaliacaoTemplateMessage,
   downloadMediaFromWhatsApp,
   WhatsAppReengagementRequiredError,
 } = await import('./whatsappClient.js');
@@ -47,6 +50,7 @@ describe('whatsappClient (RF004/seção 2.1, items 14/20)', () => {
     whatsappConfigStatusMock.hasPublicacaoTemplateConfigured = true;
     whatsappConfigStatusMock.hasAlertaDesignerTemplateConfigured = true;
     whatsappConfigStatusMock.hasInstagramLinkTemplateConfigured = true;
+    whatsappConfigStatusMock.hasAvaliacaoTemplateConfigured = true;
   });
 
   afterEach(() => {
@@ -242,6 +246,61 @@ describe('whatsappClient (RF004/seção 2.1, items 14/20)', () => {
       await expect(
         sendInstagramLinkTemplateMessage('5511999999999', ['https://www.instagram.com/oauth/authorize?state=abc']),
       ).rejects.toThrow(/sem id de mensagem/);
+    });
+  });
+
+  /**
+   * RF009: o link de avaliação é o aviso mais crítico do fluxo e era o único
+   * sem template próprio. Medido contra a API real: com a janela de 24h
+   * fechada, texto livre é aceito com HTTP 200 e recusado depois (131047),
+   * então só o template garante entrega.
+   */
+  describe('sendAvaliacaoTemplateMessage (RF009 — link de avaliação da arte)', () => {
+    const PARAMS = ['"Promoção de Natal" (versão 2)', 'https://app.example/avaliacao/tok'];
+
+    it('lança BlockedExternalCredentialError quando WHATSAPP_TEMPLATE_NAME_AVALIACAO não está configurado (BLOCKED_EXTERNAL)', async () => {
+      whatsappConfigStatusMock.hasAvaliacaoTemplateConfigured = false;
+
+      await expect(sendAvaliacaoTemplateMessage('5511999999999', PARAMS)).rejects.toBeInstanceOf(
+        BlockedExternalCredentialError,
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('envia type:template com template próprio e as duas variáveis do corpo na ordem', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ messages: [{ id: 'wamid.888' }] }), { status: 200 }),
+      );
+
+      const result = await sendAvaliacaoTemplateMessage('5511999999999', PARAMS);
+
+      expect(result).toEqual({ wamid: 'wamid.888' });
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as {
+        type: string;
+        template: { name: string; components?: unknown };
+      };
+      expect(body.type).toBe('template');
+      // Template dedicado: nunca reaproveita nenhum dos outros quatro.
+      expect(body.template.name).toBe('link_avaliacao_arte');
+      expect(body.template.name).not.toBe('inicio_atendimento');
+      expect(body.template.components).toEqual([
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: '"Promoção de Natal" (versão 2)' },
+            { type: 'text', text: 'https://app.example/avaliacao/tok' },
+          ],
+        },
+      ]);
+    });
+
+    it('NUNCA considera enviado quando a Meta responde sem id de mensagem', async () => {
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({ messages: [] }), { status: 200 }));
+
+      await expect(sendAvaliacaoTemplateMessage('5511999999999', PARAMS)).rejects.toThrow(
+        /sem id de mensagem/,
+      );
     });
   });
 

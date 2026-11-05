@@ -20,6 +20,7 @@ const {
   listVersoesArteMock,
   cancelAgendamentoClienteMock,
   sendAlertaDesignerTemplateMessageMock,
+  sendAvaliacaoTemplateMessageMock,
   getDesignerByIdMock,
   whatsappConfigStatusMock,
   createAgendamentoClienteMock,
@@ -48,6 +49,7 @@ const {
   listVersoesArteMock: vi.fn(),
   cancelAgendamentoClienteMock: vi.fn(),
   sendAlertaDesignerTemplateMessageMock: vi.fn(),
+  sendAvaliacaoTemplateMessageMock: vi.fn(),
   getDesignerByIdMock: vi.fn(),
   whatsappConfigStatusMock: { hasAlertaDesignerTemplateConfigured: true },
   createAgendamentoClienteMock: vi.fn(),
@@ -69,6 +71,7 @@ vi.mock('../integrations/whatsapp/whatsappClient.js', () => {
   return {
     sendTextMessage: sendTextMessageMock,
     sendAlertaDesignerTemplateMessage: sendAlertaDesignerTemplateMessageMock,
+    sendAvaliacaoTemplateMessage: sendAvaliacaoTemplateMessageMock,
     WhatsAppReengagementRequiredError,
   };
 });
@@ -124,6 +127,7 @@ describe('gerarLinkAvaliacao (RF009/RN19)', () => {
     findClienteByIdMock.mockReset();
     generateAvaliacaoLinkTokenMock.mockReset().mockResolvedValue({ idVersao: 1, numeroVersao: 1 });
     sendTextMessageMock.mockReset();
+    sendAvaliacaoTemplateMessageMock.mockReset().mockResolvedValue({ wamid: 'tmpl' });
     listVersoesArteMock.mockReset().mockResolvedValue([{ numero_versao: 2 }]);
     marcarLinkAvaliacaoNotificadoMock.mockReset().mockResolvedValue(undefined);
   });
@@ -179,6 +183,69 @@ describe('gerarLinkAvaliacao (RF009/RN19)', () => {
     expect(marcarLinkAvaliacaoNotificadoMock).toHaveBeenCalledOnce();
   });
 
+  /**
+   * RF009: o template é o caminho preferencial porque é entregue com a
+   * janela de atendimento de 24h aberta ou fechada. Texto livre fora da
+   * janela é aceito com HTTP 200 e recusado depois (131047), o que gravava
+   * um falso "notificado".
+   */
+  it('RF009: envia o link pelo TEMPLATE e não por texto livre quando o template está disponível', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Enviado para avaliação',
+      idCliente: 1,
+      tema: 'Promoção de Natal',
+    });
+    findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+
+    const result = await gerarLinkAvaliacao({} as never, 10, 'designer-1');
+
+    expect(result.whatsappNotified).toBe(true);
+    expect(sendAvaliacaoTemplateMessageMock).toHaveBeenCalledOnce();
+    expect(sendTextMessageMock).not.toHaveBeenCalled();
+    // Duas variáveis, na ordem: identificação da arte e a URL.
+    const [destino, params] = sendAvaliacaoTemplateMessageMock.mock.calls[0] as [string, string[]];
+    expect(destino).toBe('5511999999999');
+    expect(params[0]).toContain('Promoção de Natal');
+    expect(params[1]).toMatch(/^https:\/\/app\.exemplo\.com\/avaliacao\/[0-9a-f]{64}$/);
+    // A Cloud API rejeita parâmetro de corpo com quebra de linha.
+    expect(params.some((p) => p.includes('\n'))).toBe(false);
+  });
+
+  it('RF009: template pendente/indisponível cai para texto livre, sem regressão do fluxo atual', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Enviado para avaliação',
+      idCliente: 1,
+    });
+    findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    sendAvaliacaoTemplateMessageMock.mockRejectedValue(new Error('template não aprovado'));
+    sendTextMessageMock.mockResolvedValue({ wamid: 'abc' });
+
+    const result = await gerarLinkAvaliacao({} as never, 10, 'designer-1');
+
+    expect(result.whatsappNotified).toBe(true);
+    expect(sendTextMessageMock).toHaveBeenCalledOnce();
+    expect(marcarLinkAvaliacaoNotificadoMock).toHaveBeenCalledOnce();
+  });
+
+  it('RF009: quando template E texto livre falham, nunca grava "notificado" (designer copia o link)', async () => {
+    getSolicitacaoDetailRepoMock.mockResolvedValue({
+      idDesigner: 'designer-1',
+      status: 'Enviado para avaliação',
+      idCliente: 1,
+    });
+    findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    sendAvaliacaoTemplateMessageMock.mockRejectedValue(new Error('template não aprovado'));
+    sendTextMessageMock.mockRejectedValue(new Error('WhatsApp indisponível'));
+
+    const result = await gerarLinkAvaliacao({} as never, 10, 'designer-1');
+
+    expect(result.whatsappNotified).toBe(false);
+    expect(result.url).toMatch(/^https:\/\/app\.exemplo\.com\/avaliacao\//);
+    expect(marcarLinkAvaliacaoNotificadoMock).not.toHaveBeenCalled();
+  });
+
   it('item 7/7.1 (rodada final): falha no WhatsApp nunca persiste "notificado" (nunca um falso "enviado")', async () => {
     getSolicitacaoDetailRepoMock.mockResolvedValue({
       idDesigner: 'designer-1',
@@ -186,6 +253,7 @@ describe('gerarLinkAvaliacao (RF009/RN19)', () => {
       idCliente: 1,
     });
     findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    sendAvaliacaoTemplateMessageMock.mockRejectedValue(new Error('template indisponível'));
     sendTextMessageMock.mockRejectedValue(new Error('WhatsApp indisponível'));
 
     const result = await gerarLinkAvaliacao({} as never, 10, 'designer-1');
@@ -217,16 +285,16 @@ describe('gerarLinkAvaliacao (RF009/RN19)', () => {
       tema: 'Post de aniversário',
     });
     findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
-    sendTextMessageMock.mockResolvedValue({ wamid: 'abc' });
     listVersoesArteMock.mockResolvedValue([{ numero_versao: 1 }, { numero_versao: 2 }]);
 
     await gerarLinkAvaliacao({} as never, 10, 'designer-1');
 
-    const [, sentMessage] = sendTextMessageMock.mock.calls[0] as [string, string];
-    const textoAntesDoLink = sentMessage.split('http')[0] ?? '';
-    expect(sentMessage).toContain('Post de aniversário');
-    expect(sentMessage).toContain('versão 2');
-    expect(textoAntesDoLink).not.toContain('10'); // id_solicitacao=10 não pode aparecer fora da URL/token
+    // A garantia do item 3.4 continua valendo, agora na variável {{1}} do
+    // template (o envio preferencial do RF009) em vez do texto livre.
+    const [, params] = sendAvaliacaoTemplateMessageMock.mock.calls[0] as [string, string[]];
+    expect(params[0]).toContain('Post de aniversário');
+    expect(params[0]).toContain('versão 2');
+    expect(params[0]).not.toContain('10'); // id_solicitacao=10 não pode aparecer fora da URL/token
   });
 
   it('item 3.4: usa texto genérico quando a solicitação não tem tema registrado', async () => {
@@ -237,13 +305,15 @@ describe('gerarLinkAvaliacao (RF009/RN19)', () => {
       tema: null,
     });
     findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
-    sendTextMessageMock.mockResolvedValue({ wamid: 'abc' });
     listVersoesArteMock.mockResolvedValue([]);
 
     await gerarLinkAvaliacao({} as never, 10, 'designer-1');
 
-    const [, sentMessage] = sendTextMessageMock.mock.calls[0] as [string, string];
-    expect(sentMessage).toContain('Sua arte está pronta para avaliação');
+    // Sem tema registrado, a arte é identificada de forma genérica — nunca
+    // por id interno. O texto fixo do aviso vive no template aprovado.
+    const [, params] = sendAvaliacaoTemplateMessageMock.mock.calls[0] as [string, string[]];
+    expect(params[0]).toBe('solicitada');
+    expect(params[0]).not.toContain('10');
   });
 
   it('reporta explicitamente quando o envio via WhatsApp falha (não mascara erro)', async () => {
@@ -253,6 +323,7 @@ describe('gerarLinkAvaliacao (RF009/RN19)', () => {
       idCliente: 1,
     });
     findClienteByIdMock.mockResolvedValue({ id: 1, whatsapp: '5511999999999' });
+    sendAvaliacaoTemplateMessageMock.mockRejectedValue(new Error('template indisponível'));
     sendTextMessageMock.mockRejectedValue(new Error('WhatsApp indisponível'));
 
     const result = await gerarLinkAvaliacao({} as never, 10, 'designer-1');

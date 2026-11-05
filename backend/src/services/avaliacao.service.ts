@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '../config/supabase.js';
 import { env, whatsappConfigStatus } from '../config/env.js';
 import {
   sendAlertaDesignerTemplateMessage,
+  sendAvaliacaoTemplateMessage,
   sendTextMessage,
   WhatsAppReengagementRequiredError,
 } from '../integrations/whatsapp/whatsappClient.js';
@@ -110,10 +111,41 @@ export async function gerarLinkAvaliacao(
     ? `Olá! A arte "${solicitacao.tema}"${ultimaVersao ? ` (versão ${ultimaVersao})` : ''} está pronta para avaliação. Acesse o link para aprovar, pedir ajustes ou cancelar: ${url}`
     : `Olá! Sua arte está pronta para avaliação. Acesse o link para aprovar, pedir ajustes ou cancelar: ${url}`;
 
+  /**
+   * RF009: o link é enviado PREFERENCIALMENTE pelo template aprovado
+   * (`WHATSAPP_TEMPLATE_NAME_AVALIACAO`), porque template é entregue com a
+   * janela de atendimento de 24h aberta ou fechada.
+   *
+   * Antes daqui só existia `sendTextMessage`. Medido contra a API real: com
+   * a janela fechada, texto livre é aceito com HTTP 200 + wamid e recusado
+   * depois (131047 no webhook `statuses`) — ou seja, o sistema gravava
+   * "notificado" para uma mensagem que o cliente nunca recebeu. Como a
+   * recusa é assíncrona, nenhum `catch` conseguiria detectá-la.
+   *
+   * O texto livre permanece como segunda tentativa para não haver regressão
+   * enquanto o template estiver pendente de aprovação na Meta: nesse período
+   * a Cloud API recusa o template e o comportamento atual (entrega dentro da
+   * janela) continua valendo. Quando ambos falham, `whatsappNotified` fica
+   * falso e a interface oferece o link para o designer enviar manualmente —
+   * nunca um falso "enviado".
+   */
   let whatsappNotified = true;
   let whatsappError: string | undefined;
   try {
-    await sendTextMessage(cliente.whatsapp, message);
+    const artLabelTemplate = solicitacao.tema
+      ? `"${solicitacao.tema}"${ultimaVersao ? ` (versão ${ultimaVersao})` : ''}`
+      : 'solicitada';
+    try {
+      await sendAvaliacaoTemplateMessage(cliente.whatsapp, [artLabelTemplate, url]);
+    } catch (templateError) {
+      // Template ausente/pendente/recusado pela Meta não pode impedir o
+      // envio: cai para o texto livre, que ainda funciona dentro da janela.
+      console.warn('[designhub:avaliacao] template do link indisponível — tentando texto livre', {
+        idSolicitacao,
+        motivo: templateError instanceof Error ? templateError.name : 'desconhecido',
+      });
+      await sendTextMessage(cliente.whatsapp, message);
+    }
     // Item 7/7.1 (rodada final): só persiste "notificado" depois da Cloud API
     // aceitar o envio — nunca porque o token foi gerado. Melhor esforço: uma
     // falha aqui não desfaz o envio real já confirmado acima, só deixa o

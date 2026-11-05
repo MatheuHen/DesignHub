@@ -259,6 +259,56 @@ export async function sendAlertaDesignerTemplateMessage(
 }
 
 /**
+ * RF009: envia ao CLIENTE o link de avaliação da arte por template aprovado.
+ *
+ * Diferente dos outros três templates auxiliares, este é o caminho
+ * PREFERENCIAL do envio, não um fallback em `catch`. Motivo medido contra a
+ * API real: com a janela de atendimento de 24h fechada, texto livre é aceito
+ * com HTTP 200 + wamid e recusado depois (131047 no webhook `statuses`).
+ * Sendo assíncrona, essa recusa nunca chega ao `catch` do chamador — o
+ * fallback por exceção não protegeria nada. Template, por definição, é
+ * entregue com a janela aberta ou fechada.
+ *
+ * `bodyParams` deve conter exatamente dois valores: a identificação da arte
+ * (tema e versão) e a URL de avaliação. A Cloud API rejeita parâmetros com
+ * quebra de linha ou tabulação, então o texto fixo vive no template aprovado
+ * e o chamador passa apenas esses dois valores.
+ */
+export async function sendAvaliacaoTemplateMessage(
+  toPhoneNumber: string,
+  bodyParams: readonly string[],
+): Promise<SendMessageResult> {
+  if (!whatsappConfigStatus.hasSendingClient) {
+    throw new BlockedExternalCredentialError(
+      'WHATSAPP_ACCESS_TOKEN/WHATSAPP_PHONE_NUMBER_ID ausentes — envio de mensagem indisponível até a credencial ser configurada.',
+    );
+  }
+  if (!whatsappConfigStatus.hasAvaliacaoTemplateConfigured) {
+    throw new BlockedExternalCredentialError(
+      'WHATSAPP_TEMPLATE_NAME_AVALIACAO ausente — nenhum template aprovado pela Meta configurado para enviar o link de avaliação da arte.',
+    );
+  }
+
+  const data = await postToGraphMessages({
+    messaging_product: 'whatsapp',
+    to: toPhoneNumber,
+    type: 'template',
+    template: {
+      name: env.WHATSAPP_TEMPLATE_NAME_AVALIACAO,
+      language: { code: env.WHATSAPP_TEMPLATE_LANGUAGE },
+      components: [{ type: 'body', parameters: bodyParams.map((text) => ({ type: 'text', text })) }],
+    },
+  });
+
+  const wamid = data.messages?.[0]?.id;
+  if (!wamid) {
+    throw new Error('Resposta inesperada da WhatsApp Cloud API: sem id de mensagem.');
+  }
+  logOutboundMessage('template', wamid);
+  return { wamid };
+}
+
+/**
  * RF014: envia ao CLIENTE o link de vinculação da conta do Instagram por
  * template aprovado (business-initiated). Mesmo mecanismo de
  * `sendPublicacaoTemplateMessage`/`sendAlertaDesignerTemplateMessage`, com
