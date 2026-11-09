@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { publishImage } = await import('./instagramClient.js');
+const { publishImage, InstagramApiError } = await import('./instagramClient.js');
 
 const CREDENTIALS = { accessToken: 'token-teste', accountId: '27882228474720270' };
 
@@ -136,5 +136,32 @@ describe('instagramClient (RF014/ADR 0005 — Instagram API with Instagram Login
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * Classificação dos erros da Meta — é ela que decide entre "tenta de novo
+ * depois" e "para de insistir e vai para o caminho manual".
+ */
+describe('InstagramApiError.isPermanente', () => {
+  const erro = (params: Partial<ConstructorParameters<typeof InstagramApiError>[0]>) =>
+    new InstagramApiError({ message: 'x', httpStatus: 400, operacao: 'media_create', ...params });
+
+  it('trata recusa da mídia (2207xxx) como permanente — caso real: proporção 360x106', () => {
+    // code 36003 / subcode 2207009, observado no agendamento 48.
+    expect(erro({ metaCode: 36003, metaSubcode: 2207009 }).isPermanente).toBe(true);
+  });
+
+  it('trata objeto inexistente/permissão (100, subcode 33) como permanente', () => {
+    expect(erro({ metaCode: 100, metaSubcode: 33 }).isPermanente).toBe(true);
+  });
+
+  it('trata token inválido (190) como permanente', () => {
+    expect(erro({ metaCode: 190 }).isPermanente).toBe(true);
+  });
+
+  it('trata 5xx e 429 como transitórios', () => {
+    expect(erro({ httpStatus: 503, metaCode: null }).isPermanente).toBe(false);
+    expect(erro({ httpStatus: 429, metaCode: null }).isPermanente).toBe(false);
   });
 });

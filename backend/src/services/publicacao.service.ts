@@ -374,13 +374,30 @@ async function processarUmAgendamento(
      */
     const precisaAvisar = falha.primeiraFalha || falha.automaticoDesativado;
     if (precisaAvisar) {
+      /**
+       * Quando a recusa é da MÍDIA (proporção/formato/resolução), dizer isso
+       * é o que permite ao designer agir: trocar a arte resolve, enquanto
+       * "não foi possível publicar" sugere problema de sistema e leva a
+       * esperar. Observado no agendamento 48, recusado por proporção. Nenhum
+       * detalhe técnico da Meta vai para a mensagem.
+       */
+      const recusaDeMidia =
+        error instanceof InstagramApiError &&
+        error.metaSubcode !== null &&
+        error.metaSubcode >= 2207000 &&
+        error.metaSubcode <= 2207999;
+
       await Promise.resolve(notificarEventoSolicitacao(adminClient, {
         idSolicitacao: agendamento.idSolicitacao,
         evento: 'Falha na publicação',
-        body: (arte) =>
-          falha.automaticoDesativado
+        body: (arte) => {
+          if (recusaDeMidia) {
+            return `O Instagram recusou o arquivo de ${arte} (proporção, formato ou resolução fora do aceito para publicação no feed). Envie uma nova versão ou publique e registre manualmente — a publicação segue pendente.`;
+          }
+          return falha.automaticoDesativado
             ? `Não foi possível publicar ${arte} automaticamente no Instagram. Publique e registre manualmente no DesignHub — a publicação segue pendente.`
-            : `Não foi possível publicar ${arte} automaticamente. A publicação segue pendente — verifique no DesignHub.`,
+            : `Não foi possível publicar ${arte} automaticamente. A publicação segue pendente — verifique no DesignHub.`;
+        },
       })).catch(() => undefined);
     }
     return 'falha';

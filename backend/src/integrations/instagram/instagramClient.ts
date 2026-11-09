@@ -125,6 +125,16 @@ export class InstagramApiError extends Error {
    */
   get isPermanente(): boolean {
     if (this.metaSubcode === 33) return true;
+    /**
+     * Família 2207xxx: recusa da MÍDIA pelo Instagram (proporção fora de
+     * 4:5–1.91:1, formato, resolução, arquivo inacessível). Observado em
+     * produção no agendamento 48: `code 36003 / subcode 2207009` para uma
+     * arte 360x106 (proporção 3.40). Repetir a mesma arte não pode dar outro
+     * resultado — sem isto o job gastava 5 tentativas antes de desistir.
+     */
+    if (this.metaSubcode !== null && this.metaSubcode >= 2207000 && this.metaSubcode <= 2207999) {
+      return true;
+    }
     const code = this.metaCode;
     if (code === null) {
       // Sem código estruturado: só 4xx (exceto 429) é tratado como definitivo.
