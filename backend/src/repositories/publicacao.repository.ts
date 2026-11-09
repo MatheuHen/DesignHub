@@ -292,6 +292,22 @@ export async function getPublicacaoBySolicitacao(
       'id_publicacao, data_publicada, tipo, permalink, comprovante_url, versao_arte(numero_versao), agendamento_publicacao!inner(id_solicitacao)',
     )
     .eq('agendamento_publicacao.id_solicitacao', idSolicitacao)
+    /**
+     * CAUSA RAIZ de uma falha real em produção (solicitação 71, 09/11/2026):
+     * esta consulta não filtrava o status, mas a tabela também guarda as
+     * TENTATIVAS falhadas (RN34), e nelas `data_publicada` é null. Como
+     * `ORDER BY ... DESC` no PostgreSQL devolve nulos PRIMEIRO, qualquer
+     * solicitação que tivesse tido uma tentativa automática falhada passava
+     * a devolver a linha de falha, e a validação do schema estourava com
+     * "data_publicada: expected string, received null".
+     *
+     * Consequência observada: a publicação acontecia de verdade, mas o
+     * cliente não recebia o aviso "ARTE PUBLICADA", e o detalhe da
+     * publicação, o comprovante e o reenvio do aviso quebravam na tela do
+     * designer. Esta função sempre descreveu "a publicação CONCLUÍDA" — o
+     * filtro de sucesso é o que faltava para isso ser verdade.
+     */
+    .eq('status', 'sucesso')
     .order('data_publicada', { ascending: false })
     .limit(1)
     .maybeSingle();

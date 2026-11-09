@@ -279,47 +279,41 @@ describe('getVersaoArteAtualDaSolicitacao (RF014)', () => {
 });
 
 describe('getPublicacaoBySolicitacao (RF014/item 9.1/9.3)', () => {
-  it('retorna null quando não há publicação', async () => {
-    const client = {
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            order: () => ({
-              limit: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }),
-            }),
-          }),
-        }),
-      }),
-    } as unknown as Parameters<typeof getPublicacaoBySolicitacao>[0];
+  /**
+   * Fake que registra os filtros aplicados: é por um filtro AUSENTE que a
+   * função devolvia a linha de uma tentativa falhada em produção.
+   */
+  function fakeClient(data: unknown) {
+    const filtros: Record<string, unknown> = {};
+    const chain: Record<string, unknown> = {
+      eq: (coluna: string, valor: unknown) => {
+        filtros[coluna] = valor;
+        return chain;
+      },
+      order: () => chain,
+      limit: () => chain,
+      maybeSingle: () => Promise.resolve({ data, error: null }),
+    };
+    const client = { from: () => ({ select: () => chain }) } as unknown as Parameters<
+      typeof getPublicacaoBySolicitacao
+    >[0];
+    return { client, filtros };
+  }
 
+  it('retorna null quando não há publicação', async () => {
+    const { client } = fakeClient(null);
     await expect(getPublicacaoBySolicitacao(client, 10)).resolves.toBeNull();
   });
 
   it('mapeia a publicação mais recente, incluindo permalink/comprovante nulos', async () => {
-    const client = {
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            order: () => ({
-              limit: () => ({
-                maybeSingle: () =>
-                  Promise.resolve({
-                    data: {
-                      id_publicacao: 1,
-                      data_publicada: '2026-09-01T12:00:00Z',
-                      tipo: 'automatica',
-                      permalink: 'https://www.instagram.com/p/abc123/',
-                      comprovante_url: null,
-                      versao_arte: { numero_versao: 3 },
-                    },
-                    error: null,
-                  }),
-              }),
-            }),
-          }),
-        }),
-      }),
-    } as unknown as Parameters<typeof getPublicacaoBySolicitacao>[0];
+    const { client } = fakeClient({
+      id_publicacao: 1,
+      data_publicada: '2026-09-01T12:00:00Z',
+      tipo: 'automatica',
+      permalink: 'https://www.instagram.com/p/abc123/',
+      comprovante_url: null,
+      versao_arte: { numero_versao: 3 },
+    });
 
     await expect(getPublicacaoBySolicitacao(client, 10)).resolves.toEqual({
       idPublicacao: 1,
@@ -329,6 +323,23 @@ describe('getPublicacaoBySolicitacao (RF014/item 9.1/9.3)', () => {
       comprovanteUrl: null,
       numeroVersao: 3,
     });
+  });
+
+  /**
+   * REGRESSÃO (produção, solicitação 71): sem o filtro de sucesso, a consulta
+   * alcançava as linhas de TENTATIVA FALHADA (RN34), cujo `data_publicada` é
+   * null e vêm primeiro em `ORDER BY ... DESC`. O schema estourava e, com
+   * isso, o aviso "ARTE PUBLICADA" ao cliente, o detalhe da publicação, o
+   * comprovante e o reenvio do aviso quebravam — mesmo com a publicação
+   * tendo acontecido de verdade.
+   */
+  it('filtra apenas a publicação com status de sucesso', async () => {
+    const { client, filtros } = fakeClient(null);
+
+    await getPublicacaoBySolicitacao(client, 10);
+
+    expect(filtros.status).toBe('sucesso');
+    expect(filtros['agendamento_publicacao.id_solicitacao']).toBe(10);
   });
 });
 
