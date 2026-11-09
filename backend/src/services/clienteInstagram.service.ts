@@ -21,6 +21,7 @@ import {
   findOAuthStateConsumido,
   getDataDeletionRequestStatus,
   getStatusConexao,
+  reabilitarPublicacaoAutomatica,
   upsertConexao,
   type ClienteInstagramStatus,
 } from '../repositories/clienteInstagram.repository.js';
@@ -224,6 +225,29 @@ export async function processarCallbackInstagram(
     tokenExpiraEm,
     encKey: env.INSTAGRAM_TOKEN_ENC_KEY,
   });
+
+  /**
+   * Autocorreção (correção do loop de publicação automática): se algum
+   * agendamento pendente deste cliente teve a via automática desligada por
+   * erro permanente da Meta (token revogado, permissão ausente), a conexão
+   * nova remove exatamente essa causa — então ele volta para a fila do job.
+   * Melhor esforço: a conexão em si já está gravada com sucesso e não pode
+   * ser desfeita por uma falha nesta limpeza.
+   */
+  try {
+    const reabilitados = await reabilitarPublicacaoAutomatica(adminClient, state.id_cliente);
+    if (reabilitados > 0) {
+      console.warn('[designhub:instagram] publicação automática reabilitada após reconexão da conta', {
+        idCliente: state.id_cliente,
+        agendamentos: reabilitados,
+      });
+    }
+  } catch (error) {
+    console.error('[designhub:instagram] falha ao reabilitar publicação automática após reconexão (conexão permanece válida)', {
+      idCliente: state.id_cliente,
+      message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
+    });
+  }
 
   return { idCliente: state.id_cliente, origem: state.origem, resultado: 'conectado' };
 }

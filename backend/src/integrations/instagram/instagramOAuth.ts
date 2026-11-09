@@ -84,6 +84,51 @@ interface ShortLivedTokenResponse {
   error_message?: string;
 }
 
+interface MeResponse {
+  id?: string;
+}
+
+/**
+ * CAUSA RAIZ da publicação automática falhar sempre com "Object with ID
+ * '...' does not exist, cannot be loaded due to missing permissions"
+ * (produção: 268 tentativas no agendamento 45).
+ *
+ * O `user_id` que `oauth/access_token` devolve vem como NÚMERO no JSON
+ * (ex.: 40108102008836949) e é maior que `Number.MAX_SAFE_INTEGER` (2^53-1).
+ * `JSON.parse` representa isso como double e arredonda: o id gravado virava
+ * 40108102008836950 — um objeto que não existe na Meta. A conta estava
+ * correta (BUSINESS, token válido, permissão concedida); o id é que estava
+ * corrompido por um dígito, e reconectar só regravaria o mesmo erro.
+ *
+ * Correção: extrair `user_id` do corpo BRUTO como texto, sem passar pelo
+ * parser numérico. Qualquer id da Meta é tratado como string de ponta a
+ * ponta — é assim que a própria documentação da Graph API recomenda.
+ */
+function extrairUserIdSemPerdaDePrecisao(rawBody: string): string | null {
+  const match = rawBody.match(/"user_id"\s*:\s*"?(\d+)"?/);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Fonte de verdade do id da conta para publicar: `graph.instagram.com/me`
+ * devolve `id` como string, então não há como perder precisão. Usado para
+ * confirmar/corrigir o valor vindo do endpoint de token — é exatamente o id
+ * que `instagramClient.publishImage` usa em `{accountId}/media`.
+ */
+async function fetchInstagramUserId(accessToken: string): Promise<string | null> {
+  try {
+    const response = await fetchWithTimeout(`https://graph.instagram.com/v21.0/me?fields=id`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as MeResponse;
+    return typeof body.id === 'string' && /^\d+$/.test(body.id) ? body.id : null;
+  } catch {
+    return null;
+  }
+}
+
 interface LongLivedTokenResponse {
   access_token?: string;
   expires_in?: number;
@@ -131,8 +176,17 @@ export async function exchangeCodeForLongLivedToken(code: string): Promise<Excha
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
   });
-  const shortLived = (await shortLivedResponse.json()) as ShortLivedTokenResponse;
-  if (!shortLivedResponse.ok || !shortLived.access_token || !shortLived.user_id) {
+  // Corpo lido como TEXTO antes de qualquer parse: é o que permite extrair o
+  // `user_id` sem o arredondamento de `JSON.parse` (ver comentário acima).
+  const shortLivedRaw = await shortLivedResponse.text();
+  let shortLived: ShortLivedTokenResponse = {};
+  try {
+    shortLived = JSON.parse(shortLivedRaw) as ShortLivedTokenResponse;
+  } catch {
+    // resposta não-JSON — cai na validação abaixo com o status HTTP
+  }
+  const shortLivedUserId = extrairUserIdSemPerdaDePrecisao(shortLivedRaw);
+  if (!shortLivedResponse.ok || !shortLived.access_token || !shortLivedUserId) {
     throw new Error(
       `Falha ao trocar o código de autorização do Instagram (${shortLived.error_message ?? `status ${shortLivedResponse.status}`})`,
     );
@@ -151,9 +205,16 @@ export async function exchangeCodeForLongLivedToken(code: string): Promise<Excha
     throw new Error(`Falha ao obter token de longa duração do Instagram (status ${longLivedResponse.status})`);
   }
 
+  /**
+   * Confirmação do id pela própria Meta (string, sem risco de precisão). Se
+   * `/me` estiver indisponível no momento, usa o id extraído do corpo bruto
+   * do token — ambos são corretos; o que nunca é usado é o número parseado.
+   */
+  const instagramUserId = (await fetchInstagramUserId(longLived.access_token)) ?? shortLivedUserId;
+
   return {
     accessToken: longLived.access_token,
-    instagramUserId: String(shortLived.user_id),
+    instagramUserId,
     expiresInSeconds: longLived.expires_in,
   };
 }

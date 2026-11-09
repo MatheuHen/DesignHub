@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { env, whatsappConfigStatus } from '../config/env.js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
-import { publishImage } from '../integrations/instagram/instagramClient.js';
+import { InstagramApiError, publishImage } from '../integrations/instagram/instagramClient.js';
 import {
   sendPublicacaoTemplateMessage,
   sendTextMessage,
@@ -319,9 +319,29 @@ async function processarUmAgendamento(
     })).catch(() => undefined);
     return 'publicado';
   } catch (error) {
+    /**
+     * Correção do loop infinito (produção: agendamento 45, 240 falhas
+     * idênticas entre 19/08 e 09/11/2026): o erro da Meta agora é
+     * classificado. Permanente = credencial/permissão/objeto inexistente;
+     * repetir não muda o resultado, então a via automática é desligada e a
+     * publicação segue pendente pelo caminho manual (RF014). O log passa a
+     * registrar código/subcódigo/operação, que é o que faltava para
+     * diagnosticar a causa sem adivinhação (nunca token nem URL assinada).
+     */
+    const permanente = error instanceof InstagramApiError && error.isPermanente;
     console.error('[designhub:publicacao] falha na publicação automática', {
       idAgendamento: agendamento.idAgendamento,
       message: error instanceof Error ? error.message.slice(0, 200) : 'erro desconhecido',
+      ...(error instanceof InstagramApiError
+        ? {
+            operacao: error.operacao,
+            httpStatus: error.httpStatus,
+            metaCode: error.metaCode,
+            metaSubcode: error.metaSubcode,
+            metaType: error.metaType,
+          }
+        : {}),
+      permanente,
     });
     if (jaPublicadoNoInstagram) {
       // Já publicado de fato — não libera a reserva. A próxima tentativa
@@ -329,7 +349,14 @@ async function processarUmAgendamento(
       // tratar como falha e publicar de novo.
       return 'falha';
     }
-    await registerPublicacaoFalha(adminClient, { idAgendamento: agendamento.idAgendamento });
+    const falha = await registerPublicacaoFalha(adminClient, {
+      idAgendamento: agendamento.idAgendamento,
+      permanente,
+      motivo:
+        error instanceof InstagramApiError
+          ? `${error.operacao}: HTTP ${error.httpStatus} code ${error.metaCode ?? '-'}/${error.metaSubcode ?? '-'}`
+          : 'erro não identificado na publicação automática',
+    });
 
     /**
      * Falha REAL: a publicação automática não aconteceu e a solicitação
@@ -339,13 +366,23 @@ async function processarUmAgendamento(
      * Só notifica neste ramo. O ramo `jaPublicadoNoInstagram` acima retorna
      * antes: lá o post existe no Instagram e avisar "não foi possível
      * publicar" seria mentira. A mensagem nunca inclui o erro técnico.
+     *
+     * Correção do loop: o aviso sai uma vez por episódio (primeira falha) e
+     * uma vez quando a automação é desligada. Antes saía a CADA ciclo do
+     * cron — o designer do agendamento 45 recebeu o mesmo alerta 240 vezes,
+     * o que treina a ignorar justamente o alerta que exige ação.
      */
-    await Promise.resolve(notificarEventoSolicitacao(adminClient, {
-      idSolicitacao: agendamento.idSolicitacao,
-      evento: 'Falha na publicação',
-      body: (arte) =>
-        `Não foi possível publicar ${arte} automaticamente. A publicação segue pendente — verifique no DesignHub.`,
-    })).catch(() => undefined);
+    const precisaAvisar = falha.primeiraFalha || falha.automaticoDesativado;
+    if (precisaAvisar) {
+      await Promise.resolve(notificarEventoSolicitacao(adminClient, {
+        idSolicitacao: agendamento.idSolicitacao,
+        evento: 'Falha na publicação',
+        body: (arte) =>
+          falha.automaticoDesativado
+            ? `Não foi possível publicar ${arte} automaticamente no Instagram. Publique e registre manualmente no DesignHub — a publicação segue pendente.`
+            : `Não foi possível publicar ${arte} automaticamente. A publicação segue pendente — verifique no DesignHub.`,
+      })).catch(() => undefined);
+    }
     return 'falha';
   }
 }

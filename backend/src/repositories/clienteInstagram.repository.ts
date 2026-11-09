@@ -211,6 +211,27 @@ export async function upsertConexao(
   if (error) throw new Error(`Falha ao salvar conexão do Instagram: ${error.message}`);
 }
 
+/**
+ * Autocorreção da correção do loop (migration 20261109120000): quando a conta
+ * do cliente é (re)conectada com sucesso, a causa permanente que desligou a
+ * publicação automática dos agendamentos dele (token revogado, permissão
+ * ausente, conta não profissional) deixou de existir — então eles voltam para
+ * a fila do job. Sem isto, uma reconexão correta continuaria caindo no
+ * caminho manual para sempre. Nunca reabilita agendamento com marca de mídia
+ * já publicada na Meta (proteção contra dupla publicação).
+ */
+export async function reabilitarPublicacaoAutomatica(
+  adminClient: SupabaseClient,
+  idCliente: number,
+): Promise<number> {
+  const result: unknown = await adminClient.rpc('reabilitar_publicacao_automatica', {
+    p_id_cliente: idCliente,
+  });
+  const { data, error } = result as { data: unknown; error: { message: string } | null };
+  if (error) throw new Error(`Falha ao reabilitar publicação automática: ${error.message}`);
+  return typeof data === 'number' ? data : 0;
+}
+
 export async function deleteConexao(adminClient: SupabaseClient, idCliente: number): Promise<void> {
   const result: unknown = await adminClient.from('cliente_instagram_conexao').delete().eq('id_cliente', idCliente);
   const { error } = result as { error: { message: string } | null };

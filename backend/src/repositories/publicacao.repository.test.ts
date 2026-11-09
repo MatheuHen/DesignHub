@@ -65,9 +65,29 @@ describe('registerPublicacaoFalha (RF014 — nunca marca como publicado)', () =>
     );
   });
 
-  it('resolve sem erro quando a RPC tem sucesso', async () => {
-    const client = rpcClient({ data: null, error: null });
-    await expect(registerPublicacaoFalha(client, { idAgendamento: 1 })).resolves.toBeUndefined();
+  it('devolve o estado consolidado da falha quando a RPC tem sucesso', async () => {
+    const client = rpcClient({
+      data: [{ falhas: 1, automatico_desativado: false, primeira_falha: true }],
+      error: null,
+    });
+    await expect(registerPublicacaoFalha(client, { idAgendamento: 1 })).resolves.toEqual({
+      falhas: 1,
+      automaticoDesativado: false,
+      primeiraFalha: true,
+    });
+  });
+
+  // Correção do loop de 240 tentativas: erro permanente da Meta desliga a via
+  // automática na própria RPC e o chamador precisa receber essa informação
+  // para avisar o designer uma única vez.
+  it('propaga o desligamento da via automática em erro permanente', async () => {
+    const client = rpcClient({
+      data: [{ falhas: 1, automatico_desativado: true, primeira_falha: true }],
+      error: null,
+    });
+    await expect(
+      registerPublicacaoFalha(client, { idAgendamento: 1, permanente: true, motivo: 'media_create: HTTP 400 code 100/-' }),
+    ).resolves.toEqual({ falhas: 1, automaticoDesativado: true, primeiraFalha: true });
   });
 });
 
@@ -77,19 +97,24 @@ describe('listAgendamentosVencidos (RF014/RN32)', () => {
       from: () => ({
         select: () => ({
           eq: () => ({
-            lte: () =>
-              Promise.resolve({
-                data: [
-                  {
-                    id_agendamento: 1,
-                    id_solicitacao: 10,
-                    legenda: 'Legenda',
-                    instagram_media_id_pendente: null,
-                    instagram_permalink_pendente: null,
-                  },
-                ],
-                error: null,
-              }),
+            // `.is('publicacao_automatica_indisponivel_em', null)`: filtro que
+            // tira da fila do job os agendamentos cuja via automática já se
+            // provou impossível (correção do loop infinito).
+            is: () => ({
+              lte: () =>
+                Promise.resolve({
+                  data: [
+                    {
+                      id_agendamento: 1,
+                      id_solicitacao: 10,
+                      legenda: 'Legenda',
+                      instagram_media_id_pendente: null,
+                      instagram_permalink_pendente: null,
+                    },
+                  ],
+                  error: null,
+                }),
+            }),
           }),
         }),
       }),

@@ -68,7 +68,71 @@ interface MediaPermalinkResponse {
 }
 
 interface GraphErrorResponse {
-  error?: { message?: string };
+  error?: { message?: string; type?: string; code?: number; error_subcode?: number };
+}
+
+/**
+ * Causa raiz do LOOP de 240 falhas idênticas observado em produção
+ * (agendamento 45, 19/08 → 09/11/2026): o erro da Meta chegava ao job como
+ * um `Error` genérico, indistinguível de uma falha de rede. O job então
+ * tratava "token revogado/permissão ausente/objeto inexistente" — que NUNCA
+ * melhora com repetição — do mesmo jeito que trataria um timeout, e repetia
+ * a mesma chamada condenada a cada ciclo do cron.
+ *
+ * Esta classe preserva o código/subcódigo/tipo que a própria Meta devolve e
+ * a operação que falhou, para que o chamador possa decidir entre "tentar de
+ * novo depois" e "parar de insistir e cair no caminho manual documentado".
+ * Nenhuma regra de negócio nova: só a diferença entre erro transitório e
+ * permanente, que já estava implícita no requisito de "manter pendência e
+ * alertar" (RF014).
+ */
+export class InstagramApiError extends Error {
+  readonly httpStatus: number;
+  readonly metaCode: number | null;
+  readonly metaSubcode: number | null;
+  readonly metaType: string | null;
+  /** Operação lógica que falhou, sem IDs/credenciais — só para diagnóstico. */
+  readonly operacao: string;
+
+  constructor(params: {
+    message: string;
+    httpStatus: number;
+    metaCode?: number | null;
+    metaSubcode?: number | null;
+    metaType?: string | null;
+    operacao: string;
+  }) {
+    super(`Falha na chamada à Instagram API (${params.message})`);
+    this.name = 'InstagramApiError';
+    this.httpStatus = params.httpStatus;
+    this.metaCode = params.metaCode ?? null;
+    this.metaSubcode = params.metaSubcode ?? null;
+    this.metaType = params.metaType ?? null;
+    this.operacao = params.operacao;
+  }
+
+  /**
+   * `true` quando repetir a chamada com a MESMA credencial não pode dar
+   * outro resultado. Baseado nos códigos oficiais da Graph API:
+   *   100 — objeto inexistente / operação não suportada / parâmetro inválido
+   *         (inclui o erro real observado: "Object with ID '...' does not
+   *         exist, cannot be loaded due to missing permissions");
+   *   190 — token inválido, expirado ou revogado pelo usuário;
+   *    10 / 200-299 — permissão ausente (escopo não concedido);
+   *   subcode 33 — objeto não visível para esta credencial.
+   * Tudo o mais (429, 5xx, timeout, rede) continua transitório e segue
+   * sendo repetido normalmente pelo job.
+   */
+  get isPermanente(): boolean {
+    if (this.metaSubcode === 33) return true;
+    const code = this.metaCode;
+    if (code === null) {
+      // Sem código estruturado: só 4xx (exceto 429) é tratado como definitivo.
+      return this.httpStatus >= 400 && this.httpStatus < 500 && this.httpStatus !== 429;
+    }
+    if (code === 100 || code === 190 || code === 10) return true;
+    return code >= 200 && code <= 299;
+  }
 }
 
 async function graphRequest(
@@ -76,6 +140,7 @@ async function graphRequest(
   method: 'GET' | 'POST',
   path: string,
   body?: Record<string, unknown>,
+  operacao = 'instagram_api',
 ): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -94,13 +159,22 @@ async function graphRequest(
 
     if (!response.ok) {
       let message = `status ${response.status}`;
+      let metaError: GraphErrorResponse['error'];
       try {
         const errorBody = (await response.json()) as GraphErrorResponse;
-        if (errorBody.error?.message) message = errorBody.error.message;
+        metaError = errorBody.error;
+        if (metaError?.message) message = metaError.message;
       } catch {
         // resposta de erro sem corpo JSON — mantém a mensagem genérica com status
       }
-      throw new Error(`Falha na chamada à Instagram API (${message})`);
+      throw new InstagramApiError({
+        message,
+        httpStatus: response.status,
+        metaCode: metaError?.code ?? null,
+        metaSubcode: metaError?.error_subcode ?? null,
+        metaType: metaError?.type ?? null,
+        operacao,
+      });
     }
 
     return await response.json();
@@ -114,8 +188,13 @@ async function graphRequest(
   }
 }
 
-async function graphPost(accessToken: string, path: string, body: Record<string, unknown>): Promise<unknown> {
-  return graphRequest(accessToken, 'POST', path, body);
+async function graphPost(
+  accessToken: string,
+  path: string,
+  body: Record<string, unknown>,
+  operacao: string,
+): Promise<unknown> {
+  return graphRequest(accessToken, 'POST', path, body, operacao);
 }
 
 interface ContainerStatusResponse {
@@ -143,13 +222,25 @@ async function waitForContainerReady(accessToken: string, creationId: string): P
       accessToken,
       'GET',
       `${creationId}?fields=status_code`,
+      undefined,
+      'container_poll',
     )) as ContainerStatusResponse;
     if (status.status_code === 'FINISHED') return;
     if (status.status_code === 'ERROR' || status.status_code === 'EXPIRED') {
-      throw new Error(`Falha na chamada à Instagram API (container de mídia com status ${status.status_code})`);
+      throw new InstagramApiError({
+        message: `container de mídia com status ${status.status_code}`,
+        httpStatus: 400,
+        operacao: 'container_poll',
+      });
     }
   }
-  throw new Error('Falha na chamada à Instagram API (container de mídia não ficou pronto a tempo)');
+  throw new InstagramApiError({
+    message: 'container de mídia não ficou pronto a tempo',
+    // Transitório de propósito: o processamento assíncrono da Meta pode
+    // simplesmente ter demorado mais que o poll desta tentativa.
+    httpStatus: 504,
+    operacao: 'container_poll',
+  });
 }
 
 /**
@@ -169,6 +260,8 @@ async function getContainerStatusCode(
     accessToken,
     'GET',
     `${creationId}?fields=status_code`,
+    undefined,
+    'container_status',
   )) as ContainerStatusResponse;
   return status.status_code;
 }
@@ -213,10 +306,12 @@ export async function publishImage(
   }
 
   if (creationId === null) {
-    const containerResult = (await graphPost(accessToken, `${accountId}/media`, {
-      image_url: imageUrl,
-      caption,
-    })) as CreateContainerResponse;
+    const containerResult = (await graphPost(
+      accessToken,
+      `${accountId}/media`,
+      { image_url: imageUrl, caption },
+      'media_create',
+    )) as CreateContainerResponse;
 
     if (!containerResult.id) {
       throw new Error('Resposta inesperada da Instagram API: sem id de container de mídia.');
@@ -235,9 +330,12 @@ export async function publishImage(
 
   await waitForContainerReady(accessToken, creationId);
 
-  const publishResult = (await graphPost(accessToken, `${accountId}/media_publish`, {
-    creation_id: creationId,
-  })) as PublishContainerResponse;
+  const publishResult = (await graphPost(
+    accessToken,
+    `${accountId}/media_publish`,
+    { creation_id: creationId },
+    'media_publish',
+  )) as PublishContainerResponse;
 
   const mediaId = publishResult.id;
   if (!mediaId) {
@@ -255,7 +353,13 @@ export async function publishImage(
  */
 async function getMediaPermalinkBestEffort(accessToken: string, mediaId: string): Promise<string | null> {
   try {
-    const result = (await graphRequest(accessToken, 'GET', `${mediaId}?fields=permalink`)) as MediaPermalinkResponse;
+    const result = (await graphRequest(
+      accessToken,
+      'GET',
+      `${mediaId}?fields=permalink`,
+      undefined,
+      'media_permalink',
+    )) as MediaPermalinkResponse;
     return result.permalink ?? null;
   } catch {
     return null;

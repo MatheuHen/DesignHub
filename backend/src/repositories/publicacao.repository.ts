@@ -53,6 +53,12 @@ export async function listAgendamentosVencidos(adminClient: SupabaseClient): Pro
       'id_agendamento, id_solicitacao, legenda, instagram_media_id_pendente, instagram_permalink_pendente, instagram_container_id_pendente',
     )
     .eq('status', 'Agendado')
+    // Correção do loop infinito de publicação automática (migration
+    // 20261109120000): agendamentos cuja via automática já se provou
+    // impossível (erro permanente da Meta ou limite de tentativas) saem da
+    // fila do job e seguem pendentes para o caminho manual (RF014) — sem
+    // isto, o mesmo erro era repetido a cada ciclo do cron indefinidamente.
+    .is('publicacao_automatica_indisponivel_em', null)
     .lte('data_hora_publicacao', new Date().toISOString());
   const { data, error } = result as { data: unknown; error: { message: string } | null };
   if (error) throw new Error(`Falha ao buscar agendamentos vencidos: ${error.message}`);
@@ -345,14 +351,46 @@ export async function setPublicacaoComprovante(
   if (error) throw new Error(`Falha ao vincular comprovante à publicação: ${error.message}`);
 }
 
-/** RF014: registra tentativa de publicação automática falhada (RPC atômica) — nunca marca como publicado. */
+export interface PublicacaoFalhaResultado {
+  falhas: number;
+  /** A via automática deste agendamento está desligada — segue só o caminho manual (RF014). */
+  automaticoDesativado: boolean;
+  /** Primeira falha deste episódio — usada para avisar o designer uma vez, não a cada ciclo do cron. */
+  primeiraFalha: boolean;
+}
+
+const publicacaoFalhaRowSchema = z.object({
+  falhas: z.number(),
+  automatico_desativado: z.boolean(),
+  primeira_falha: z.boolean(),
+});
+
+/**
+ * RF014: registra tentativa de publicação automática falhada (RPC atômica) —
+ * nunca marca como publicado. `permanente` vem da classificação do erro da
+ * Meta (`InstagramApiError.isPermanente`): quando verdadeiro, a RPC desliga
+ * a via automática deste agendamento na hora, em vez de deixar o cron
+ * repetir para sempre uma chamada que não pode suceder.
+ */
 export async function registerPublicacaoFalha(
   adminClient: SupabaseClient,
-  params: { idAgendamento: number },
-): Promise<void> {
+  params: { idAgendamento: number; permanente?: boolean; motivo?: string | null },
+): Promise<PublicacaoFalhaResultado> {
   const result: unknown = await adminClient.rpc('register_publicacao_falha', {
     p_id_agendamento: params.idAgendamento,
+    p_permanente: params.permanente ?? false,
+    p_motivo: params.motivo ?? null,
   });
-  const { error } = result as { error: { message: string; code?: string } | null };
+  const { data, error } = result as { data: unknown; error: { message: string; code?: string } | null };
   if (error) mapPublicacaoRpcError(error);
+
+  const row = z.array(publicacaoFalhaRowSchema).parse(data ?? [])[0];
+  // Defensivo: a RPC sempre retorna uma linha; sem ela, trata como falha
+  // simples e não suprime o aviso ao designer.
+  if (!row) return { falhas: 1, automaticoDesativado: false, primeiraFalha: true };
+  return {
+    falhas: row.falhas,
+    automaticoDesativado: row.automatico_desativado,
+    primeiraFalha: row.primeira_falha,
+  };
 }

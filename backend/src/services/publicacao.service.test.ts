@@ -54,7 +54,15 @@ vi.mock('../config/env.js', () => ({
   whatsappConfigStatus: whatsappConfigStatusMock,
   env: { INSTAGRAM_TOKEN_ENC_KEY: 'chave-de-teste-com-32-caracteres' },
 }));
-vi.mock('../integrations/instagram/instagramClient.js', () => ({ publishImage: publishImageMock }));
+// `InstagramApiError` é a classe REAL de propósito: o serviço decide entre
+// erro permanente e transitório por `instanceof`, então substituí-la por um
+// dublê tornaria o teste incapaz de exercitar essa decisão.
+vi.mock('../integrations/instagram/instagramClient.js', async () => {
+  const actual = await vi.importActual<typeof import('../integrations/instagram/instagramClient.js')>(
+    '../integrations/instagram/instagramClient.js',
+  );
+  return { InstagramApiError: actual.InstagramApiError, publishImage: publishImageMock };
+});
 vi.mock('../integrations/whatsapp/whatsappClient.js', () => {
   class WhatsAppReengagementRequiredError extends Error {}
   return {
@@ -104,6 +112,7 @@ const {
 } = await import('./publicacao.service.js');
 
 const { WhatsAppReengagementRequiredError } = await import('../integrations/whatsapp/whatsappClient.js');
+const { InstagramApiError } = await import('../integrations/instagram/instagramClient.js');
 
 const AGENDAMENTO_VENCIDO = {
   idAgendamento: 1,
@@ -129,7 +138,9 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
     publishImageMock.mockReset();
     claimAgendamentoParaPublicacaoMock.mockReset().mockResolvedValue(true);
     registerPublicacaoSucessoMock.mockReset().mockResolvedValue(undefined);
-    registerPublicacaoFalhaMock.mockReset().mockResolvedValue(undefined);
+    registerPublicacaoFalhaMock
+      .mockReset()
+      .mockResolvedValue({ falhas: 1, automaticoDesativado: false, primeiraFalha: true });
     getSolicitacaoDetailRepoMock.mockReset();
     findClienteByIdMock.mockReset();
     sendTextMessageMock.mockReset();
@@ -426,6 +437,65 @@ describe('processarAgendamentosVencidos (RF014/RN32-RN35/ADR 0005)', () => {
       expect.objectContaining({ idAgendamento: 1 }),
     );
     expect(registerPublicacaoSucessoMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Regressão do LOOP de 240 tentativas idênticas observado em produção
+   * (agendamento 45, 19/08 → 09/11/2026): um erro permanente da Meta precisa
+   * chegar à RPC marcado como permanente, para que o agendamento saia da fila
+   * automática e siga apenas pelo caminho manual (RF014). Repetir a mesma
+   * chamada não poderia mudar o resultado.
+   */
+  it('classifica erro permanente da Meta e desliga a via automática', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      formato: 'JPG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.jpg',
+    });
+    publishImageMock.mockRejectedValue(
+      new InstagramApiError({
+        message:
+          "Unsupported post request. Object with ID '...' does not exist, cannot be loaded due to missing permissions, or does not support this operation",
+        httpStatus: 400,
+        metaCode: 100,
+        metaSubcode: 33,
+        metaType: 'IGApiException',
+        operacao: 'media_create',
+      }),
+    );
+    registerPublicacaoFalhaMock.mockResolvedValue({
+      falhas: 1,
+      automaticoDesativado: true,
+      primeiraFalha: true,
+    });
+
+    await processarAgendamentosVencidos();
+
+    expect(registerPublicacaoFalhaMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ idAgendamento: 1, permanente: true }),
+    );
+    expect(registerPublicacaoSucessoMock).not.toHaveBeenCalled();
+  });
+
+  it('mantém erro transitório da Meta (5xx) como repetível', async () => {
+    listAgendamentosVencidosMock.mockResolvedValue([AGENDAMENTO_VENCIDO]);
+    getVersaoArteAtualDaSolicitacaoMock.mockResolvedValue({
+      idVersao: 1,
+      formato: 'JPG',
+      arquivoUrl: 'solicitacoes/10/versoes/x.jpg',
+    });
+    publishImageMock.mockRejectedValue(
+      new InstagramApiError({ message: 'status 503', httpStatus: 503, operacao: 'media_publish' }),
+    );
+
+    await processarAgendamentosVencidos();
+
+    expect(registerPublicacaoFalhaMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ idAgendamento: 1, permanente: false }),
+    );
   });
 
   it('não processa nada quando não há agendamentos vencidos', async () => {
