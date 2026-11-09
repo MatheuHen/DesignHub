@@ -1158,6 +1158,20 @@ p {
   align-items: center;
 }
 
+/* Aviso de proporção do feed do Instagram: informativo, nunca bloqueio — por
+   isso tom de atenção e não de erro (o envio continua permitido). */
+.file-preview-picker-aviso {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f0d9a8;
+  border-left: 4px solid #d9962a;
+  border-radius: 8px;
+  background: #fdf7ea;
+  color: #6b4a10;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
 /* ===== Clientes — layout responsivo (rodada correções 24/09) =====
    Todas as classes abaixo são exclusivas de /designer/clientes — não alteram
    .designer-table/.designer-actions/.table-scroll usados por outras páginas

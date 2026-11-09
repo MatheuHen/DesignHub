@@ -731,6 +731,7 @@ export function SolicitacaoDetailPage() {
                   accept="application/pdf,image/jpeg,image/png"
                   file={uploadFile}
                   onChange={setUploadFile}
+                  avisarProporcaoInstagram
                 />
 
                 <label htmlFor="versao-observacoes">Observações (opcional)</label>
