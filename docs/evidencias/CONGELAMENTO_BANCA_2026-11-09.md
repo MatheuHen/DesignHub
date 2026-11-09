@@ -36,6 +36,25 @@ Primeira publicação automática bem-sucedida registrada pelo sistema.
 - produção: `/api/health` com todas as dependências `configured`
 - produção: job de publicação executado pelo cron, com publicação real registrada
 
+### Conferência do banco real (09/11, por consulta direta ao Postgres)
+
+As migrations `20261109120000` (falha permanente) e `20261109210000`
+(reagendamento reabilita a automação) apareciam no `supabase migration list`
+com `remote` vazio. Conferido por consulta direta que **o banco já estava
+correto**: `agendamento_publicacao` tem as colunas
+`publicacao_automatica_falhas`, `publicacao_automatica_indisponivel_em` e
+`publicacao_automatica_motivo`; `update_agendamento` contém as cláusulas que
+zeram/limpam as três; `register_publicacao_falha` já classifica falha
+permanente. Ou seja, o SQL tinha sido aplicado por fora do `db push`, sem
+registro no histórico.
+
+Histórico sincronizado com `supabase migration repair --status applied` para
+as duas versões — comando que escreve apenas em
+`supabase_migrations.schema_migrations`, sem executar SQL de migration nem
+tocar em tabela, função ou dado. Depois do reparo, `supabase migration list`
+mostra `local == remote` nas duas, e um `db push` futuro não tentará
+reaplicá-las.
+
 ## Pendências conhecidas (não bloqueiam o fluxo, mas devem ser ditas)
 
 1. **Conexão do Instagram do cliente "teste" (id 62)**: token invalidado pela
@@ -48,9 +67,16 @@ Primeira publicação automática bem-sucedida registrada pelo sistema.
    cliente dependem da janela aberta. Procedimento de demonstração: cada
    número usado deve enviar uma mensagem ao número do DesignHub pouco antes,
    o que abre a janela.
-3. `SUPABASE_DB_URL` no ambiente local aponta para `aws-0-…:5432`, host que
-   não resolve mais; o acesso direto ao banco funciona na porta `6543`. Não
-   afeta produção (o backend usa a API do Supabase).
+3. ~~`SUPABASE_DB_URL` aponta para host que não resolve mais~~ — **diagnóstico
+   anterior estava errado, resolvido em 09/11.** O host
+   `aws-0-sa-east-1.pooler.supabase.com:5432` resolve e conecta normalmente. A
+   falha real era de parsing: o `.env.local` tinha linhas de anotação solta
+   (notas de conta, trechos de `curl`) fora do formato `CHAVE=VALOR`, e a CLI
+   do Supabase lê o arquivo como dotenv, abortando com `failed to parse
+   environment file`. As linhas de nota foram comentadas com `#`, sem alterar
+   nenhuma variável ou valor. O acesso local ao banco e a CLI voltaram a
+   funcionar. Nunca afetou produção (o backend usa a API do Supabase e as
+   variáveis da Vercel).
 4. **Proporção da arte**: o feed do Instagram só aceita imagens entre 4:5
    (0,80) e 1.91:1. A arte da solicitação 79 é 360x106 (proporção 3,40) e é
    recusada pela Meta — não é falha do sistema. Para demonstração, usar
