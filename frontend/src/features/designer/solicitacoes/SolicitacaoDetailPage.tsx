@@ -3,7 +3,11 @@ import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../../../app/AppShell';
 import { FilePreviewPicker } from '../../../components/FilePreviewPicker';
 import { ApiError } from '../../../lib/apiClient';
-import { getSaoPauloNow, isDataHorarioPassadoSaoPaulo } from '../../../lib/saoPauloDate';
+import {
+  getHorarioMinimoSaoPaulo,
+  getSaoPauloNow,
+  isDataHorarioPassadoSaoPaulo,
+} from '../../../lib/saoPauloDate';
 import { statusSlug } from '../../../lib/statusStyle';
 import { useAuth } from '../../auth/useAuth';
 import {
@@ -332,7 +336,9 @@ export function SolicitacaoDetailPage() {
     setAgendError(null);
     setAgendSuccess(null);
     if (isDataHorarioPassadoSaoPaulo(agendData, agendHorario)) {
-      setAgendError('A data e o horário do agendamento devem estar no futuro.');
+      setAgendError(
+        'A data e o horário do agendamento devem estar no futuro — escolha pelo menos alguns minutos à frente.',
+      );
       return;
     }
     setAgendSaving(true);
@@ -919,6 +925,7 @@ export function SolicitacaoDetailPage() {
                   id="agendamento-horario"
                   type="time"
                   value={agendHorario}
+                  min={getHorarioMinimoSaoPaulo(agendData)}
                   onChange={(event) => setAgendHorario(event.target.value)}
                   required
                 />

@@ -29,9 +29,46 @@ export function getSaoPauloNow(): { date: string; time: string } {
   };
 }
 
-/** `true` quando `data` (AAAA-MM-DD) + `horario` (HH:MM) já ficou no passado em America/Sao_Paulo. */
+/**
+ * Margem mínima entre "agora" e o horário escolhido.
+ *
+ * CAUSA RAIZ da falha real em produção (solicitação 70, 09/11/2026:
+ * "Data/horário do agendamento são obrigatórios e devem ser no futuro" logo
+ * depois de o cliente aprovar): a comparação aqui tem resolução de MINUTO,
+ * mas a RPC compara com `now()` em resolução de segundo. Escolher o minuto
+ * seguinte passava nesta validação durante até 59 segundos e, quando o envio
+ * chegava ao banco já dentro daquele minuto, virava passado e o agendamento
+ * automático era recusado — o cliente aprovava achando que havia agendado.
+ *
+ * Dois minutos de margem fecham essa janela com folga para o envio (upload da
+ * referência + RPC) sem mudar nenhuma regra de negócio: continua valendo
+ * apenas "o horário precisa ser no futuro" (RN27/RN30).
+ */
+export const MARGEM_MINIMA_AGENDAMENTO_MINUTOS = 2;
+
+function paraMinutosDoDia(horario: string): number {
+  const [hora, minuto] = horario.slice(0, 5).split(':');
+  return Number(hora) * 60 + Number(minuto);
+}
+
+/**
+ * `true` quando `data` (AAAA-MM-DD) + `horario` (HH:MM) já passou em
+ * America/Sao_Paulo ou está perto demais de agora para sobreviver ao envio
+ * (ver `MARGEM_MINIMA_AGENDAMENTO_MINUTOS`).
+ */
 export function isDataHorarioPassadoSaoPaulo(data: string, horario: string): boolean {
   const agora = getSaoPauloNow();
   if (data !== agora.date) return data < agora.date;
-  return horario.slice(0, 5) <= agora.time;
+  return paraMinutosDoDia(horario) < paraMinutosDoDia(agora.time) + MARGEM_MINIMA_AGENDAMENTO_MINUTOS;
+}
+
+/** Menor horário aceitável para HOJE (`min` do input time); `undefined` nos demais dias. */
+export function getHorarioMinimoSaoPaulo(data: string): string | undefined {
+  const agora = getSaoPauloNow();
+  if (data !== agora.date) return undefined;
+  const minutos = paraMinutosDoDia(agora.time) + MARGEM_MINIMA_AGENDAMENTO_MINUTOS;
+  if (minutos >= 24 * 60) return undefined; // vira o dia: só com outra data
+  const hora = String(Math.floor(minutos / 60)).padStart(2, '0');
+  const minuto = String(minutos % 60).padStart(2, '0');
+  return `${hora}:${minuto}`;
 }

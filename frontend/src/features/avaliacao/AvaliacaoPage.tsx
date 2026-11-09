@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { FilePreviewPicker } from '../../components/FilePreviewPicker';
-import { getSaoPauloNow, isDataHorarioPassadoSaoPaulo } from '../../lib/saoPauloDate';
+import {
+  getHorarioMinimoSaoPaulo,
+  getSaoPauloNow,
+  isDataHorarioPassadoSaoPaulo,
+} from '../../lib/saoPauloDate';
 import {
   PublicApiError,
   cancelarAgendamentoCliente,
@@ -99,7 +103,9 @@ export function AvaliacaoPage() {
       opcaoPublicacao !== 'proprio_cliente' &&
       isDataHorarioPassadoSaoPaulo(dataDesejada, horarioDesejado)
     ) {
-      setActionError('A data e o horário do agendamento devem estar no futuro.');
+      setActionError(
+        'A data e o horário do agendamento devem estar no futuro — escolha pelo menos alguns minutos à frente.',
+      );
       return;
     }
     setSubmitting(true);
@@ -401,6 +407,7 @@ export function AvaliacaoPage() {
                       id="agendamento-horario-desejado"
                       type="time"
                       value={horarioDesejado}
+                      min={getHorarioMinimoSaoPaulo(dataDesejada)}
                       onChange={(event) => setHorarioDesejado(event.target.value)}
                       required
                     />
@@ -489,8 +496,8 @@ export function AvaliacaoPage() {
             )}
             {agendamentoAutomaticoCriado === false && (
               <p role="alert" className="auth-error">
-                Não foi possível agendar automaticamente (verifique se o Instagram continua conectado). O designer
-                responsável vai agendar manualmente.
+                Sua aprovação foi registrada, mas não foi possível agendar automaticamente (pode ser o horário
+                escolhido ou a conexão do Instagram). O designer responsável vai agendar manualmente.
               </p>
             )}
             {publicouPorContaPropria && (
